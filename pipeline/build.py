@@ -323,6 +323,7 @@ def main():
             "address": title_case_address(r["address"]),
             "neighborhood": (r["neighborhood_name"] or "").strip(),
             "councilDistrict": (r["council_district"] or "").strip(),
+            "ward": (r["ward"] or "").strip(),
             "lat": round(l["lat"], 6),
             "lon": round(l["lon"], 6),
             "zone": (r["zoned_as"] or "").strip() or "UNKNOWN",
@@ -389,7 +390,7 @@ def main():
 def report(path):
     doc = json.loads(Path(path).read_text())
     lots = doc["lots"]
-    expected = ["id", "address", "neighborhood", "councilDistrict", "lat", "lon", "zone", "lotAreaSqFt",
+    expected = ["id", "address", "neighborhood", "councilDistrict", "ward", "lat", "lon", "zone", "lotAreaSqFt",
                 "frontageFt", "landValue", "status", "inventoryType", "hazards"]
     assert set(doc) == {"generatedAt", "sources", "lots"}
     assert all(list(l) == expected for l in lots)

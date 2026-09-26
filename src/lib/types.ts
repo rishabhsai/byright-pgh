@@ -9,6 +9,7 @@ export interface Lot {
   address: string;
   neighborhood: string;
   councilDistrict: string;
+  ward: string;
   lat: number;
   lon: number;
   zone: string;
