@@ -82,6 +82,22 @@ body {
 
 .pop { animation: pop 360ms cubic-bezier(.2,.8,.2,1) both; }
 
+@keyframes tip-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.tip-in { animation: tip-in 120ms ease-out both; }
+
+/* Funnel bars grow once from the left when the empty panel first shows the story. */
+@keyframes funnel-grow {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+.funnel-grow { transform-origin: left center; animation: funnel-grow 700ms cubic-bezier(.2,.8,.2,1) both; }
+
+details > summary { list-style: none; }
+details > summary::-webkit-details-marker { display: none; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
 }

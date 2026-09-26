@@ -15,6 +15,7 @@ import {
   type Step,
 } from "@/lib/application";
 import { TYPOLOGY_SHORT, VERDICT_COLOR, VERDICT_SHORT } from "./verdict";
+import { REVIEW_CHECKLIST } from "./memo";
 
 interface Props {
   lot: Lot;
@@ -118,7 +119,7 @@ export default function ApplicationPlanner({ lot, findings, ruleSet, triage, com
       ) : (
         <>
           <div>
-            <p className="mb-1.5 text-[11px] text-muted">What do you plan to build?</p>
+            <p className="mb-1.5 text-[12px] text-muted">What do you plan to build?</p>
             <div role="radiogroup" aria-label="Home type" className="flex flex-wrap gap-1.5">
               {findings.map((f) => {
                 const on = f.typology === typology;
@@ -128,7 +129,7 @@ export default function ApplicationPlanner({ lot, findings, ruleSet, triage, com
                     role="radio"
                     aria-checked={on}
                     onClick={() => pick(f.typology)}
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11.5px] transition-colors ${
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] transition-colors ${
                       on ? "border-ink bg-ink text-white" : "border-hairline bg-white text-ink hover:bg-surface"
                     }`}
                   >
@@ -147,7 +148,7 @@ export default function ApplicationPlanner({ lot, findings, ruleSet, triage, com
               disabled={!typology}
               className="rounded-md bg-ink px-3 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-accent disabled:opacity-50"
             >
-              Prepare packet
+              Build my filing packet
             </button>
           )}
         </>
@@ -155,16 +156,27 @@ export default function ApplicationPlanner({ lot, findings, ruleSet, triage, com
 
       {plan && (
         <div className="fade-in space-y-4 pt-1">
+          <p className="font-serif text-[20px] leading-tight text-ink">{packetHeadline(plan)}</p>
           <Stepper steps={plan.steps} />
-          <PurchaseForm
-            fields={plan.purchaseForm}
-            acquisition={plan.acquisition}
-            suggestion={shownSuggestion}
-            suggesting={suggesting}
-            wide={wide}
-          />
-          {plan.zba && <ZbaCard plan={plan} />}
           <Attachments items={plan.attachments} />
+          <details className="group rounded-lg border border-hairline bg-white">
+            <summary className="flex cursor-pointer items-center justify-between px-3 py-2 text-[13px] font-medium text-ink select-none">
+              For an applicant
+              <span className="text-[12px] font-normal text-muted">
+                Purchase form pre-fill{plan.zba ? " and hearing worksheet" : ""}
+              </span>
+            </summary>
+            <div className="space-y-4 border-t border-hairline p-3">
+              <PurchaseForm
+                fields={plan.purchaseForm}
+                acquisition={plan.acquisition}
+                suggestion={shownSuggestion}
+                suggesting={suggesting}
+                wide={wide}
+              />
+              {plan.zba && <ZbaCard plan={plan} />}
+            </div>
+          </details>
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={copy}
@@ -179,7 +191,7 @@ export default function ApplicationPlanner({ lot, findings, ruleSet, triage, com
               Download .md
             </button>
           </div>
-          <details className="text-[11px] text-muted">
+          <details className="text-[12px] text-muted">
             <summary className="cursor-pointer text-faint hover:text-muted">Sources ({plan.sources.length})</summary>
             <ul className="mt-1.5 space-y-1">
               {plan.sources.map((s) => (
@@ -198,7 +210,43 @@ export default function ApplicationPlanner({ lot, findings, ruleSet, triage, com
           </details>
         </div>
       )}
+
+      <ReviewChecklist />
     </div>
+  );
+}
+
+/** "3 filings · no hearing expected" or "4 filings · Zoning Board hearing required (§ 922.09.E)" */
+function packetHeadline(plan: ApplicationPlan): string {
+  const filings = plan.steps.filter((s) => s.id !== "bill").length;
+  const base = `${filings} filing${filings === 1 ? "" : "s"}`;
+  if (plan.verdict === "by-right") return `${base} · no hearing expected`;
+  if (plan.verdict === "review") return `${base} · staff approval needed`;
+  if (plan.verdict === "variance") return `${base} · Zoning Board hearing likely (§ 922.09.E)`;
+  return `${base} · confirm the path with the Zoning Administrator`;
+}
+
+function ReviewChecklist() {
+  const [checked, setChecked] = useState<boolean[]>(REVIEW_CHECKLIST.map(() => false));
+  return (
+    <section className="pt-1">
+      <h4 className="mb-1.5 text-[13px] font-semibold text-ink">Before you rely on this</h4>
+      <ul className="space-y-1.5">
+        {REVIEW_CHECKLIST.map((item, i) => (
+          <li key={item}>
+            <label className="flex cursor-pointer items-start gap-2.5 text-[13px] leading-snug">
+              <input
+                type="checkbox"
+                checked={checked[i]}
+                onChange={() => setChecked((c) => c.map((x, j) => (j === i ? !x : x)))}
+                className="mt-0.5 h-3.5 w-3.5 accent-[var(--accent)]"
+              />
+              <span className={checked[i] ? "text-faint line-through" : "text-ink"}>{item}</span>
+            </label>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -234,7 +282,7 @@ function Stepper({ steps }: { steps: Step[] }) {
               <h4 className="text-[13px] font-semibold text-ink">{s.title}</h4>
               {s.callout && (
                 <p
-                  className={`mt-1 rounded-md px-2 py-1 text-[11.5px] leading-snug ${
+                  className={`mt-1 rounded-md px-2 py-1 text-[12px] leading-snug ${
                     s.callout.tone === "ok" ? "bg-[#e6f4ea] text-[#14532d]" : "bg-[#fdf0e1] text-[#8a4b00]"
                   }`}
                 >
@@ -250,7 +298,7 @@ function Stepper({ steps }: { steps: Step[] }) {
               </ul>
               <div className="mt-2 flex flex-wrap gap-1">
                 {s.chips.map((c) => (
-                  <span key={c.label} className={`rounded-full px-2 py-0.5 text-[10.5px] font-medium ${CHIP[c.tone]}`}>
+                  <span key={c.label} className={`rounded-full px-2 py-0.5 text-[12px] font-medium ${CHIP[c.tone]}`}>
                     {c.label}
                   </span>
                 ))}
@@ -282,18 +330,18 @@ function PurchaseForm({
   return (
     <section className="overflow-hidden rounded-lg border border-hairline bg-white">
       <header className="flex items-baseline justify-between gap-2 border-b border-hairline bg-[#fafaf8] px-3 py-2">
-        <h4 className="text-[12.5px] font-semibold text-ink">Pre-filled: Request to Purchase, page 2</h4>
-        <span className="text-[10.5px] text-faint">City form V. 1/2018</span>
+        <h4 className="text-[13px] font-semibold text-ink">Pre-filled: Request to Purchase, page 2</h4>
+        <span className="text-[12px] text-faint">City form V. 1/2018</span>
       </header>
       {acquisition !== "city-form" && (
-        <p className="border-b border-hairline bg-[#fdf0e1] px-3 py-1.5 text-[11px] leading-snug text-[#8a4b00]">
+        <p className="border-b border-hairline bg-[#fdf0e1] px-3 py-1.5 text-[12px] leading-snug text-[#8a4b00]">
           {acquisition === "ura"
             ? "This lot is listed for transfer to the URA; use this City form for reference only."
             : "Confirm with the Real Estate Division that this lot is for sale before you file this form."}
         </p>
       )}
       <dl
-        className={`grid text-[11.5px] ${wide ? "grid-cols-[240px_minmax(0,1fr)]" : "grid-cols-[minmax(0,0.9fr)_minmax(0,1.3fr)]"}`}
+        className={`grid text-[12px] ${wide ? "grid-cols-[240px_minmax(0,1fr)]" : "grid-cols-[minmax(0,0.9fr)_minmax(0,1.3fr)]"}`}
       >
         {filled.map((f) => (
           <div key={f.label} className="contents">
@@ -301,30 +349,30 @@ function PurchaseForm({
             <dd className="border-b border-hairline px-3 py-2 leading-snug text-ink">
               <span className={`font-serif text-[13px] ${wide ? "block max-w-[70ch]" : ""}`}>{f.value}</span>
               {f.label.startsWith("Detailed description") && suggesting && !suggestion && (
-                <span className="mt-1 block text-[10px] text-faint">Checking for suggested wording…</span>
+                <span className="mt-1 block text-[12px] text-faint">Checking for suggested wording…</span>
               )}
               {f.label.startsWith("Detailed description") && suggestion && (
                 <span className="mt-1.5 block rounded border border-dashed border-hairline px-2 py-1.5">
-                  <span className="block text-[10px] font-semibold text-[#8a4b00]">{SUGGESTION_LABEL}</span>
+                  <span className="block text-[12px] font-semibold text-[#8a4b00]">{SUGGESTION_LABEL}</span>
                   <span className="mt-0.5 block text-[12px] leading-snug text-muted">{suggestion}</span>
                 </span>
               )}
-              {f.note && <span className="mt-0.5 block text-[10.5px] text-faint">{f.note}</span>}
+              {f.note && <span className="mt-0.5 block text-[12px] text-faint">{f.note}</span>}
             </dd>
           </div>
         ))}
       </dl>
       <div className="px-3 pt-2.5 pb-3">
-        <p className="mb-1.5 text-[11px] font-semibold text-ink">You complete</p>
+        <p className="mb-1.5 text-[12px] font-semibold text-ink">You complete</p>
         <ul className={wide ? "grid grid-cols-2 gap-x-8 gap-y-2" : "space-y-1.5"}>
           {blank.map((f) => (
-            <li key={f.label} className="min-w-0 text-[11.5px]">
+            <li key={f.label} className="min-w-0 text-[12px]">
               {/* Label wraps in its own column; the fill-in rule takes the rest and never pushes past the edge. */}
               <div className="grid grid-cols-[minmax(0,1fr)_minmax(2.5rem,30%)] items-end gap-2">
                 <span className="min-w-0 text-muted [overflow-wrap:anywhere]">{f.label}</span>
                 <span aria-hidden className="mb-[3px] border-b border-dashed border-[#b9bfb8]" />
               </div>
-              {f.note && <p className="mt-0.5 text-[10.5px] text-[#8a4b00]">{f.note}</p>}
+              {f.note && <p className="mt-0.5 text-[12px] text-[#8a4b00]">{f.note}</p>}
             </li>
           ))}
         </ul>
@@ -338,16 +386,16 @@ function ZbaCard({ plan }: { plan: ApplicationPlan }) {
   return (
     <section className="overflow-hidden rounded-lg border border-[#e7c9a0] bg-white">
       <header className="flex items-baseline justify-between gap-2 border-b border-[#e7c9a0] bg-[#fdf6ec] px-3 py-2">
-        <h4 className="text-[12.5px] font-semibold text-ink">{z.label}</h4>
-        <span className="text-[10.5px] text-faint">Questions, not a completed justification</span>
+        <h4 className="text-[13px] font-semibold text-ink">{z.label}</h4>
+        <span className="text-[12px] text-faint">Questions, not a completed justification</span>
       </header>
       <div className="space-y-3 px-3 py-3 text-[12px]">
         <div>
-          <p className="text-[11px] text-muted">Request type</p>
+          <p className="text-[12px] text-muted">Request type</p>
           <p className="font-medium text-ink">{z.requestTypes.join("; ")}</p>
         </div>
         <div>
-          <p className="text-[11px] text-muted">Sections from which relief is requested</p>
+          <p className="text-[12px] text-muted">Sections from which relief is requested</p>
           <ul className="mt-0.5 space-y-1">
             {z.sections.map((s) => (
               <li key={s.text}>
@@ -365,7 +413,7 @@ function ZbaCard({ plan }: { plan: ApplicationPlan }) {
         </div>
         <div>
           {z.findings.length > 0 && (
-            <p className="text-[11px] text-muted">
+            <p className="text-[12px] text-muted">
               Criteria under{" "}
               <a href={z.criteria.url} target="_blank" rel="noreferrer" className="text-accent underline decoration-accent/30 underline-offset-2">
                 {z.criteria.section}
@@ -373,14 +421,14 @@ function ZbaCard({ plan }: { plan: ApplicationPlan }) {
               ({z.criteria.title}; mirrors {z.criteria.mirrors}). The Board must find all five; the burden of proof is yours.
             </p>
           )}
-          {z.note && <p className="mt-1 text-[11px] text-[#8a4b00]">{z.note}</p>}
+          {z.note && <p className="mt-1 text-[12px] text-[#8a4b00]">{z.note}</p>}
           <ol className="mt-2 space-y-3">
             {z.findings.map((f) => (
               <li key={f.n} className="flex gap-2.5">
                 <span className="font-serif text-[18px] leading-none text-[#b45309] italic">{f.n}</span>
                 <div className="min-w-0 max-w-[70ch]">
-                  <p className="text-[11.5px] font-semibold text-ink">{f.title}</p>
-                  <p className="mt-1 text-[10.5px] font-semibold tracking-wide text-muted uppercase">What the record shows</p>
+                  <p className="text-[12px] font-semibold text-ink">{f.title}</p>
+                  <p className="mt-1 text-[12px] font-semibold tracking-wide text-muted uppercase">What the record shows</p>
                   <ul className="mt-0.5 space-y-0.5">
                     {f.record.map((r) => (
                       <li key={r} className="leading-snug text-ink">
@@ -388,7 +436,7 @@ function ZbaCard({ plan }: { plan: ApplicationPlan }) {
                       </li>
                     ))}
                   </ul>
-                  <p className="mt-1.5 text-[10.5px] font-semibold tracking-wide text-[#8a4b00] uppercase">What you must establish</p>
+                  <p className="mt-1.5 text-[12px] font-semibold tracking-wide text-[#8a4b00] uppercase">What you must establish</p>
                   <ul className="mt-0.5 space-y-0.5">
                     {f.establish.map((q) => (
                       <li key={q} className="leading-snug text-ink">
@@ -410,7 +458,7 @@ function Attachments({ items }: { items: string[] }) {
   const [done, setDone] = useState<Set<string>>(new Set());
   return (
     <section>
-      <h4 className="mb-1.5 text-[12.5px] font-semibold text-ink">Attachments to gather</h4>
+      <h4 className="mb-1.5 text-[13px] font-semibold text-ink">Attachments to gather</h4>
       <ul className="space-y-1.5">
         {items.map((a) => (
           <li key={a}>

@@ -62,28 +62,28 @@ export interface Finding {
 }
 
 export const TYPOLOGY_LABEL: Record<Typology, string> = {
-  single: "Single-unit detached",
-  single_adu: "Single-unit + ADU",
-  duplex: "Two-unit (duplex)",
-  triplex: "Three-unit",
-  townhome: "Attached townhome",
+  single: "House",
+  single_adu: "House + backyard unit",
+  duplex: "Duplex",
+  triplex: "Triplex",
+  townhome: "Townhouse",
 };
 
 export const VERDICT_LABEL: Record<Verdict, string> = {
-  "by-right": "By right",
-  review: "Administrative / special exception",
-  variance: "Relief required (variance or § 921.04 exception)",
-  prohibited: "Not permitted",
-  unknown: "Not evaluated",
+  "by-right": "Allowed, no hearing",
+  review: "Needs staff approval",
+  variance: "Needs a hearing",
+  prohibited: "Not allowed here",
+  unknown: "Not checked yet",
 };
 
 export type Triage = "green" | "yellow" | "red" | "gray";
 
 export const TRIAGE_LABEL: Record<Triage, string> = {
-  green: "Green: passes the preliminary screen under displayed assumptions",
-  yellow: "Yellow: needs more information, review, or a different financial scenario",
-  red: "Red: major screening obstacle; specialist review",
-  gray: "Gray: not evaluated",
+  green: "Ready",
+  yellow: "Allowed, needs subsidy or a hearing",
+  red: "Blocked",
+  gray: "Not checked",
 };
 
 export interface Comps {

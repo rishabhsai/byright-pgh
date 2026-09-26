@@ -89,6 +89,10 @@ Next.js 16.3.6, TypeScript, Tailwind v4, MapLibre GL, Vitest. Python 3 with Shap
 
 _(filled at submission)_
 
+## Pilot
+
+We propose a six-week pilot with the Pittsburgh Land Bank and the URA's Real Estate group on two neighborhoods, Hazelwood and Larimer, where the City holds about 1,200 vacant lots and ByRight flags roughly 280 as ready for a small home without a hearing. City Planning's zoning staff would review a 30-lot sample of our verdicts against their own determinations, and we would publish the agreement rate and every disagreement as a correction to the rule tables. The URA would compare our modeled shortfall against its actual gap awards on recent infill homes so the finance screen is calibrated to Pittsburgh deals, not national assumptions. Success is measured in one number, staff hours from "board asks" to "release list," and one quality check, the share of our ready lots that survive staff review. In return we ask for three data feeds we cannot get from WPRDC: current disposition status by parcel, adopted overlay boundaries including any ADU overlay, and ZBA decisions in a structured form.
+
 ## What we'd build next
 
 ZBA decision extraction to show how similar variance requests fared nearby; extending the rule tables to the Phase 1 zoning cleanup; a Land Bank disposition-status feed; setbacks and buildable-envelope checks from parcel geometry.

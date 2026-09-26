@@ -1,13 +1,16 @@
 import type { Triage, Typology, Verdict } from "@/lib/types";
+import { TRIAGE_LABEL, VERDICT_LABEL } from "@/lib/types";
+import Tooltip from "./ui/Tooltip";
+import { districtName } from "./district";
 
 export const TYPOLOGIES: Typology[] = ["single", "single_adu", "duplex", "triplex", "townhome"];
 
 export const TYPOLOGY_SHORT: Record<Typology, string> = {
-  single: "Single",
-  single_adu: "Single + ADU",
+  single: "House",
+  single_adu: "House + backyard",
   duplex: "Duplex",
   triplex: "Triplex",
-  townhome: "Townhome",
+  townhome: "Townhouse",
 };
 
 export const VERDICT_COLOR: Record<Verdict, string> = {
@@ -19,12 +22,40 @@ export const VERDICT_COLOR: Record<Verdict, string> = {
 };
 
 export const VERDICT_SHORT: Record<Verdict, string> = {
-  "by-right": "By right",
-  review: "Review",
-  variance: "Relief required",
-  prohibited: "Not permitted",
-  unknown: "Not evaluated",
+  "by-right": "Allowed",
+  review: "Staff approval",
+  variance: "Needs a hearing",
+  prohibited: "Not allowed",
+  unknown: "Not checked",
 };
+
+/** Plain-language glossary for the terms that have to stay (UX copy pass, cycle 1). */
+export const TIP = {
+  byRight: "By right: the code permits this use and size outright. City staff review it; no public hearing.",
+  review: "An administrator exception or special exception. Staff or the Board decide against written criteria.",
+  hearing: "The Zoning Board of Adjustment must grant relief from a size rule at a public hearing.",
+  notChecked: "ByRight only encodes residential, LNC and Hillside districts. Parks, industrial and downtown are out of scope.",
+  adu: "ADU: accessory dwelling unit, a small second home on the same lot (garage apartment, cottage).",
+  landValue: "The County's 2012-base assessment, not a market price.",
+  frontage: "Parsed from the legal description. A survey governs.",
+  cityStatus: "The City's own disposition status. Only 'Available for Sale' lots can be bought today.",
+  bill: "Bill 2025-1545 (substitute, heard Sept 23 2026): citywide ADUs, no parking minimums, affordable bonus. Not yet voted.",
+  capRate: "Yield a buyer expects from rent; lower means a higher value.",
+} as const;
+
+export const VERDICT_TIP: Record<Verdict, string | null> = {
+  "by-right": TIP.byRight,
+  review: TIP.review,
+  variance: TIP.hearing,
+  prohibited: null,
+  unknown: TIP.notChecked,
+};
+
+/** "R1A-VH = single-unit attached residential, very-high density" */
+export function zoneTip(zone: string): string | null {
+  const name = districtName(zone);
+  return name ? `${zone} = ${name.toLowerCase().replace("local neighborhood commercial", "neighborhood commercial")}` : null;
+}
 
 export const VERDICT_ORDER: Verdict[] = ["by-right", "review", "variance", "prohibited", "unknown"];
 
@@ -39,25 +70,36 @@ export function VerdictDot({ verdict, size = 8, title }: { verdict: Verdict; siz
   );
 }
 
-export function VerdictChip({ verdict }: { verdict: Verdict }) {
+/** Text-safe shade of each verdict color. */
+const VERDICT_INK: Record<Verdict, string> = {
+  "by-right": "#15803d",
+  review: "#1d4ed8",
+  variance: "#b45309",
+  prohibited: "#be123c",
+  unknown: "#5d6762",
+};
+
+export function VerdictChip({ verdict, full = false }: { verdict: Verdict; full?: boolean }) {
   const c = VERDICT_COLOR[verdict];
   return (
     <span
-      className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap"
-      style={{ background: `${c}18`, color: verdict === "unknown" ? "#5d6762" : c }}
+      className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[12px] font-medium whitespace-nowrap"
+      style={{ background: `${c}14`, color: VERDICT_INK[verdict] }}
     >
       <VerdictDot verdict={verdict} size={6} />
-      {VERDICT_SHORT[verdict]}
+      {full ? VERDICT_LABEL[verdict] : VERDICT_SHORT[verdict]}
     </span>
   );
 }
 
-export function ZoneChip({ zone }: { zone: string }) {
-  return (
+export function ZoneChip({ zone, tip = false }: { zone: string; tip?: boolean }) {
+  const chip = (
     <span className="inline-flex shrink-0 items-center rounded border border-hairline bg-white px-1.5 py-px text-[11px] font-medium whitespace-nowrap text-ink">
       {zone || "none"}
     </span>
   );
+  const t = tip ? zoneTip(zone) : null;
+  return t ? <Tooltip content={t}>{chip}</Tooltip> : chip;
 }
 
 export function VerdictLegend() {
@@ -95,12 +137,7 @@ export const TRIAGE_WORD: Record<Triage, string> = {
   gray: "Gray",
 };
 
-export const TRIAGE_SHORT: Record<Triage, string> = {
-  green: "Passes the preliminary screen",
-  yellow: "Needs info, review, or a different scenario",
-  red: "Major obstacle; specialist review",
-  gray: "Not evaluated",
-};
+export const TRIAGE_SHORT: Record<Triage, string> = TRIAGE_LABEL;
 
 export const TRIAGE_ORDER: Triage[] = ["green", "yellow", "red", "gray"];
 

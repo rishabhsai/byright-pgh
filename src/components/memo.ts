@@ -11,18 +11,18 @@ export function buildMemo(
 ): string {
   const lines: string[] = [];
   const today = new Date().toISOString().slice(0, 10);
-  lines.push(`# Zoning screening memo: ${lot.address || lot.id}`);
+  lines.push(`# Lot brief: ${lot.address || lot.id}`);
   lines.push("");
-  lines.push(`Prepared ${today} with ByRight PGH. Decision support, not zoning advice. The City's Zoning Administrator interprets the code.`);
+  lines.push(`Prepared ${today} with ByRight PGH. A screen, not a zoning decision. The City's Zoning Administrator decides.`);
   lines.push("");
   lines.push("## Parcel");
   lines.push(`- Parcel ID: ${lot.id}`);
   lines.push(`- Neighborhood: ${lot.neighborhood}${lot.councilDistrict ? ` (Council District ${lot.councilDistrict})` : ""}`);
   lines.push(`- Zone: ${lot.zone || "none"}${districtName ? ` (${districtName})` : ""}`);
   lines.push(`- Lot area: ${lot.lotAreaSqFt != null ? `${lot.lotAreaSqFt.toLocaleString()} sf` : "not in record"}`);
-  lines.push(`- Frontage: ${lot.frontageFt != null ? `${lot.frontageFt} ft` : "not in record"}`);
-  lines.push(`- Assessed land value: ${lot.landValue != null ? `$${lot.landValue.toLocaleString()}` : "not in record"} (county assessed, not market)`);
-  lines.push(`- Inventory status: ${lot.status} (City inventory; not proof of current ownership or availability)`);
+  lines.push(`- Street frontage (approx.): ${lot.frontageFt != null ? `${lot.frontageFt} ft, parsed from the legal description; a survey governs` : "not in record"}`);
+  lines.push(`- County land value: ${lot.landValue != null ? `$${lot.landValue.toLocaleString()}` : "not in record"} (2012-base assessment, not a market price)`);
+  lines.push(`- City status: ${lot.status} (City inventory; not proof of current ownership or availability)`);
   const hz = [
     lot.hazards.steepSlope && "steep slope (25%+)",
     lot.hazards.undermined && "undermined area",
@@ -55,7 +55,7 @@ export function buildMemo(
     }
   }
   lines.push("");
-  lines.push("## Human review before acting");
+  lines.push("## Before you rely on this");
   for (const item of REVIEW_CHECKLIST) lines.push(`- [ ] ${item}`);
   lines.push("");
   return lines.join("\n");
@@ -67,3 +67,21 @@ export const REVIEW_CHECKLIST = [
   "Check overlay districts and any open zoning cases on the parcel.",
   "Verify utility connections and legal street access.",
 ];
+
+/** A few plain lines for pasting into an email or chat. */
+export function buildSummary(
+  lot: Lot,
+  ruleSet: RuleSet,
+  answer: { headline: string; typeLine: string; financeLine: string | null; status: string; evidence: string | null },
+): string {
+  return [
+    `${lot.address || "Unaddressed lot"}, ${lot.neighborhood} (${lot.zone || "no zone"}), parcel ${lot.id}`,
+    `${answer.headline}${ruleSet === "bill-2025-1545" ? " (if the housing bill passes)" : " (today's code)"}`,
+    `${answer.typeLine}${answer.financeLine ? `; ${answer.financeLine}` : ""}`,
+    answer.evidence,
+    `City status: ${answer.status}`,
+    "A screen from ByRight PGH, not a zoning decision. The Zoning Administrator decides.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}

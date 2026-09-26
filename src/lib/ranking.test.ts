@@ -1,11 +1,22 @@
 import { describe, expect, it } from "vitest";
-import type { Lot, Triage } from "./types";
-import { compareTriageRanked, type TriageRanked } from "./ranking";
+import type { Lot } from "./types";
+import { compareTriageRanked, isParkOrGreenway, statusGroup, type TriageRanked } from "./ranking";
 
-const row = (id: string, status: string, triage: Triage, score: number): TriageRanked => ({
-  score,
-  triage,
+interface RowOpts {
+  status?: string;
+  byRight?: boolean;
+  hazard?: boolean;
+  area?: number | null;
+  gap?: number | null;
+  score?: number;
+}
+
+const row = (id: string, o: RowOpts = {}): TriageRanked => ({
+  score: o.score ?? 3,
+  triage: "yellow",
   margin: null,
+  byRight: o.byRight ?? true,
+  gap: o.gap === undefined ? 100_000 : o.gap,
   lot: {
     id,
     address: id,
@@ -15,30 +26,47 @@ const row = (id: string, status: string, triage: Triage, score: number): TriageR
     lat: 40.44,
     lon: -79.99,
     zone: "R2-M",
-    lotAreaSqFt: 3000,
+    lotAreaSqFt: o.area === undefined ? 3000 : o.area,
     frontageFt: 30,
     landValue: 1000,
-    status,
-    inventoryType: "City",
-    hazards: { steepSlope: false, undermined: false, floodZone: false },
+    status: o.status ?? "Available for Sale",
+    inventoryType: "Public Sale",
+    hazards: { steepSlope: !!o.hazard, undermined: false, floodZone: false },
   } satisfies Lot,
 });
 
+const order = (rows: TriageRanked[]) => rows.sort(compareTriageRanked).map((r) => r.lot.id);
+
 describe("compareTriageRanked", () => {
-  it("ranks lots available for sale first, then by triage color, then by score", () => {
-    const rows = [
-      row("held-green", "Hold for Study", "green", 20),
-      row("sale-yellow", "Available for Sale", "yellow", 1),
-      row("sale-green", "Available for Sale", "green", 2),
-      row("held-yellow", "Hold for Study", "yellow", 30),
-      row("sale-green-top", "Available for Sale", "green", 9),
-    ];
-    expect(rows.sort(compareTriageRanked).map((r) => r.lot.id)).toEqual([
-      "sale-green-top",
-      "sale-green",
-      "sale-yellow",
-      "held-green",
-      "held-yellow",
-    ]);
+  it("ranks available, then by right, then no hazard flag, then at least 1,000 sf, then lowest shortfall", () => {
+    expect(
+      order([
+        row("held", { status: "Hold for Study", gap: 0 }),
+        row("relief", { byRight: false, gap: 0 }),
+        row("flagged", { hazard: true, gap: 0 }),
+        row("sliver", { area: 800, gap: 0 }),
+        row("gap-200k", { gap: 200_000 }),
+        row("no-comps", { gap: null }),
+        row("gap-50k", { gap: 50_000 }),
+      ]),
+    ).toEqual(["gap-50k", "gap-200k", "no-comps", "sliver", "flagged", "relief", "held"]);
+  });
+
+  it("breaks shortfall ties by score", () => {
+    expect(order([row("low", { score: 1, gap: 0 }), row("high", { score: 9, gap: 0 })])).toEqual(["high", "low"]);
+  });
+});
+
+describe("inventory helpers", () => {
+  it("groups statuses for the Status filter, folding case variants", () => {
+    expect(statusGroup("Hold For Study")).toBe("Hold for Study");
+    expect(statusGroup("Available for Sale")).toBe("Available for Sale");
+    expect(statusGroup("Litigation Pending")).toBe("other");
+  });
+
+  it("treats parks, greenways and infrastructure protection as non-disposition inventory", () => {
+    expect(isParkOrGreenway("Legislated Greenway")).toBe(true);
+    expect(isParkOrGreenway("Infrastructure Protection")).toBe(true);
+    expect(isParkOrGreenway("URA Transfer")).toBe(false);
   });
 });

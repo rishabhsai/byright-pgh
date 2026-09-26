@@ -4,7 +4,8 @@ import dynamic from "next/dynamic";
 import { evaluateLot, bestVerdict, countByRight } from "@/lib/engine";
 import { FIXTURE_LOTS } from "@/lib/fixtures";
 import type { Comps, CompsFile, Finding, Lot, LotsFile, RuleSet, Triage, TriageResult, Typology, Verdict } from "@/lib/types";
-import { isAvailable } from "@/lib/ranking";
+import { isParkOrGreenway, statusGroup } from "@/lib/ranking";
+import { evidenceForLot, type Evidence } from "@/lib/evidence";
 import TopBar from "./TopBar";
 import LeftRail, { DEFAULT_FILTERS, type Filters } from "./LeftRail";
 import DetailPanel from "./DetailPanel";
@@ -177,6 +178,20 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
     return out;
   }, [evals, lots, comps, cityAssumptions, cityLandOverrides, filterTypology]);
 
+  // Evidence rows for the active rule set, from the same proposal and assumptions as triage.
+  const evidence = useMemo<Evidence[] | null>(() => {
+    if (!evals || !triages) return null;
+    const f = evals[ruleSet].findings;
+    const t = triages[ruleSet].results;
+    return lots.map((l, i) => {
+      const land = cityLandOverrides[l.id];
+      const a = land == null ? cityAssumptions : { ...cityAssumptions, landOverride: land };
+      return evidenceForLot(l, f[i], t[i], comps[i], a, filterTypology);
+    });
+  }, [evals, triages, ruleSet, lots, comps, cityAssumptions, cityLandOverrides, filterTypology]);
+
+  const sources = useMemo(() => [...(file?.sources ?? []), ...(compsFile?.sources ?? [])], [file, compsFile]);
+
   const stats = useMemo(() => (evals && triages ? computeStats(evals, triages) : null), [evals, triages]);
   const changed = useMemo(() => (evals ? computeChanged(evals) : []), [evals]);
 
@@ -200,7 +215,8 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
       if (hoods && !hoods.has(l.neighborhood)) return false;
       if (filters.minArea && (l.lotAreaSqFt ?? 0) < filters.minArea) return false;
       if (filters.onlyByRight && mapVerdicts[i] !== "by-right") return false;
-      if (filters.availableOnly && !isAvailable(l)) return false;
+      if (filters.status && statusGroup(l.status) !== filters.status) return false;
+      if (!filters.includeParks && isParkOrGreenway(l.inventoryType)) return false;
       return true;
     });
   }, [lots, filters, mapVerdicts, mapTriage]);
@@ -293,6 +309,11 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
           matches={matches}
           selectedIdx={selectedIdx}
           onSelect={selectFromList}
+          evidence={evidence}
+          comps={comps}
+          assumptions={cityAssumptions}
+          landOverrides={cityLandOverrides}
+          sources={sources}
         />
         {/* Positioning context for the expanded detail panel, which overlays the map area. */}
         <div className="relative flex min-w-0 flex-1">

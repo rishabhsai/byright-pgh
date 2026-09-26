@@ -126,7 +126,7 @@ describe("buildApplicationPlan: worksheet states only what the record shows", ()
     expect(p.verdict).toBe("prohibited");
     expect(p.zba?.requestTypes).toContain("Use variance");
     const zoning = p.steps.find((s) => s.id === "zoning")!;
-    expect(zoning.body.join(" ")).toMatch(/Consider a typology that is by right here instead: .*Single-unit detached/);
+    expect(zoning.body.join(" ")).toMatch(/Consider a typology that is by right here instead: .*House/);
   });
 });
 

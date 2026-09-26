@@ -7,8 +7,8 @@ import { compsForLot, DEFAULT_FINANCE, fmtNum, fmtUsd, runProforma, type Finance
  * Green / Yellow / Red triage (organizer colors; the evidence behind them is narrower):
  *   red    = major screening obstacle: no small home type is permitted, or flood zone on steep or undermined ground
  *   yellow = needs more information, review, relief, or a different financial scenario
- *   green  = passes the preliminary screen under the displayed assumptions: a by-right type, lot area and
- *            flood screening known, no hazard flags, lot-size checks resolved, and the numbers pencil
+ *   green  = passes the preliminary screen under the displayed assumptions: a by-right type, lot area,
+ *            frontage and flood screening known, no hazard flags, lot-size checks resolved, and the numbers pencil
  *   gray   = district not encoded, so zoning was not evaluated
  */
 
@@ -103,6 +103,8 @@ export function triageLot(
   } else if (lotSizeOpen) {
     reasons.push("Site: a lot-size standard could not be verified from inventory data (needs survey).");
   }
+  const widthUnknown = lot.frontageFt === null;
+  if (widthUnknown && !lotSizeOpen) reasons.push("Site: frontage is not in the County legal description, so lot width is unknown (needs survey).");
   const floodUnknown = lot.hazards.floodZone === null;
   if (floodUnknown) reasons.push("Site: FEMA flood screening is missing for this lot; treated as unresolved, not clear.");
 
@@ -131,6 +133,7 @@ export function triageLot(
     best.verdict === "by-right" &&
     !areaUnknown &&
     !lotSizeOpen &&
+    !widthUnknown &&
     !floodUnknown &&
     hazards.length === 0 &&
     !sliver &&

@@ -1,22 +1,23 @@
 "use client";
-import { useState } from "react";
-import type { Check, Comps, Finding, Lot, RuleSet, TriageResult, Typology } from "@/lib/types";
+import { useMemo, useRef, useState } from "react";
+import type { Check, Comps, Finding, Lot, RuleSet, TriageResult, Typology, Verdict } from "@/lib/types";
 import { TYPOLOGY_LABEL, VERDICT_LABEL } from "@/lib/types";
-import type { FinanceAssumptions } from "@/lib/finance";
-import {
-  TRIAGE_COLOR,
-  TRIAGE_INK,
-  TRIAGE_SHORT,
-  TRIAGE_WORD,
-  VERDICT_COLOR,
-  VerdictChip,
-  VERDICT_SHORT,
-  ZoneChip,
-} from "./verdict";
+import { proformaWithFallback, type FinanceAssumptions } from "@/lib/finance";
+import { TIP, VERDICT_COLOR, VERDICT_TIP, VerdictChip, ZoneChip } from "./verdict";
 import { districtName } from "./district";
-import { buildMemo, REVIEW_CHECKLIST } from "./memo";
+import { buildMemo, buildSummary } from "./memo";
 import ProForma from "./ProForma";
 import ApplicationPlanner from "./ApplicationPlanner";
+import Tooltip from "./ui/Tooltip";
+import Section from "./ui/Section";
+import AnswerCard from "./ui/AnswerCard";
+import { evidenceSummary } from "./ui/EvidenceRow";
+import { deriveEvidence } from "@/lib/evidence";
+import { answerHeadline, cityStatus, financeLine, typologyPhrase, whatWouldChange } from "./ui/answer";
+import { FunnelBars, FunnelSentence, type FunnelStats } from "./ui/Funnel";
+
+/** 5118 Ladora Way, Hazelwood: R1A-VH, URA Transfer, one of three adjacent ready-for-a-house lots. */
+export const DEMO_LOT_ID = "0056N00203000000";
 
 interface Props {
   lot: Lot | null;
@@ -40,7 +41,11 @@ interface Props {
   /** Reading mode: the panel overlays the map as a wide, centered surface. */
   expanded: boolean;
   onExpanded: (expanded: boolean) => void;
-  /** Optional override for the plain-language summary; defaults to POST /api/memo. Returns null when no model text. */
+  /** Stats for the active rule set; drives the empty-state funnel. */
+  stats?: FunnelStats | null;
+  /** Select a lot by parcel ID (the empty state's demo link). No-op when absent. */
+  onSelectId?: (id: string) => void;
+  /** Unused since the Memo section became the Export menu; kept so callers still type-check. */
   onGenerateMemo?: (lot: Lot, findings: Finding[], ruleSet: RuleSet) => Promise<string | null>;
 }
 
@@ -71,21 +76,70 @@ export default function DetailPanel(props: Props) {
           </div>
         </div>
       ) : (
-        <div className="flex flex-1 flex-col items-center justify-center px-10 text-center">
-          <svg width="56" height="56" viewBox="0 0 56 56" aria-hidden className="mb-4 text-hairline">
-            <rect x="8" y="14" width="18" height="28" rx="2" fill="none" stroke="currentColor" strokeWidth="1.5" />
-            <rect x="30" y="14" width="18" height="28" rx="2" fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray="3 3" />
-            <circle cx="39" cy="28" r="3.5" fill="var(--v-byright)" />
-          </svg>
-          <p className="font-serif text-[22px] leading-tight text-ink">Select a lot on the map or in the list</p>
-          <p className="mt-2 max-w-[280px] text-[12px] leading-relaxed text-muted">
-            Pick a lot to see what&apos;s allowed, whether it pencils, and what to file.
-          </p>
-        </div>
+        <EmptyState stats={props.stats} ruleSet={props.ruleSet} onSelectId={props.onSelectId} />
       )}
     </aside>
   );
 }
+
+function EmptyState({
+  stats,
+  ruleSet,
+  onSelectId,
+}: {
+  /** null while loading; undefined when the caller does not provide stats (no funnel then). */
+  stats: FunnelStats | null | undefined;
+  ruleSet: RuleSet;
+  onSelectId?: (id: string) => void;
+}) {
+  if (stats === undefined)
+    return (
+      <div className="flex flex-1 flex-col justify-center px-8">
+        <p className="font-serif text-[25px] leading-tight text-ink">Pick a lot on the map or in the list.</p>
+        <p className="mt-2 text-[13px] text-muted">See what&apos;s allowed, whether it pays for itself, and what to file.</p>
+      </div>
+    );
+  return (
+    <div className="scroll-thin flex flex-1 flex-col justify-center overflow-y-auto px-8 py-8">
+      <FunnelSentence s={stats} className="font-serif text-[25px] leading-[1.22] tracking-[-0.005em]" />
+      {stats && ruleSet === "bill-2025-1545" && (stats.lotsGaining ?? 0) > 0 && (
+        <p className="mt-3 text-[13px] text-[#6b5200]">
+          <Tooltip content={TIP.bill}>If the housing bill passes</Tooltip>, +{stats.lotsGaining!.toLocaleString("en-US")} lots could also add a
+          backyard home.
+        </p>
+      )}
+      <div className="mt-7">
+        {stats ? (
+          <FunnelBars s={stats} />
+        ) : (
+          <div className="space-y-4">
+            {[100, 80, 34, 6].map((w) => (
+              <div key={w} className="h-2 animate-pulse rounded-full bg-surface" style={{ width: `${w}%` }} />
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="mt-9 border-t border-hairline pt-5">
+        <p className="text-[14px] text-ink">Pick a lot on the map or in the list.</p>
+        {onSelectId && (
+          <button
+            onClick={() => onSelectId(DEMO_LOT_ID)}
+            className="mt-1.5 text-left text-[13px] text-accent underline decoration-accent/30 underline-offset-[3px] hover:decoration-accent"
+          >
+            Try a demo lot: 5118 Ladora Way, Hazelwood
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const NAV = [
+  { id: "allowed", label: "Allowed" },
+  { id: "fits", label: "Fits" },
+  { id: "pays", label: "Pays" },
+  { id: "file", label: "File" },
+] as const;
 
 function LotDetail({
   lot,
@@ -105,199 +159,243 @@ function LotDetail({
   recomputing,
   expanded,
   onExpanded,
-  onGenerateMemo,
 }: Props & { lot: Lot; findings: Finding[] }) {
   const [open, setOpen] = useState<string | null>(null);
   const [pfPending, setPfPending] = useState(false);
-  const [checked, setChecked] = useState<boolean[]>(REVIEW_CHECKLIST.map(() => false));
   const [copied, setCopied] = useState<string | null>(null);
-  const [aiBusy, setAiBusy] = useState(false);
-  /** Result of the last summary request: model text, or null when the route returned none. */
-  const [summary, setSummary] = useState<{ text: string | null } | null>(null);
+  const [scrolled, setScrolled] = useState(false);
+  const [active, setActive] = useState<string>("allowed");
+  const [exportOpen, setExportOpen] = useState(false);
+  const scroller = useRef<HTMLDivElement>(null);
+  const header = useRef<HTMLDivElement>(null);
   const dName = districtName(lot.zone);
 
   const otherRs: RuleSet = ruleSet === "current" ? "bill-2025-1545" : "current";
   const otherFindings = ruleSet === "current" ? findingsBill : findingsCurrent;
-  const changes =
-    findingsCurrent && findingsBill
-      ? findingsCurrent
-          .map((c, i) => ({ t: c.typology, from: c.verdict, to: findingsBill[i]?.verdict }))
-          .filter((x) => x.to && x.to !== x.from)
-      : [];
 
   const flash = (msg: string) => {
     setCopied(msg);
     window.setTimeout(() => setCopied(null), 1600);
   };
 
-  const memo = () =>
-    buildMemo(lot, ruleSet, findings, otherFindings ? { ruleSet: otherRs, findings: otherFindings } : null, dName);
+  // --- The answer: same numbers as the Pays section (current assumptions plus this lot's land figure).
+  const withLand = useMemo(() => ({ ...assumptions, landOverride }), [assumptions, landOverride]);
+  const chosen = findings.find((f) => f.typology === typology) ?? null;
+  const pf = useMemo(() => proformaWithFallback(lot, typology, comps, withLand), [lot, typology, comps, withLand]);
+  const bestT = triage?.bestTypology ?? null;
+  const best = bestT ? (findings.find((f) => f.typology === bestT) ?? null) : null;
+  const pfBest = useMemo(
+    () => (bestT ? (bestT === typology ? pf : proformaWithFallback(lot, bestT, comps, withLand)) : null),
+    [bestT, typology, pf, lot, comps, withLand],
+  );
+  const head = answerHeadline(triage, best, pfBest);
+  const fin = financeLine(pf);
+  const status = cityStatus(lot);
+  const evidence = useMemo(() => deriveEvidence(lot, chosen, triage, pf, comps), [lot, chosen, triage, pf, comps]);
+  const changes = whatWouldChange(lot, findings, chosen, pf);
+  const typeLine = typologyPhrase(typology, chosen);
 
-  const copyMemo = async () => {
-    await copyText(memo());
-    flash("Memo copied");
+  // --- Scroll: compact header and scroll-spy for the section nav.
+  const onScroll = () => {
+    const el = scroller.current;
+    if (!el) return;
+    setScrolled(el.scrollTop > 24);
+    const top = el.getBoundingClientRect().top + (header.current?.offsetHeight ?? 90) + 16;
+    let cur: string = NAV[0].id;
+    for (const n of NAV) {
+      const s = el.querySelector<HTMLElement>(`[data-section="${n.id}"]`);
+      if (s && s.getBoundingClientRect().top <= top) cur = n.id;
+    }
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 4) cur = NAV[NAV.length - 1].id;
+    setActive(cur);
+  };
+  const goTo = (id: string) => {
+    const el = scroller.current;
+    const s = el?.querySelector<HTMLElement>(`[data-section="${id}"]`);
+    if (!el || !s) return;
+    // The sticky header shrinks once scrolled, which moves everything below it up; aim for where the
+    // section will be after that happens.
+    const h = header.current;
+    const nav = h?.querySelector("nav");
+    const compact = 48 + (nav?.offsetHeight ?? 36) + 1;
+    const shrink = scrolled || !h ? 0 : h.offsetHeight - compact;
+    const offset = s.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - shrink - compact + 4;
+    el.scrollTo({ top: offset, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   };
 
-  const downloadMemo = () => {
+  const memo = () =>
+    buildMemo(lot, ruleSet, findings, otherFindings ? { ruleSet: otherRs, findings: otherFindings } : null, dName);
+  const downloadBrief = () => {
     const blob = new Blob([memo()], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `byright-${lot.id}-${ruleSet}.md`;
+    a.download = `byright-lot-brief-${lot.id}.md`;
     a.click();
     URL.revokeObjectURL(url);
+    setExportOpen(false);
+  };
+  const copySummary = async () => {
+    await copyText(
+      buildSummary(lot, ruleSet, {
+        headline: head.text,
+        typeLine,
+        financeLine: fin,
+        status: status.text,
+        evidence: evidenceSummary(evidence),
+      }),
+    );
+    setExportOpen(false);
+    flash("Summary copied");
   };
 
-  const aiMemo = async () => {
-    setAiBusy(true);
-    try {
-      const text = onGenerateMemo ? await onGenerateMemo(lot, findings, ruleSet) : await fetchSummary(lot.id, ruleSet);
-      setSummary({ text });
-    } catch {
-      setSummary({ text: null });
-    } finally {
-      setAiBusy(false);
-    }
-  };
-
-
-  const hazards = [
-    lot.hazards.steepSlope && "Steep slope 25%+",
-    lot.hazards.undermined && "Undermined area",
-    lot.hazards.floodZone && "FEMA flood zone",
-  ].filter(Boolean) as string[];
+  const fitRows = chosen ? fitChecks(lot, chosen) : [];
+  const fitPass = fitRows.filter((r) => r.state === "pass").length;
+  const fitFail = fitRows.filter((r) => r.state === "fail").length;
+  const fitSite = fitRows.filter((r) => r.state === "site").length;
+  const allowedCount = findings.filter((f) => f.verdict === "by-right").length;
+  const pad = expanded ? "px-10" : "px-5";
 
   return (
-    <div className="fade-in scroll-thin flex-1 overflow-y-auto">
-      <div className={`sticky top-0 z-10 border-b border-hairline bg-panel pt-4 pb-3 ${expanded ? "px-10" : "px-5"}`}>
-        <div className="flex items-start justify-between gap-3">
+    <div ref={scroller} onScroll={onScroll} className="fade-in scroll-thin flex-1 overflow-y-auto">
+      <div ref={header} className={`sticky top-0 z-10 border-b border-hairline bg-panel/95 backdrop-blur-sm ${pad}`}>
+        <div className={`flex items-center justify-between gap-3 transition-[height] duration-200 ${scrolled ? "h-[48px]" : "pt-4 pb-2"}`}>
           <div className="min-w-0">
-            <h2 className="font-serif text-[28px] leading-[1.05] text-ink">{lot.address || "Unaddressed lot"}</h2>
-            <p className="mt-1 text-[12px] text-muted">
-              {lot.neighborhood}
-              {lot.councilDistrict && <>, Council District {lot.councilDistrict}</>}
-            </p>
+            {scrolled ? (
+              <p className="flex min-w-0 items-center gap-2 text-[14px] whitespace-nowrap">
+                <span className="truncate font-semibold text-ink">{lot.address || "Unaddressed lot"}</span>
+                <span className="truncate text-muted">{lot.neighborhood}</span>
+                <ZoneChip zone={lot.zone} tip />
+              </p>
+            ) : (
+              <>
+                <h2 className="truncate font-serif text-[26px] leading-[1.1] text-ink">{lot.address || "Unaddressed lot"}</h2>
+                <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted">
+                  <span>{lot.neighborhood}</span>
+                  <ZoneChip zone={lot.zone} tip />
+                  <button
+                    onClick={async () => {
+                      await copyText(lot.id);
+                      flash("Parcel ID copied");
+                    }}
+                    className="-mx-1 inline-flex items-center gap-1 rounded px-1 text-[12px] text-muted tabular-nums hover:bg-surface hover:text-ink"
+                    aria-label={`Copy parcel ID ${lot.id}`}
+                  >
+                    Parcel {lot.id}
+                    <CopyIcon />
+                  </button>
+                </p>
+              </>
+            )}
           </div>
-          <div className="mt-1 flex shrink-0 items-center gap-1.5">
-            <button
-              onClick={() => onExpanded(!expanded)}
-              aria-pressed={expanded}
-              title={expanded ? "Collapse to the side panel (Esc)" : "Expand for reading"}
-              className="inline-flex items-center gap-1 rounded-md border border-hairline px-1.5 py-0.5 text-[11px] text-muted transition-colors hover:bg-surface hover:text-ink"
-            >
-              <ExpandIcon expanded={expanded} />
-              {expanded ? "Collapse" : <span className="sr-only">Expand</span>}
-            </button>
-            <button
-              onClick={onClose}
-              aria-label="Clear selection (Esc)"
-              title={expanded ? "Clear selection" : "Clear selection (Esc)"}
-              className="rounded-md border border-hairline px-1.5 py-0.5 text-[11px] text-muted hover:bg-surface"
-            >
-              Esc
-            </button>
+          <div className="flex shrink-0 items-center gap-1 self-start pt-1">
+            <Tooltip content={expanded ? "Back to the side panel" : "Expand for reading"} side="bottom" asChild>
+              <button
+                onClick={() => onExpanded(!expanded)}
+                aria-pressed={expanded}
+                aria-label={expanded ? "Collapse" : "Expand"}
+                className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface hover:text-ink"
+              >
+                <ExpandIcon expanded={expanded} />
+              </button>
+            </Tooltip>
+            <Tooltip content="Close (Esc)" side="bottom" asChild>
+              <button
+                onClick={onClose}
+                aria-label="Close lot (Esc)"
+                className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface hover:text-ink"
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden>
+                  <path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              </button>
+            </Tooltip>
           </div>
         </div>
-        <button
-          onClick={async () => {
-            await copyText(lot.id);
-            flash("Parcel ID copied");
-          }}
-          className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-surface px-2 py-1 text-[11px] text-ink hover:bg-[#e3e5e0]"
-          title="Copy parcel ID"
-        >
-          <span className="text-muted">Parcel</span>
-          <span className="font-medium tracking-wide tabular-nums">{lot.id}</span>
-          <CopyIcon />
-        </button>
+        <nav aria-label="Sections" className="-mb-px flex gap-5">
+          {NAV.map((n) => (
+            <button
+              key={n.id}
+              onClick={() => goTo(n.id)}
+              aria-current={active === n.id ? "true" : undefined}
+              className={`border-b-2 pt-1 pb-2 text-[13px] transition-colors ${
+                active === n.id ? "border-ink font-medium text-ink" : "border-transparent text-muted hover:text-ink"
+              }`}
+            >
+              {n.label}
+            </button>
+          ))}
+        </nav>
       </div>
 
-      <div className={expanded ? "space-y-8 px-10 py-7" : "space-y-6 px-5 py-5"}>
-        {triage && <TriageBlock t={triage} ruleSet={ruleSet} />}
+      <div className={`space-y-7 py-5 ${pad}`}>
+        <AnswerCard
+          headline={head.text}
+          tone={head.tone}
+          typeLine={
+            <>
+              <span className="font-medium">{TYPOLOGY_LABEL[typology]}</span>
+              {chosen && <span className="text-muted">, {lowerFirst(VERDICT_LABEL[chosen.verdict])}</span>}
+            </>
+          }
+          financeLine={fin}
+          status={status}
+          evidence={chosen && chosen.verdict !== "unknown" ? evidence : null}
+          changes={changes}
+          ruleSet={ruleSet}
+          onPlan={() => goTo("file")}
+        />
 
-        <Section n={1} title="The lot">
-          <dl className={`grid grid-cols-2 text-[12px] ${expanded ? "gap-x-8 gap-y-0" : "gap-x-4 gap-y-3"}`}>
-            <Fact label="Zone" wide inline={expanded}>
-              <span className="flex items-center gap-2">
-                <ZoneChip zone={lot.zone} />
-                <span className="text-ink">{dName ?? "District not in registry"}</span>
-              </span>
-            </Fact>
-            <Fact label="Lot area" inline={expanded}>
-              {lot.lotAreaSqFt != null ? `${lot.lotAreaSqFt.toLocaleString()} sf` : <Missing />}
-            </Fact>
-            <Fact label="Frontage" inline={expanded}>{lot.frontageFt != null ? `${lot.frontageFt} ft` : <Missing />}</Fact>
-            <Fact label="Assessed land value" hint="County assessed, not market" inline={expanded}>
-              {lot.landValue != null ? `$${lot.landValue.toLocaleString()}` : <Missing />}
-            </Fact>
-            <Fact label="Inventory status" inline={expanded}>{lot.status || <Missing />}</Fact>
-          </dl>
-          <div className="mt-4">
-            <div className="flex flex-wrap items-center gap-1.5">
-              {hazards.map((h) => (
-                <span key={h} className="rounded-full bg-[#fdf0e1] px-2 py-0.5 text-[11px] font-medium text-[#8a4b00]">
-                  {h}
-                </span>
-              ))}
-              {hazards.length === 0 && (
-                <span className="rounded-full bg-surface px-2 py-0.5 text-[11px] text-muted">No hazard flags</span>
-              )}
-              {lot.hazards.floodZone == null && (
-                <span className="rounded-full border border-dashed border-hairline px-2 py-0.5 text-[11px] text-faint">
-                  Flood zone not checked
-                </span>
-              )}
-            </div>
-            <p className="mt-1.5 text-[11px] text-faint">Hazard layers are screening only and never change a verdict.</p>
-          </div>
+        <Section id="allowed" title="Allowed?" summary={`${allowedCount} of ${findings.length} home types with no hearing`}>
+          <VerdictList
+            findings={findings}
+            other={otherFindings}
+            ruleSet={ruleSet}
+            open={open}
+            onOpen={setOpen}
+            columns={expanded ? 2 : 1}
+          />
         </Section>
 
-        <Section n={2} title={ruleSet === "current" ? "Verdicts under today's code" : "Verdicts if Bill 2025-1545 passes"}>
-          <VerdictList findings={findings} open={open} onOpen={setOpen} columns={expanded ? 2 : 1} />
-        </Section>
-
-        <Section n={3} title={ruleSet === "current" ? "What changes under Bill 2025-1545" : "What the bill changed here"}>
-          {changes.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-hairline px-3 py-3 text-[12px] text-muted">
-              No verdict on this lot changes between today&apos;s code and the bill.
-            </p>
+        <Section
+          id="fits"
+          title="Fits?"
+          summary={
+            chosen && chosen.verdict !== "unknown"
+              ? [`${fitPass} pass`, fitFail && `${fitFail} fail`, fitSite && `${fitSite} check on site`]
+                  .filter(Boolean)
+                  .join(" · ")
+              : undefined
+          }
+        >
+          {chosen && chosen.verdict !== "unknown" ? (
+            <>
+              <p className="mb-2 text-[12px] text-muted">For a {TYPOLOGY_LABEL[typology].toLowerCase()}, from the City inventory.</p>
+              <ul className="divide-y divide-hairline border-y border-hairline">
+                {fitRows.map((r) => (
+                  <FitRow key={r.key} r={r} />
+                ))}
+              </ul>
+            </>
           ) : (
-            <ul className="space-y-1.5">
-              {changes.map((c) => (
-                <li
-                  key={c.t}
-                  className="flex items-center gap-2 rounded-lg border border-gold/50 bg-gold-soft/60 px-3 py-2 text-[12px]"
-                >
-                  <span className="flex-1 font-medium text-ink">{TYPOLOGY_LABEL[c.t]}</span>
-                  <span style={{ color: VERDICT_COLOR[c.from] }} className="whitespace-nowrap">
-                    {VERDICT_SHORT[c.from]}
-                  </span>
-                  <svg width="14" height="8" viewBox="0 0 14 8" aria-hidden className="text-muted">
-                    <path d="M0 4h12M9 1l3 3-3 3" stroke="currentColor" fill="none" strokeWidth="1.3" />
-                  </svg>
-                  <span style={{ color: VERDICT_COLOR[c.to!] }} className="font-semibold whitespace-nowrap">
-                    {VERDICT_SHORT[c.to!]}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <p className="text-[13px] text-muted">Zoning was not checked for this district, so the size rules were not applied.</p>
           )}
         </Section>
 
         <Section
-          n={4}
-          title="Does it pencil?"
+          id="pays"
+          title="Pays?"
           action={
             <span
               aria-live="polite"
-              className={`flex items-center gap-1.5 text-[11px] text-muted transition-opacity duration-150 ${
+              className={`flex items-center gap-1.5 text-[12px] text-muted transition-opacity duration-150 ${
                 pfPending || recomputing ? "opacity-100" : "opacity-0"
               }`}
             >
               {(pfPending || recomputing) && (
                 <>
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
-                  Recomputing all lots…
+                  Updating the map…
                 </>
               )}
             </span>
@@ -317,65 +415,7 @@ function LotDetail({
           />
         </Section>
 
-        <Section n={5} title="Human review checklist">
-          <ul className="space-y-1.5">
-            {REVIEW_CHECKLIST.map((item, i) => (
-              <li key={item}>
-                <label className="flex cursor-pointer items-start gap-2.5 text-[12px] leading-snug">
-                  <input
-                    type="checkbox"
-                    checked={checked[i]}
-                    onChange={() => setChecked((c) => c.map((x, j) => (j === i ? !x : x)))}
-                    className="mt-0.5 h-3.5 w-3.5 accent-[var(--accent)]"
-                  />
-                  <span className={checked[i] ? "text-faint line-through" : "text-ink"}>{item}</span>
-                </label>
-              </li>
-            ))}
-          </ul>
-        </Section>
-
-        <Section n={6} title="Memo">
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={copyMemo}
-              className="rounded-md bg-ink px-3 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-accent"
-            >
-              Copy memo
-            </button>
-            <button
-              onClick={downloadMemo}
-              className="rounded-md border border-hairline bg-white px-3 py-1.5 text-[12px] font-medium text-ink hover:bg-surface"
-            >
-              Download .md
-            </button>
-            <button
-              onClick={aiMemo}
-              disabled={aiBusy}
-              className="rounded-md border border-accent/40 bg-accent-soft px-3 py-1.5 text-[12px] font-medium text-accent disabled:opacity-60"
-            >
-              {aiBusy ? "Drafting…" : "Show memo with plain-language summary"}
-            </button>
-          </div>
-          <p className="mt-2 text-[11px] text-faint">
-            Built from the rule findings above with every citation. Rules decide; text only explains.
-          </p>
-          {summary && (
-            <div className="mt-3 space-y-3">
-              <pre className="scroll-thin max-h-72 overflow-auto rounded-lg border border-hairline bg-white px-3 py-2.5 font-sans text-[11.5px] leading-relaxed whitespace-pre-wrap text-ink">
-                {memo()}
-              </pre>
-              {summary.text && (
-                <section className="rounded-lg border border-dashed border-[#e7c9a0] bg-[#fdf6ec] px-3 py-2.5">
-                  <h4 className="text-[11px] font-semibold text-[#8a4b00]">Plain-language summary (model-generated, unverified)</h4>
-                  <p className="mt-1 text-[12px] leading-relaxed whitespace-pre-wrap text-ink">{summary.text}</p>
-                </section>
-              )}
-            </div>
-          )}
-        </Section>
-
-        <Section n={7} title="Plan your application">
+        <Section id="file" title="File">
           <ApplicationPlanner
             key={ruleSet}
             lot={lot}
@@ -388,6 +428,38 @@ function LotDetail({
             wide={expanded}
           />
         </Section>
+
+        <div className="relative flex items-center justify-between border-t border-hairline pt-4 pb-2">
+          <span className="text-[12px] text-muted">Share this screen</span>
+          <div className="relative">
+            <button
+              onClick={() => setExportOpen((o) => !o)}
+              aria-haspopup="menu"
+              aria-expanded={exportOpen}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-hairline bg-white px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-surface active:scale-[0.98]"
+            >
+              Export
+              <svg width="10" height="10" viewBox="0 0 12 12" aria-hidden className={exportOpen ? "" : "rotate-180"}>
+                <path d="M3 4.5l3 3 3-3" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" />
+              </svg>
+            </button>
+            {exportOpen && (
+              <div
+                role="menu"
+                className="pop absolute right-0 bottom-[calc(100%+6px)] w-[220px] rounded-xl border border-hairline bg-white p-1 shadow-[0_12px_32px_-12px_rgba(23,33,30,.35)]"
+              >
+                <button role="menuitem" onClick={downloadBrief} className="block w-full rounded-lg px-3 py-2 text-left text-[13px] hover:bg-surface">
+                  Lot brief (.md)
+                  <span className="block text-[12px] text-muted">Every check with its citation</span>
+                </button>
+                <button role="menuitem" onClick={copySummary} className="block w-full rounded-lg px-3 py-2 text-left text-[13px] hover:bg-surface">
+                  Copy summary
+                  <span className="block text-[12px] text-muted">Six lines for an email</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {copied && (
@@ -399,77 +471,143 @@ function LotDetail({
   );
 }
 
-function TriageBlock({ t, ruleSet }: { t: TriageResult; ruleSet: RuleSet }) {
-  const c = TRIAGE_COLOR[t.triage];
+const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+
+/* ---------- Fits? ---------- */
+
+type FitState = "pass" | "fail" | "site";
+interface FitItem {
+  key: string;
+  label: React.ReactNode;
+  value: string;
+  required: string | null;
+  state: FitState;
+  citation?: Check["citation"];
+  note?: string;
+}
+
+function fitChecks(lot: Lot, f: Finding): FitItem[] {
+  const get = (id: string) => f.checks.find((c) => c.id === id);
+  const st = (c?: Check): FitState => (c?.passed === true ? "pass" : c?.passed === false ? "fail" : "site");
+  const out: FitItem[] = [];
+  const area = get("lot-area");
+  const perUnit = get("lot-area-per-unit");
+  const areaState: FitState = [area, perUnit].some((c) => c?.passed === false)
+    ? "fail"
+    : [area, perUnit].some((c) => c && c.passed === null)
+      ? "site"
+      : "pass";
+  out.push({
+    key: "area",
+    label: "Lot area",
+    value: lot.lotAreaSqFt != null ? `${lot.lotAreaSqFt.toLocaleString()} sq ft` : "Not in the record",
+    required: [area?.required && area.required !== "none" ? `min ${area.required}` : null, perUnit?.required && perUnit.required !== "none" ? `${perUnit.required} for the units` : null]
+      .filter(Boolean)
+      .join("; ") || "No minimum here",
+    state: areaState,
+    citation: (area ?? perUnit)?.citation,
+  });
+  const width = get("lot-width");
+  out.push({
+    key: "width",
+    label: <Tooltip content={TIP.frontage}>Street frontage (approx.)</Tooltip>,
+    value: lot.frontageFt != null ? `≈ ${Math.round(lot.frontageFt)} ft` : "Not in the record",
+    required: width?.required && width.required !== "none" ? `min ${width.required}` : "No minimum here",
+    state: st(width),
+    citation: width?.citation,
+  });
+  const parking = get("parking");
+  if (parking)
+    out.push({
+      key: "parking",
+      label: "Parking",
+      value: parking.passed === true ? "None required" : "Must fit on the lot",
+      required: parking.required,
+      state: st(parking),
+      citation: parking.citation,
+    });
+  const far = get("far") ?? get("building-fit");
+  if (far)
+    out.push({
+      key: "fit",
+      label: far.id === "far" ? "Floor area" : "Building fit",
+      value: far.measured ?? "",
+      required: far.id === "far" ? far.required : "Setbacks, height, coverage not modeled",
+      state: st(far),
+      citation: far.citation,
+    });
+  const hz = [
+    lot.hazards.steepSlope && "steep slope (25%+)",
+    lot.hazards.undermined && "old mine below (undermined)",
+    lot.hazards.floodZone && "FEMA flood zone",
+  ].filter(Boolean) as string[];
+  out.push({
+    key: "hazards",
+    label: "Hazards",
+    value: hz.length ? `Flagged: ${hz.join(", ")}` : lot.hazards.floodZone == null ? "Flood zone not checked" : "None found",
+    required: "At the inventory point, not the whole parcel",
+    state: hz.length || lot.hazards.floodZone == null ? "site" : "pass",
+  });
+  return out;
+}
+
+const FIT_WORD: Record<FitState, string> = { pass: "Pass", fail: "Fails", site: "Check on site" };
+
+function FitRow({ r }: { r: FitItem }) {
   return (
-    <section
-      aria-label={`Triage: ${TRIAGE_WORD[t.triage]}`}
-      className="fade-in overflow-hidden rounded-lg border border-hairline bg-white"
-    >
-      <div className="flex items-stretch">
-        <div className="flex w-[92px] shrink-0 flex-col items-center justify-center gap-1 py-3" style={{ background: c }}>
-          <span className="font-serif text-[26px] leading-none text-white">{TRIAGE_WORD[t.triage]}</span>
+    <li className="flex items-start gap-3 py-2.5">
+      <StatusIcon state={r.state} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-[13px] text-ink">{r.label}</span>
+          <span className={`shrink-0 text-[12px] ${r.state === "fail" ? "text-[#c2410c]" : "text-muted"}`}>{FIT_WORD[r.state]}</span>
         </div>
-        <div className="min-w-0 flex-1 px-3.5 py-2.5">
-          <p className="text-[13px] font-semibold" style={{ color: TRIAGE_INK[t.triage] }}>
-            {TRIAGE_SHORT[t.triage]}
-            <span className="font-normal text-muted">
-              {ruleSet === "current" ? ", today's code" : ", if Bill 2025-1545 passes"}
-            </span>
-          </p>
-          <ul className="mt-1 space-y-1">
-            {t.reasons.map((r) => (
-              <li key={r} className="text-[12px] leading-snug text-ink">
-                {r}
-              </li>
-            ))}
-          </ul>
-        </div>
+        <p className="mt-0.5 text-[12px] leading-snug text-muted">
+          <span className="text-ink tabular-nums">{r.value}</span>
+          {r.required && <> · {r.required}</>}
+          {r.citation && (
+            <>
+              {" · "}
+              <a
+                href={r.citation.url}
+                target="_blank"
+                rel="noreferrer"
+                className="text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent"
+              >
+                {r.citation.section}
+              </a>
+            </>
+          )}
+        </p>
       </div>
-    </section>
+    </li>
   );
 }
 
-function Section({
-  n,
-  title,
-  action,
-  children,
-}: {
-  n: number;
-  title: string;
-  action?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <section>
-      <div className="mb-2.5 flex items-baseline gap-2.5">
-        <span className="font-serif text-[20px] leading-none text-accent italic">{n}</span>
-        <h3 className="flex-1 text-[13px] font-semibold text-ink">{title}</h3>
-        {action}
-      </div>
-      {children}
-    </section>
-  );
-}
+/* ---------- Allowed? ---------- */
 
 /**
- * One row per home type, or pairs of rows in expanded mode. An opened row's checks render beneath
- * its row (full width), so neighbors never stretch or reflow.
+ * One row per home type, or pairs of rows in expanded mode. The other rule set's verdict shows
+ * inline in gold when it differs. An opened row's checks render beneath its row (full width).
  */
 function VerdictList({
   findings,
+  other,
+  ruleSet,
   open,
   onOpen,
   columns,
 }: {
   findings: Finding[];
+  other: Finding[] | null;
+  ruleSet: RuleSet;
   open: string | null;
   onOpen: (t: string | null) => void;
   columns: 1 | 2;
 }) {
   const rows: Finding[][] = [];
   for (let i = 0; i < findings.length; i += columns) rows.push(findings.slice(i, i + columns));
+  const otherVerdict = (t: Typology): Verdict | null => other?.find((o) => o.typology === t)?.verdict ?? null;
   return (
     <ul className="overflow-hidden rounded-lg border border-hairline bg-white">
       {rows.map((row) => {
@@ -479,28 +617,48 @@ function VerdictList({
             <div className={columns === 2 ? "grid grid-cols-2 divide-x divide-hairline" : ""}>
               {row.map((f) => {
                 const isOpen = f === opened;
+                const ov = otherVerdict(f.typology);
+                const diff = ov && ov !== f.verdict ? ov : null;
+                const tip = VERDICT_TIP[f.verdict];
                 return (
-                  <button
-                    key={f.typology}
-                    onClick={() => onOpen(isOpen ? null : f.typology)}
-                    aria-expanded={isOpen}
-                    className={`flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-[#fafaf8] ${
-                      isOpen && columns === 2 ? "bg-[#fafaf8]" : ""
-                    } ${row.length < columns ? "col-span-2" : ""}`}
-                  >
-                    <span className="w-1 self-stretch rounded-full" style={{ background: VERDICT_COLOR[f.verdict] }} />
-                    <span className="flex-1 text-[13px] text-ink">{TYPOLOGY_LABEL[f.typology]}</span>
-                    <VerdictChip verdict={f.verdict} />
-                    <Chevron open={isOpen} />
-                  </button>
+                  <div key={f.typology} className={`flex items-stretch ${row.length < columns ? "col-span-2" : ""}`}>
+                    <button
+                      onClick={() => onOpen(isOpen ? null : f.typology)}
+                      aria-expanded={isOpen}
+                      className={`flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 text-left hover:bg-[#fafaf8] ${isOpen ? "bg-[#fafaf8]" : ""}`}
+                    >
+                      <span className="w-1 self-stretch rounded-full" style={{ background: VERDICT_COLOR[f.verdict] }} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[13px] text-ink">{TYPOLOGY_LABEL[f.typology]}</span>
+                        {diff && (
+                          <span className="mt-0.5 block text-[12px] leading-snug text-[#7a5a00]">
+                            {ruleSet === "current"
+                              ? `→ ${VERDICT_LABEL[diff]} if the housing bill passes`
+                              : `Today: ${lowerFirst(VERDICT_LABEL[diff])}`}
+                          </span>
+                        )}
+                      </span>
+                      <Chevron open={isOpen} />
+                    </button>
+                    <span className="flex shrink-0 items-center pr-3">
+                      {tip ? (
+                        <Tooltip content={tip} asChild>
+                          <span tabIndex={0} className="cursor-help rounded-full">
+                            <VerdictChip verdict={f.verdict} full />
+                          </span>
+                        </Tooltip>
+                      ) : (
+                        <VerdictChip verdict={f.verdict} full />
+                      )}
+                    </span>
+                  </div>
                 );
               })}
             </div>
             {opened && (
               <div className="fade-in border-t border-hairline bg-[#fafaf8] px-3 py-3">
-                {opened.summary && (
-                  <p className="mb-2 max-w-[70ch] text-[12px] leading-snug text-muted">{opened.summary}</p>
-                )}
+                {opened.typology === "single_adu" && <p className="mb-2 text-[12px] text-muted">{TIP.adu}</p>}
+                {opened.summary && <p className="mb-2 max-w-[70ch] text-[12px] leading-snug text-muted">{opened.summary}</p>}
                 {opened.checks.length === 0 && (
                   <p className="text-[12px] text-muted">No checks run. {VERDICT_LABEL[opened.verdict]}.</p>
                 )}
@@ -518,59 +676,18 @@ function VerdictList({
   );
 }
 
-function Fact({
-  label,
-  hint,
-  wide,
-  inline,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  wide?: boolean;
-  /** Label and value on one row (expanded reading mode). */
-  inline?: boolean;
-  children: React.ReactNode;
-}) {
-  if (inline)
-    return (
-      <div
-        className={`grid grid-cols-[150px_minmax(0,1fr)] items-baseline gap-3 border-b border-hairline py-2 ${wide ? "col-span-2" : ""}`}
-      >
-        <dt className="text-[11.5px] text-muted">{label}</dt>
-        <dd className="text-[13px] text-ink tabular-nums">
-          {children}
-          {hint && <span className="block text-[10.5px] text-faint">{hint}</span>}
-        </dd>
-      </div>
-    );
-  return (
-    <div className={wide ? "col-span-2" : ""}>
-      <dt className="text-[11px] text-muted">{label}</dt>
-      <dd className="mt-0.5 text-[13px] text-ink tabular-nums">{children}</dd>
-      {hint && <dd className="text-[10.5px] text-faint">{hint}</dd>}
-    </div>
-  );
-}
-
-function Missing() {
-  return <span className="text-faint italic">not in record</span>;
-}
-
 function CheckRow({ c }: { c: Check }) {
-  const state = c.passed === true ? "pass" : c.passed === false ? "fail" : "survey";
+  const state: FitState = c.passed === true ? "pass" : c.passed === false ? "fail" : "site";
   return (
     <li className="flex gap-2.5">
       <StatusIcon state={state} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">
-          <span className="text-[12px] font-medium text-ink">{c.label}</span>
-          <span className="shrink-0 text-[11px] text-muted">
-            {state === "pass" ? "Pass" : state === "fail" ? "Fails" : "Needs survey"}
-          </span>
+          <span className="text-[12px] font-medium text-ink">{c.label.replace(" (needs survey)", "")}</span>
+          <span className="shrink-0 text-[12px] text-muted">{FIT_WORD[state]}</span>
         </div>
         {(c.measured || c.required) && (
-          <div className="mt-0.5 grid grid-cols-2 gap-2 text-[11px]">
+          <div className="mt-0.5 grid grid-cols-2 gap-2 text-[12px]">
             <span>
               <span className="text-faint">Measured </span>
               <span className="text-ink tabular-nums">{c.measured ?? "not in record"}</span>
@@ -581,12 +698,12 @@ function CheckRow({ c }: { c: Check }) {
             </span>
           </div>
         )}
-        {c.note && <p className="mt-0.5 text-[11px] text-muted">{c.note}</p>}
+        {c.note && <p className="mt-0.5 text-[12px] text-muted">{c.note}</p>}
         <a
           href={c.citation.url}
           target="_blank"
           rel="noreferrer"
-          className="mt-1 inline-block text-[11px] text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent"
+          className="mt-1 inline-block text-[12px] text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent"
         >
           {c.citation.section} {c.citation.title}
         </a>
@@ -595,23 +712,23 @@ function CheckRow({ c }: { c: Check }) {
   );
 }
 
-function StatusIcon({ state }: { state: "pass" | "fail" | "survey" }) {
+function StatusIcon({ state }: { state: FitState }) {
   if (state === "pass")
     return (
       <svg width="16" height="16" viewBox="0 0 16 16" className="mt-px shrink-0" aria-label="Pass">
-        <circle cx="8" cy="8" r="7.5" fill="#16a34a" />
+        <circle cx="8" cy="8" r="7.5" fill="var(--accent)" />
         <path d="M4.8 8.2l2.1 2.1 4.3-4.6" stroke="#fff" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     );
   if (state === "fail")
     return (
       <svg width="16" height="16" viewBox="0 0 16 16" className="mt-px shrink-0" aria-label="Fails">
-        <circle cx="8" cy="8" r="7.5" fill="#d97706" />
+        <circle cx="8" cy="8" r="7.5" fill="#c2410c" />
         <path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" />
       </svg>
     );
   return (
-    <svg width="16" height="16" viewBox="0 0 16 16" className="mt-px shrink-0" aria-label="Needs survey">
+    <svg width="16" height="16" viewBox="0 0 16 16" className="mt-px shrink-0" aria-label="Check on site">
       <circle cx="8" cy="8" r="7" fill="none" stroke="#9ca3af" strokeWidth="1.2" strokeDasharray="2.2 1.6" />
       <circle cx="8" cy="8" r="1.4" fill="#5d6762" />
     </svg>
@@ -669,14 +786,3 @@ async function copyText(text: string) {
   }
 }
 
-/** Model summary from /api/memo; the server rebuilds the facts from the parcel ID. Null when no model text. */
-async function fetchSummary(lotId: string, ruleSet: RuleSet): Promise<string | null> {
-  const res = await fetch("/api/memo", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ lotId, ruleSet }),
-  });
-  if (!res.ok) return null;
-  const data = (await res.json()) as { memo?: string | null };
-  return data.memo ?? null;
-}

@@ -7,7 +7,9 @@ const LIMITATIONS = [
   "City of Pittsburgh only. Lots in other Allegheny County municipalities are out of scope.",
   "Setbacks, height, lot coverage, and overlay districts are not encoded. A survey and a zoning review are still needed.",
   "Steep slope, undermining, and flood layers are screening signals. They never change a verdict.",
-  "Land value is the county assessment, which is not market value.",
+  "County land value is the 2012-base assessment, not a market price.",
+  "Street frontage is parsed from the legal description and is approximate. A survey governs.",
+  "The header counts lots, not homes. The five home types on a lot are alternatives, so lot × home-type combinations are not added up anywhere.",
   "No personal information is used or shown. Every parcel is publicly owned.",
   "Rules decide, the language model explains. No verdict comes from a model.",
 ];
@@ -27,7 +29,7 @@ export default function AboutDrawer({
 }) {
   const districts = encodedDistricts();
   return (
-    <div className={`fixed inset-0 z-40 ${open ? "" : "pointer-events-none"}`} aria-hidden={!open}>
+    <div className={`fixed inset-0 z-40 ${open ? "" : "pointer-events-none"}`} aria-hidden={!open} inert={!open}>
       <div
         onClick={onClose}
         className={`absolute inset-0 bg-[#17211e]/25 transition-opacity duration-300 ${open ? "opacity-100" : "opacity-0"}`}
@@ -47,8 +49,17 @@ export default function AboutDrawer({
               What ByRight PGH knows, where it came from, and what it deliberately leaves to people.
             </p>
           </div>
-          <button onClick={onClose} className="rounded-md border border-hairline px-2 py-0.5 text-[11px] text-muted hover:bg-surface">
-            Close
+          <button
+            ref={(el) => {
+              if (open && el && !el.contains(document.activeElement)) el.focus({ preventScroll: true });
+            }}
+            onClick={onClose}
+            aria-label="Close (Esc)"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-muted hover:bg-surface hover:text-ink"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden>
+              <path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
           </button>
         </div>
 
@@ -76,7 +87,7 @@ export default function AboutDrawer({
             )}
           </Block>
 
-          <Block title="Green, yellow, red">
+          <Block title="Ready, needs work, blocked">
             <blockquote className="border-l-2 border-hairline pl-3 text-[13px] leading-relaxed text-ink">
               <p>
                 <Swatch c="#e11d48" /> Red: not developable.
@@ -90,10 +101,12 @@ export default function AboutDrawer({
             </blockquote>
             <p className="mt-1.5 text-[11px] text-muted">Hackathon housing mentors, Sept 26, 2026</p>
             <p className="mt-2 text-[12px] leading-relaxed text-muted">
-              ByRight keeps the colors but claims less: Green passes the preliminary screen under the displayed
-              assumptions; Yellow needs more information, review, or a different financial scenario; Red is a major
-              screening obstacle for specialist review; Gray means the district is not encoded, so the lot was not
-              evaluated. None of them confirms a project is feasible.
+              ByRight keeps the colors but claims less. Green, &ldquo;Ready&rdquo;: a small home is allowed with no
+              hearing and pays for itself under the displayed assumptions. Yellow, &ldquo;Allowed, needs subsidy or a
+              hearing&rdquo;: something is unknown, needs staff approval or a Zoning Board hearing, or costs more than it
+              would be worth. Red, &ldquo;Blocked&rdquo;: no small home type is allowed, or flood zone on steep or
+              undermined ground. Gray, &ldquo;Not checked&rdquo;: the district is not encoded. None of them confirms a
+              project is feasible.
             </p>
           </Block>
 
@@ -112,9 +125,8 @@ export default function AboutDrawer({
               )}
             </ul>
             <p className="mt-3 text-[12px] leading-relaxed text-ink">
-              Calibration: a typical Pittsburgh affordable deal is about 70% tax-credit equity and public subsidy (Action
-              Housing, Sixth Ward Flats). A yellow lot with a modeled shortfall to the target return is normal for
-              affordable housing, not a dead end; the shortfall is not a subsidy award or eligibility finding.
+              A lot that is short at today&apos;s prices is common for small infill, not a dead end. The shortfall is a
+              screening number, not a subsidy award or an eligibility finding.
             </p>
             <p className="mt-3 text-[12px] text-muted">
               Further reading:{" "}

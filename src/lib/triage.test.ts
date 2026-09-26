@@ -62,6 +62,13 @@ describe("triageLot", () => {
     expect(t.reasons.join(" ")).toMatch(/flood/i);
   });
 
+  it("not green when frontage is not recorded: the evidence row's width check is unknown", () => {
+    const l = lot({ frontageFt: null });
+    const t = triageLot(l, evaluateLot(l, "current"), RICH);
+    expect(t.triage).toBe("yellow");
+    expect(t.reasons.join(" ")).toMatch(/frontage/i);
+  });
+
   it("green with a parking reason when the only open question is on-site parking", () => {
     // 40 ft wide R1D: attached needs a Special Exception, so the detached house (1 space) is the best type
     const l = lot({ frontageFt: 40 });

@@ -31,7 +31,7 @@ describe("POST /api/memo", () => {
     const j = await res.json();
     expect(j.memo).toBeNull();
     expect(j.deterministic).toContain(`Parcel ID: ${LOT}`);
-    expect(j.deterministic).toContain("Human review before acting");
+    expect(j.deterministic).toContain("Before you rely on this");
     expect(j.facts).toContain("R1D-L");
   });
 
