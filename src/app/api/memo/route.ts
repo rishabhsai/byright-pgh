@@ -10,8 +10,30 @@ interface MemoRequest {
   bill?: Finding[];
 }
 
-const GATEWAY = "https://ai-gateway.vercel.sh/v1/chat/completions";
-const MODEL = "anthropic/claude-sonnet-4.5";
+interface Provider {
+  url: string;
+  model: string;
+  token: string;
+}
+
+function provider(): Provider | null {
+  if (process.env.OPENAI_API_KEY) {
+    return {
+      url: "https://api.openai.com/v1/chat/completions",
+      model: process.env.MEMO_MODEL ?? "gpt-4.1-mini",
+      token: process.env.OPENAI_API_KEY,
+    };
+  }
+  const gatewayToken = process.env.AI_GATEWAY_API_KEY ?? process.env.VERCEL_OIDC_TOKEN;
+  if (gatewayToken) {
+    return {
+      url: "https://ai-gateway.vercel.sh/v1/chat/completions",
+      model: process.env.MEMO_MODEL ?? "anthropic/claude-sonnet-4.5",
+      token: gatewayToken,
+    };
+  }
+  return null;
+}
 
 function structuredFacts(req: MemoRequest): string {
   const { lot, ruleSet, findings, bill } = req;
@@ -56,16 +78,16 @@ Keep it under 260 words.`;
 export async function POST(request: Request) {
   const body = (await request.json()) as MemoRequest;
   const facts = structuredFacts(body);
-  const token = process.env.AI_GATEWAY_API_KEY ?? process.env.VERCEL_OIDC_TOKEN;
-  if (!token) {
-    return Response.json({ memo: null, facts, error: "no-gateway-credentials" }, { status: 200 });
+  const p = provider();
+  if (!p) {
+    return Response.json({ memo: null, facts, error: "no-llm-credentials" }, { status: 200 });
   }
   try {
-    const res = await fetch(GATEWAY, {
+    const res = await fetch(p.url, {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      headers: { "content-type": "application/json", authorization: `Bearer ${p.token}` },
       body: JSON.stringify({
-        model: MODEL,
+        model: p.model,
         max_tokens: 700,
         temperature: 0.2,
         messages: [
@@ -79,7 +101,7 @@ export async function POST(request: Request) {
     }
     const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
     const memo = data.choices?.[0]?.message?.content ?? null;
-    return Response.json({ memo, facts, model: MODEL });
+    return Response.json({ memo, facts, model: p.model });
   } catch (err) {
     return Response.json({ memo: null, facts, error: String(err) }, { status: 200 });
   }
