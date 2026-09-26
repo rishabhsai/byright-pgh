@@ -2,6 +2,7 @@
 import type { RuleSet } from "@/lib/types";
 import CountUp from "./CountUp";
 import type { RuleSetStats } from "./ByRightApp";
+import { TRIAGE_ORDER, TRIAGE_SHORT, TRIAGE_WORD, TriageDot } from "./verdict";
 
 interface Props {
   ruleSet: RuleSet;
@@ -82,7 +83,23 @@ export default function TopBar({ ruleSet, onRuleSet, stats, onAbout, usingFixtur
           <Stat label="lots by right for at least one home type" value={s?.byRightAny} tone="var(--v-byright)" />
           <Stat label="by-right home options across all lots" value={s?.byRightPairs} tone="var(--v-byright)" ring />
           <Stat label="lots need a variance" value={s?.variance} tone="var(--v-variance)" />
-          <Stat label="lots in districts not encoded" value={s?.unknown} tone="var(--v-unknown)" />
+          <Stat label="lots in districts not encoded" value={s?.unknown} tone="var(--v-unknown)" hideBelow2xl />
+        </div>
+        <div
+          aria-label="Lots by triage color"
+          className="grid shrink-0 grid-cols-2 gap-1 border-l border-hairline pl-5"
+        >
+          {TRIAGE_ORDER.map((t) => (
+            <span
+              key={t}
+              title={`${TRIAGE_WORD[t]}: ${TRIAGE_SHORT[t]}`}
+              className="inline-flex h-[22px] min-w-[76px] items-center gap-1.5 rounded-full border border-hairline bg-white px-2 text-[12px] font-medium text-ink tabular-nums"
+            >
+              <TriageDot triage={t} size={8} />
+              <span className="sr-only">{TRIAGE_WORD[t]}</span>
+              {s ? <CountUp value={s.triage[t]} /> : <span className="text-faint">—</span>}
+            </span>
+          ))}
         </div>
         {bill && delta > 0 && (
           <span
@@ -97,9 +114,21 @@ export default function TopBar({ ruleSet, onRuleSet, stats, onAbout, usingFixtur
   );
 }
 
-function Stat({ label, value, tone, ring }: { label: string; value?: number; tone: string; ring?: boolean }) {
+function Stat({
+  label,
+  value,
+  tone,
+  ring,
+  hideBelow2xl,
+}: {
+  label: string;
+  value?: number;
+  tone: string;
+  ring?: boolean;
+  hideBelow2xl?: boolean;
+}) {
   return (
-    <div className="flex min-w-0 items-center gap-2">
+    <div className={`min-w-0 items-center gap-2 ${hideBelow2xl ? "hidden 2xl:flex" : "flex"}`}>
       <span
         className="inline-block h-2 w-2 shrink-0 rounded-full"
         style={ring ? { boxShadow: `inset 0 0 0 1.5px ${tone}` } : { background: tone }}

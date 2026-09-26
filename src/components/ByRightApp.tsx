@@ -3,13 +3,21 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { evaluateLot, bestVerdict, countByRight } from "@/lib/engine";
 import { FIXTURE_LOTS } from "@/lib/fixtures";
-import type { Finding, Lot, LotsFile, RuleSet, Verdict } from "@/lib/types";
+import type { Comps, CompsFile, Finding, Lot, LotsFile, RuleSet, Triage, TriageResult, Verdict } from "@/lib/types";
 import TopBar from "./TopBar";
 import LeftRail, { type Filters } from "./LeftRail";
 import DetailPanel from "./DetailPanel";
 import AboutDrawer from "./AboutDrawer";
 import { TYPOLOGIES } from "./verdict";
-import { DEFAULT_ASSUMPTIONS, type ProformaAssumptions, type RevenueMode } from "@/lib/proforma";
+import {
+  compsFor,
+  countTriage,
+  DEFAULT_FINANCE,
+  FALLBACK_COMPS,
+  lotMargin,
+  triageLot,
+  type FinanceAssumptions,
+} from "@/lib/finance";
 
 const MapView = dynamic(() => import("./MapView"), {
   ssr: false,
@@ -18,6 +26,10 @@ const MapView = dynamic(() => import("./MapView"), {
 
 export type Evaluations = Record<RuleSet, { findings: Finding[][]; best: Verdict[] }>;
 
+export type Triages = Record<RuleSet, { results: TriageResult[]; margin: (number | null)[] }>;
+
+export type ColorMode = "triage" | "verdict";
+
 export interface RuleSetStats {
   byRightAny: number;
   byRightPairs: number;
@@ -25,6 +37,7 @@ export interface RuleSetStats {
   unknown: number;
   /** Lots with more by-right home types than under today's code. Zero for "current". */
   lotsGaining: number;
+  triage: Record<Triage, number>;
 }
 
 const RULE_SETS: RuleSet[] = ["current", "bill-2025-1545"];
@@ -47,7 +60,7 @@ function evaluateAll(lots: Lot[]): Evaluations {
   return out;
 }
 
-function computeStats(evals: Evaluations): Record<RuleSet, RuleSetStats> {
+function computeStats(evals: Evaluations, triages: Triages): Record<RuleSet, RuleSetStats> {
   const s = {} as Record<RuleSet, RuleSetStats>;
   const base = evals["current"].findings.map(countByRight);
   for (const rs of RULE_SETS) {
@@ -64,7 +77,7 @@ function computeStats(evals: Evaluations): Record<RuleSet, RuleSetStats> {
       byRightPairs += n;
       if (n > base[i]) lotsGaining++;
     });
-    s[rs] = { byRightAny, byRightPairs, variance, unknown, lotsGaining };
+    s[rs] = { byRightAny, byRightPairs, variance, unknown, lotsGaining, triage: countTriage(triages[rs].results) };
   }
   return s;
 }
@@ -81,13 +94,15 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const [flyTo, setFlyTo] = useState<{ lon: number; lat: number; seq: number } | null>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
-  const [assumptions, setAssumptions] = useState<ProformaAssumptions>(DEFAULT_ASSUMPTIONS);
-  const [revenueMode, setRevenueMode] = useState<RevenueMode>("sale");
+  const [assumptions, setAssumptions] = useState<FinanceAssumptions>(DEFAULT_FINANCE);
+  const [compsFile, setCompsFile] = useState<CompsFile | null>(null);
+  const [colorMode, setColorMode] = useState<ColorMode>("triage");
   const [filters, setFilters] = useState<Filters>({
     neighborhood: "",
     typology: "",
     onlyByRight: false,
     minArea: 0,
+    triage: "",
   });
 
   useEffect(() => {
@@ -112,6 +127,24 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/data/comps.json")
+      .then((r) => {
+        if (!r.ok) throw new Error(String(r.status));
+        return r.json() as Promise<CompsFile>;
+      })
+      .then((c) => {
+        if (!cancelled) setCompsFile(c?.byNeighborhood ? c : null);
+      })
+      .catch(() => {
+        if (!cancelled) setCompsFile(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const lots = useMemo(
     () => (file?.lots ?? []).filter((l) => Number.isFinite(l.lat) && Number.isFinite(l.lon)),
     [file],
@@ -119,7 +152,20 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
 
   const evals = useMemo<Evaluations | null>(() => (lots.length ? evaluateAll(lots) : null), [lots]);
 
-  const stats = useMemo(() => (evals ? computeStats(evals) : null), [evals]);
+  const activeComps = compsFile ?? FALLBACK_COMPS;
+  const comps = useMemo<(Comps | null)[]>(() => lots.map((l) => compsFor(l, activeComps)), [activeComps, lots]);
+
+  const triages = useMemo<Triages | null>(() => {
+    if (!evals) return null;
+    const out = {} as Triages;
+    for (const rs of RULE_SETS) {
+      const results = lots.map((l, i) => triageLot(l, evals[rs].findings[i], comps[i], assumptions));
+      out[rs] = { results, margin: results.map((t, i) => lotMargin(lots[i], t, comps[i], assumptions)) };
+    }
+    return out;
+  }, [evals, lots, comps, assumptions]);
+
+  const stats = useMemo(() => (evals && triages ? computeStats(evals, triages) : null), [evals, triages]);
   const changed = useMemo(() => (evals ? computeChanged(evals) : []), [evals]);
 
   const typIdx = filters.typology ? TYPOLOGIES.indexOf(filters.typology) : -1;
@@ -130,14 +176,20 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
     return typIdx < 0 ? e.best : e.findings.map((f) => f[typIdx].verdict);
   }, [evals, ruleSet, typIdx]);
 
+  const mapTriage = useMemo<Triage[]>(
+    () => (triages ? triages[ruleSet].results.map((t) => t.triage) : []),
+    [triages, ruleSet],
+  );
+
   const matches = useMemo<boolean[]>(() => {
     return lots.map((l, i) => {
+      if (filters.triage && mapTriage[i] !== filters.triage) return false;
       if (filters.neighborhood && l.neighborhood !== filters.neighborhood) return false;
       if (filters.minArea && (l.lotAreaSqFt ?? 0) < filters.minArea) return false;
       if (filters.onlyByRight && mapVerdicts[i] !== "by-right") return false;
       return true;
     });
-  }, [lots, filters, mapVerdicts]);
+  }, [lots, filters, mapVerdicts, mapTriage]);
 
   const selectFromMap = useCallback((i: number) => setSelectedIdx(i), []);
   const selectFromList = useCallback(
@@ -175,6 +227,7 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
         <LeftRail
           lots={lots}
           evals={evals}
+          triages={triages}
           ruleSet={ruleSet}
           filters={filters}
           onFilters={setFilters}
@@ -186,6 +239,9 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
           <MapView
             lots={lots}
             verdicts={mapVerdicts}
+            triages={mapTriage}
+            colorMode={colorMode}
+            onColorMode={setColorMode}
             matches={matches}
             changed={ruleSet === "bill-2025-1545" && !filters.typology ? changed : null}
             selectedIdx={selectedIdx}
@@ -203,14 +259,20 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
           findingsCurrent={selectedIdx != null && evals ? evals.current.findings[selectedIdx] : null}
           findingsBill={selectedIdx != null && evals ? evals["bill-2025-1545"].findings[selectedIdx] : null}
           onClose={() => setSelectedIdx(null)}
+          triage={selectedIdx != null && triages ? triages[ruleSet].results[selectedIdx] : null}
+          comps={selectedIdx != null ? comps[selectedIdx] : null}
           assumptions={assumptions}
           onAssumptions={setAssumptions}
-          revenueMode={revenueMode}
-          onRevenueMode={setRevenueMode}
           onGenerateMemo={onGenerateMemo}
         />
       </div>
-      <AboutDrawer open={aboutOpen} onClose={() => setAboutOpen(false)} file={file} usingFixtures={usingFixtures} />
+      <AboutDrawer
+        open={aboutOpen}
+        onClose={() => setAboutOpen(false)}
+        file={file}
+        compsFile={activeComps}
+        usingFixtures={usingFixtures}
+      />
     </div>
   );
 }

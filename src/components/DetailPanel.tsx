@@ -1,9 +1,18 @@
 "use client";
 import { useState } from "react";
-import type { Check, Finding, Lot, RuleSet } from "@/lib/types";
+import type { Check, Comps, Finding, Lot, RuleSet, TriageResult } from "@/lib/types";
 import { TYPOLOGY_LABEL, VERDICT_LABEL } from "@/lib/types";
-import type { ProformaAssumptions, RevenueMode } from "@/lib/proforma";
-import { VERDICT_COLOR, VerdictChip, VERDICT_SHORT, ZoneChip } from "./verdict";
+import type { FinanceAssumptions } from "@/lib/finance";
+import {
+  TRIAGE_COLOR,
+  TRIAGE_INK,
+  TRIAGE_SHORT,
+  TRIAGE_WORD,
+  VERDICT_COLOR,
+  VerdictChip,
+  VERDICT_SHORT,
+  ZoneChip,
+} from "./verdict";
 import { districtName } from "./district";
 import { buildMemo, REVIEW_CHECKLIST } from "./memo";
 import ProForma from "./ProForma";
@@ -15,10 +24,10 @@ interface Props {
   findingsCurrent: Finding[] | null;
   findingsBill: Finding[] | null;
   onClose: () => void;
-  assumptions: ProformaAssumptions;
-  onAssumptions: (a: ProformaAssumptions) => void;
-  revenueMode: RevenueMode;
-  onRevenueMode: (m: RevenueMode) => void;
+  triage: TriageResult | null;
+  comps: Comps | null;
+  assumptions: FinanceAssumptions;
+  onAssumptions: (a: FinanceAssumptions) => void;
   /** Hook for an AI-drafted memo. Not implemented here; the lead wires the API route. */
   onGenerateMemo?: (lot: Lot, findings: Finding[], ruleSet: RuleSet) => Promise<string>;
 }
@@ -53,14 +62,13 @@ function LotDetail({
   findingsCurrent,
   findingsBill,
   onClose,
+  triage,
+  comps,
   assumptions,
   onAssumptions,
-  revenueMode,
-  onRevenueMode,
   onGenerateMemo,
 }: Props & { lot: Lot; findings: Finding[] }) {
   const [open, setOpen] = useState<string | null>(null);
-  const [proformaOpen, setProformaOpen] = useState(false);
   const [checked, setChecked] = useState<boolean[]>(REVIEW_CHECKLIST.map(() => false));
   const [copied, setCopied] = useState<string | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
@@ -151,6 +159,8 @@ function LotDetail({
       </div>
 
       <div className="space-y-6 px-5 py-5">
+        {triage && <TriageBlock t={triage} ruleSet={ruleSet} />}
+
         <Section n={1} title="The lot">
           <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-[12px]">
             <Fact label="Zone" wide>
@@ -251,34 +261,15 @@ function LotDetail({
           )}
         </Section>
 
-        <Section
-          n={4}
-          title="Pro forma"
-          action={
-            <button
-              onClick={() => setProformaOpen((o) => !o)}
-              aria-expanded={proformaOpen}
-              className="flex items-center gap-1 text-[12px] font-medium text-accent"
-            >
-              {proformaOpen ? "Hide" : "Show estimate"}
-              <Chevron open={proformaOpen} />
-            </button>
-          }
-        >
-          {proformaOpen ? (
-            <div className="fade-in">
-              <ProForma
-                lot={lot}
-                findings={findings}
-                assumptions={assumptions}
-                onAssumptions={onAssumptions}
-                mode={revenueMode}
-                onMode={onRevenueMode}
-              />
-            </div>
-          ) : (
-            <p className="text-[12px] text-muted">Land, hard and soft cost against an affordable sale price or rent.</p>
-          )}
+        <Section n={4} title="Does it pencil?">
+          <ProForma
+            key={triage?.bestTypology ?? "none"}
+            lot={lot}
+            comps={comps}
+            initialTypology={triage?.bestTypology ?? findings.find((f) => f.verdict === "by-right")?.typology ?? null}
+            assumptions={assumptions}
+            onAssumptions={onAssumptions}
+          />
         </Section>
 
         <Section n={5} title="Human review checklist">
@@ -335,6 +326,37 @@ function LotDetail({
         </div>
       )}
     </div>
+  );
+}
+
+function TriageBlock({ t, ruleSet }: { t: TriageResult; ruleSet: RuleSet }) {
+  const c = TRIAGE_COLOR[t.triage];
+  return (
+    <section
+      aria-label={`Triage: ${TRIAGE_WORD[t.triage]}`}
+      className="fade-in overflow-hidden rounded-lg border border-hairline bg-white"
+    >
+      <div className="flex items-stretch">
+        <div className="flex w-[92px] shrink-0 flex-col items-center justify-center gap-1 py-3" style={{ background: c }}>
+          <span className="font-serif text-[26px] leading-none text-white">{TRIAGE_WORD[t.triage]}</span>
+        </div>
+        <div className="min-w-0 flex-1 px-3.5 py-2.5">
+          <p className="text-[13px] font-semibold" style={{ color: TRIAGE_INK[t.triage] }}>
+            {TRIAGE_SHORT[t.triage]}
+            <span className="font-normal text-muted">
+              {ruleSet === "current" ? ", today's code" : ", if Bill 2025-1545 passes"}
+            </span>
+          </p>
+          <ul className="mt-1 space-y-1">
+            {t.reasons.map((r) => (
+              <li key={r} className="text-[12px] leading-snug text-ink">
+                {r}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </section>
   );
 }
 

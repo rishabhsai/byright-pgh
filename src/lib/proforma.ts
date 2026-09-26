@@ -14,12 +14,12 @@ export interface FinanceAssumptions {
   /** Soft costs (professional fees, construction loan fees, holding, other) as % of hard cost. */
   softCostPct: number;
   /** Developer fee + overhead as % of hard cost. */
-  developerFeePct: number;
+  devFeePct: number;
   /** Land cost override in $. null uses the county assessed land value. */
   landOverride: number | null;
   /** Land cost used when the lot has no assessed value and no override. */
   defaultLand: number;
-  revenueMode: RevenueMode;
+  mode: RevenueMode;
   /** Size of the "typical home" ZHVI describes; sale value is scaled by unit sf / this. */
   typicalHomeSf: number;
   /** Cap rate, % (rent mode). */
@@ -33,10 +33,10 @@ export interface FinanceAssumptions {
 export const DEFAULT_FINANCE: FinanceAssumptions = {
   hardCostPerSf: 185,
   softCostPct: 22,
-  developerFeePct: 13,
+  devFeePct: 13,
   landOverride: null,
   defaultLand: 5000,
-  revenueMode: "sale",
+  mode: "sale",
   typicalHomeSf: 1400,
   capRate: 7,
   opexPct: 35,
@@ -112,6 +112,8 @@ export interface InputUsed {
   url?: string;
   /** true when the number is an editable assumption rather than observed data. */
   assumed: boolean;
+  /** Data month for observed comps. */
+  date?: string | null;
 }
 
 export type LandSource = "override" | "assessed" | "default";
@@ -123,9 +125,10 @@ export interface Proforma {
   buildingSf: number;
   land: number;
   landSource: LandSource;
+  landIsAssumed: boolean;
   hard: number;
   soft: number;
-  developerFee: number;
+  devFee: number;
   totalCost: number;
   /** Sale proceeds (sale mode) or capitalized value (rent mode). */
   revenue: number;
@@ -169,22 +172,22 @@ interface CostStack {
   landSource: LandSource;
   hard: number;
   soft: number;
-  developerFee: number;
+  devFee: number;
   totalCost: number;
 }
 
 function costStack(
   typology: Typology,
   landValue: number | null,
-  a: Pick<FinanceAssumptions, "hardCostPerSf" | "softCostPct" | "developerFeePct" | "landOverride" | "defaultLand">,
+  a: Pick<FinanceAssumptions, "hardCostPerSf" | "softCostPct" | "devFeePct" | "landOverride" | "defaultLand">,
 ): CostStack {
   const sf = buildingSf(typology);
   const landSource: LandSource = a.landOverride != null ? "override" : landValue != null ? "assessed" : "default";
   const land = a.landOverride ?? landValue ?? a.defaultLand;
   const hard = sf * a.hardCostPerSf;
   const soft = hard * (a.softCostPct / 100);
-  const developerFee = hard * (a.developerFeePct / 100);
-  return { buildingSf: sf, land, landSource, hard, soft, developerFee, totalCost: land + hard + soft + developerFee };
+  const devFee = hard * (a.devFeePct / 100);
+  return { buildingSf: sf, land, landSource, hard, soft, devFee, totalCost: land + hard + soft + devFee };
 }
 
 /**
@@ -234,10 +237,10 @@ export function runProforma(
       assumed: true,
     },
     {
-      key: "developerFeePct",
+      key: "devFeePct",
       label: "Developer fee + overhead",
-      value: a.developerFeePct,
-      display: `${a.developerFeePct}% of hard`,
+      value: a.devFeePct,
+      display: `${a.devFeePct}% of hard`,
       source: `${SIXTH_WARD_SOURCE}: 9% of total cost, 13% of hard`,
       assumed: true,
     },
@@ -246,7 +249,7 @@ export function runProforma(
   let revenue: number;
   let grossAnnualRent: number | null = null;
   let revenueNote: string;
-  if (a.revenueMode === "sale") {
+  if (a.mode === "sale") {
     if (comps.zhvi == null) return null;
     const { saleUnits, sfPerSale } = SALE_PLAN[typology];
     const scale = saleScale(sfPerSale, a.typicalHomeSf);
@@ -264,6 +267,7 @@ export function runProforma(
         source: `Zillow Home Value Index (mid tier, smoothed, seasonally adjusted), ${month(comps.zhviDate)}`,
         url: ZILLOW_DATA_URL,
         assumed: false,
+        date: comps.zhviDate,
       },
       {
         key: "saleScale",
@@ -289,6 +293,7 @@ export function runProforma(
         source: `Zillow Observed Rent Index (all homes plus multifamily, smoothed), ${month(comps.zoriDate)}`,
         url: ZILLOW_DATA_URL,
         assumed: false,
+        date: comps.zoriDate,
       },
       {
         key: "opexPct",
@@ -322,9 +327,10 @@ export function runProforma(
   const pencils = margin >= required;
   return {
     typology,
-    mode: a.revenueMode,
+    mode: a.mode,
     units: plan.units,
     ...c,
+    landIsAssumed: c.landSource !== "assessed",
     revenue,
     grossAnnualRent,
     revenueNote,
@@ -378,7 +384,7 @@ export function computeProforma(
   mode: RevenueMode,
 ): ProformaResult {
   const plan = UNIT_PLAN[typology];
-  const c = costStack(typology, landValue, { ...a, developerFeePct: 0, landOverride: null });
+  const c = costStack(typology, landValue, { ...a, devFeePct: 0, landOverride: null });
   let revenue: number;
   let revenueNote: string;
   if (mode === "sale") {

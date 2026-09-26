@@ -1,5 +1,5 @@
 "use client";
-import type { LotsFile } from "@/lib/types";
+import type { CompsFile, LotsFile } from "@/lib/types";
 import { caveats, RULESET_LABEL, RULESET_NOTE } from "@/lib/engine";
 import { encodedDistricts } from "./district";
 
@@ -16,11 +16,13 @@ export default function AboutDrawer({
   open,
   onClose,
   file,
+  compsFile,
   usingFixtures,
 }: {
   open: boolean;
   onClose: () => void;
   file: LotsFile | null;
+  compsFile: CompsFile | null;
   usingFixtures: boolean;
 }) {
   const districts = encodedDistricts();
@@ -74,6 +76,57 @@ export default function AboutDrawer({
             )}
           </Block>
 
+          <Block title="Green, yellow, red">
+            <blockquote className="border-l-2 border-hairline pl-3 text-[13px] leading-relaxed text-ink">
+              <p>
+                <Swatch c="#e11d48" /> Red: not developable.
+              </p>
+              <p>
+                <Swatch c="#f59e0b" /> Yellow: needs variances or subsidy.
+              </p>
+              <p>
+                <Swatch c="#16a34a" /> Green: easily developable as is.
+              </p>
+            </blockquote>
+            <p className="mt-1.5 text-[11px] text-muted">Hackathon housing mentors, Sept 26, 2026</p>
+            <p className="mt-2 text-[12px] leading-relaxed text-muted">
+              ByRight applies it per lot: zoning verdicts decide whether a home type can be built, and Zillow comps decide
+              whether it pays for itself. Gray means the district is not encoded, so the lot was not evaluated.
+            </p>
+          </Block>
+
+          <Block title="Comps and finance">
+            <ul className="space-y-3">
+              {(compsFile?.sources ?? []).map((s) => (
+                <li key={s.name}>
+                  <a href={s.url} target="_blank" rel="noreferrer" className="text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent">
+                    {s.name}
+                  </a>
+                  <p className="mt-0.5 text-[11px] leading-snug break-words text-muted [overflow-wrap:anywhere]">{s.vintage}</p>
+                </li>
+              ))}
+              {!compsFile?.sources?.length && (
+                <li className="text-[12px] text-muted">No comps file loaded; finance is not assessed for any lot.</li>
+              )}
+            </ul>
+            <p className="mt-3 text-[12px] leading-relaxed text-ink">
+              Calibration: a typical Pittsburgh affordable deal is about 70% tax-credit equity and public subsidy (Action
+              Housing, Sixth Ward Flats). A yellow lot that needs a subsidy gap closed is normal for affordable housing,
+              not a dead end.
+            </p>
+            <p className="mt-3 text-[12px] text-muted">
+              Further reading:{" "}
+              <a
+                href="https://www.prohousingpgh.org/ycbth"
+                target="_blank"
+                rel="noreferrer"
+                className="text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent"
+              >
+                Pro-Housing Pittsburgh, &ldquo;You Can&apos;t Build That Here&rdquo; series
+              </a>
+            </p>
+          </Block>
+
           <Block title="Rule sets">
             <dl className="space-y-2">
               {(Object.keys(RULESET_LABEL) as (keyof typeof RULESET_LABEL)[]).map((k) => (
@@ -117,6 +170,10 @@ export default function AboutDrawer({
       </div>
     </div>
   );
+}
+
+function Swatch({ c }: { c: string }) {
+  return <span aria-hidden className="mr-1 inline-block h-2 w-2 rounded-full align-middle" style={{ background: c }} />;
 }
 
 function Block({ title, children }: { title: string; children: React.ReactNode }) {

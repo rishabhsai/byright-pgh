@@ -1,7 +1,7 @@
 import type { CompsFile, Comps, Finding, Lot, RuleSet, Triage, TriageResult, Typology, Verdict } from "./types";
 import { TYPOLOGY_LABEL } from "./types";
 import { evaluateLot } from "./rules";
-import { compsForLot, fmtUsd, runProforma, type FinanceAssumptions, type Proforma } from "./proforma";
+import { compsForLot, DEFAULT_FINANCE, fmtUsd, runProforma, type FinanceAssumptions, type Proforma } from "./proforma";
 
 /*
  * Green / Yellow / Red triage (organizer definition, AI Horizons 2026):
@@ -58,8 +58,11 @@ export function triageLot(
   const candidates = buildable.filter((f) => VERDICT_RANK[f.verdict] === bestRank);
   let best: Finding = candidates[0];
   let pf: Proforma | null = null;
+  const mode = assumptions?.mode ?? DEFAULT_FINANCE.mode;
+  const other = mode === "sale" ? "rent" : "sale";
   for (const f of candidates) {
-    const p = runProforma(lot, f.typology, comps, assumptions);
+    // If this lot lacks the comp the chosen mode needs, fall back to the other comp.
+    const p = runProforma(lot, f.typology, comps, assumptions) ?? runProforma(lot, f.typology, comps, { ...assumptions, mode: other });
     if (p && (!pf || p.margin > pf.margin)) {
       pf = p;
       best = f;
@@ -75,10 +78,13 @@ export function triageLot(
 
   if (!pf) {
     reasons.push("Finance: comps unavailable; finance not assessed.");
-  } else if (pf.pencils) {
-    reasons.push(`Finance: pencils, ${pf.marginPct.toFixed(0)}% margin on ${fmtUsd(pf.totalCost)} cost.`);
   } else {
-    reasons.push(`Finance: needs about ${fmtUsd(pf.gap)} in subsidy to reach the target margin.`);
+    const basis = pf.mode === mode ? "" : ` (no ${mode} comp here, so ${pf.mode} comps were used)`;
+    reasons.push(
+      pf.pencils
+        ? `Finance: pencils, ${pf.marginPct.toFixed(0)}% margin on ${fmtUsd(pf.totalCost)} cost${basis}.`
+        : `Finance: needs about ${fmtUsd(pf.gap)} in subsidy to reach the target margin${basis}.`,
+    );
   }
 
   const green = best.verdict === "by-right" && hazards.length === 0 && (pf === null || pf.pencils);

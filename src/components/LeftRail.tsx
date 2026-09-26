@@ -1,21 +1,35 @@
 "use client";
 import { memo, useMemo } from "react";
-import type { Lot, RuleSet, Typology } from "@/lib/types";
+import type { Lot, RuleSet, Triage, Typology } from "@/lib/types";
 import { TYPOLOGY_LABEL } from "@/lib/types";
-import { scoreLot, compareRanked } from "@/lib/ranking";
-import type { Evaluations } from "./ByRightApp";
-import { TYPOLOGIES, TYPOLOGY_SHORT, VerdictDot, VerdictLegend, VERDICT_SHORT, ZoneChip } from "./verdict";
+import { scoreLot, compareTriageRanked, type TriageRanked } from "@/lib/ranking";
+import type { Evaluations, Triages } from "./ByRightApp";
+import {
+  TRIAGE_COLOR,
+  TRIAGE_WORD,
+  TriageChip,
+  TYPOLOGIES,
+  TYPOLOGY_SHORT,
+  VerdictDot,
+  VerdictLegend,
+  VERDICT_SHORT,
+  ZoneChip,
+} from "./verdict";
 
 export interface Filters {
   neighborhood: string;
   typology: Typology | "";
   onlyByRight: boolean;
   minArea: number;
+  triage: Exclude<Triage, "gray"> | "";
 }
+
+const TRIAGE_FILTERS: Filters["triage"][] = ["", "green", "yellow", "red"];
 
 interface Props {
   lots: Lot[];
   evals: Evaluations | null;
+  triages: Triages | null;
   ruleSet: RuleSet;
   filters: Filters;
   onFilters: (f: Filters) => void;
@@ -26,7 +40,7 @@ interface Props {
 
 const LIST_LIMIT = 200;
 
-function LeftRail({ lots, evals, ruleSet, filters, onFilters, matches, selectedIdx, onSelect }: Props) {
+function LeftRail({ lots, evals, triages, ruleSet, filters, onFilters, matches, selectedIdx, onSelect }: Props) {
   const neighborhoods = useMemo(
     () => Array.from(new Set(lots.map((l) => l.neighborhood).filter(Boolean))).sort(),
     [lots],
@@ -46,25 +60,36 @@ function LeftRail({ lots, evals, ruleSet, filters, onFilters, matches, selectedI
     };
     const now = count(ruleSet);
     const base = ruleSet === "current" ? null : count("current");
+    const green = new Map<string, number>();
+    triages?.[ruleSet].results.forEach((t, i) => {
+      if (t.triage === "green") green.set(lots[i].neighborhood, (green.get(lots[i].neighborhood) ?? 0) + 1);
+    });
     return Array.from(now.entries())
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
-      .map(([name, n]) => ({ name, n, delta: base ? n - (base.get(name) ?? 0) : 0 }));
-  }, [evals, ruleSet, lots, typIdx]);
+      .map(([name, n]) => ({ name, n, green: green.get(name) ?? 0, delta: base ? n - (base.get(name) ?? 0) : 0 }));
+  }, [evals, triages, ruleSet, lots, typIdx]);
 
   const maxHood = topHoods[0]?.n ?? 1;
 
   const ranked = useMemo(() => {
-    if (!evals) return { rows: [], total: 0 };
+    if (!evals || !triages) return { rows: [], total: 0 };
     const e = evals[ruleSet];
-    const rows: { i: number; score: number; lot: Lot }[] = [];
+    const tr = triages[ruleSet];
+    const rows: (TriageRanked & { i: number })[] = [];
     for (let i = 0; i < lots.length; i++) {
       if (!matches[i]) continue;
-      rows.push({ i, score: scoreLot(lots[i], e.findings[i]), lot: lots[i] });
+      rows.push({
+        i,
+        score: scoreLot(lots[i], e.findings[i]),
+        lot: lots[i],
+        triage: tr.results[i].triage,
+        margin: tr.margin[i],
+      });
     }
-    rows.sort(compareRanked);
+    rows.sort(compareTriageRanked);
     return { rows: rows.slice(0, LIST_LIMIT), total: rows.length };
-  }, [evals, ruleSet, lots, matches]);
+  }, [evals, triages, ruleSet, lots, matches]);
 
   const set = <K extends keyof Filters>(k: K, v: Filters[K]) => onFilters({ ...filters, [k]: v });
 
@@ -72,7 +97,29 @@ function LeftRail({ lots, evals, ruleSet, filters, onFilters, matches, selectedI
     <aside className="flex w-[344px] shrink-0 flex-col border-r border-hairline bg-panel">
       <div className="border-b border-hairline px-4 pt-4 pb-3">
         <h2 className="font-serif text-[22px] leading-none">Fast-track finder</h2>
-        <p className="mt-1 text-[12px] text-muted">Lots ranked by how many home types fit without a hearing.</p>
+        <p className="mt-1 text-[12px] text-muted">
+          Green lots first, then yellow and red. Within a color, most home types by right, then best margin.
+        </p>
+
+        <div className="mt-3">
+          <span className="mb-1 block text-[11px] text-muted">Triage</span>
+          <div role="radiogroup" aria-label="Triage filter" className="grid grid-cols-4 rounded-md border border-hairline bg-surface p-0.5 text-[12px]">
+            {TRIAGE_FILTERS.map((t) => (
+              <button
+                key={t || "any"}
+                role="radio"
+                aria-checked={filters.triage === t}
+                onClick={() => set("triage", t)}
+                className={`inline-flex items-center justify-center gap-1.5 rounded px-2 py-1 transition-colors ${
+                  filters.triage === t ? "bg-white font-medium text-ink shadow-[0_0_0_1px_rgba(23,33,30,.08)]" : "text-muted hover:text-ink"
+                }`}
+              >
+                {t && <span className="h-2 w-2 rounded-full" style={{ background: TRIAGE_COLOR[t] }} />}
+                {t ? TRIAGE_WORD[t] : "Any"}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <div className="mt-3 grid grid-cols-2 gap-2">
           <Field label="Neighborhood">
@@ -129,7 +176,11 @@ function LeftRail({ lots, evals, ruleSet, filters, onFilters, matches, selectedI
           Top neighborhoods by by-right lots
           {filters.typology && <span className="text-muted">, {TYPOLOGY_SHORT[filters.typology]}</span>}
         </h3>
-        <ol className="mt-2 space-y-1">
+        <div className="mt-1 flex justify-end gap-0 pr-1.5 text-[10.5px] text-faint">
+          <span className="w-14 text-right">green lots</span>
+          <span className="w-12 text-right">by right</span>
+        </div>
+        <ol className="mt-0.5 space-y-1">
           {topHoods.length === 0 && <li className="text-[12px] text-muted">No by-right lots under this rule set.</li>}
           {topHoods.map((h) => (
             <li key={h.name}>
@@ -148,7 +199,11 @@ function LeftRail({ lots, evals, ruleSet, filters, onFilters, matches, selectedI
                 {h.delta > 0 && (
                   <span className="relative text-[11px] font-medium text-[#7a5a00]">+{h.delta.toLocaleString()}</span>
                 )}
-                <span className="relative w-10 text-right font-medium tabular-nums">{h.n.toLocaleString()}</span>
+                <span className="relative inline-flex w-14 items-center justify-end gap-1 text-right tabular-nums text-[#15803d]">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#16a34a]" aria-hidden />
+                  {h.green.toLocaleString()}
+                </span>
+                <span className="relative w-12 text-right font-medium tabular-nums">{h.n.toLocaleString()}</span>
               </button>
             </li>
           ))}
@@ -171,7 +226,7 @@ function LeftRail({ lots, evals, ruleSet, filters, onFilters, matches, selectedI
       </div>
 
       <ul className="scroll-thin min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-        {ranked.rows.map(({ i, lot }) => {
+        {ranked.rows.map(({ i, lot, triage }) => {
           const f = evals![ruleSet].findings[i];
           const active = i === selectedIdx;
           return (
@@ -182,6 +237,9 @@ function LeftRail({ lots, evals, ruleSet, filters, onFilters, matches, selectedI
                   active ? "bg-accent-soft ring-1 ring-accent/30" : "hover:bg-surface"
                 }`}
               >
+                <span className="mt-px">
+                  <TriageChip triage={triage} />
+                </span>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[13px] font-medium text-ink">{lot.address || lot.id}</div>
                   <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted">

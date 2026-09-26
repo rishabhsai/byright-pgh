@@ -7,19 +7,60 @@ import {
   type GeoJSONSource,
   type MapLayerMouseEvent,
 } from "maplibre-gl";
-import type { Lot, RuleSet, Typology, Verdict } from "@/lib/types";
+import type { ExpressionSpecification } from "maplibre-gl";
+import type { Lot, RuleSet, Triage, Typology, Verdict } from "@/lib/types";
 import { TYPOLOGY_LABEL } from "@/lib/types";
-import { VERDICT_COLOR, VERDICT_SHORT, VerdictLegend } from "./verdict";
+import type { ColorMode } from "./ByRightApp";
+import {
+  TRIAGE_COLOR,
+  TRIAGE_INK,
+  TRIAGE_SHORT,
+  TRIAGE_WORD,
+  TriageLegend,
+  VERDICT_COLOR,
+  VERDICT_SHORT,
+  VerdictLegend,
+} from "./verdict";
 
 // Turbopack cannot resolve MapLibre 6's module worker; serve a copy from /public.
 setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 
 const STYLE_URL = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
 const SORT: Record<Verdict, number> = { "by-right": 5, review: 4, variance: 3, prohibited: 2, unknown: 1 };
+const TSORT: Record<Triage, number> = { green: 5, yellow: 4, red: 3, gray: 1 };
+
+const VERDICT_PAINT: ExpressionSpecification = [
+  "match",
+  ["get", "v"],
+  "by-right",
+  VERDICT_COLOR["by-right"],
+  "review",
+  VERDICT_COLOR.review,
+  "variance",
+  VERDICT_COLOR.variance,
+  "prohibited",
+  VERDICT_COLOR.prohibited,
+  VERDICT_COLOR.unknown,
+];
+
+const TRIAGE_PAINT: ExpressionSpecification = [
+  "match",
+  ["get", "t"],
+  "green",
+  TRIAGE_COLOR.green,
+  "yellow",
+  TRIAGE_COLOR.yellow,
+  "red",
+  TRIAGE_COLOR.red,
+  TRIAGE_COLOR.gray,
+];
 
 interface Props {
   lots: Lot[];
   verdicts: Verdict[];
+  triages: Triage[];
+  colorMode: ColorMode;
+  onColorMode: (m: ColorMode) => void;
   matches: boolean[];
   /** Lots whose verdicts differ between rule sets; ringed in gold when set. */
   changed: boolean[] | null;
@@ -34,24 +75,32 @@ type Hover = { x: number; y: number; i: number } | null;
 
 type GeoData = Parameters<GeoJSONSource["setData"]>[0];
 
-function buildData(lots: Lot[], verdicts: Verdict[], matches: boolean[], changed: boolean[] | null): GeoData {
+function buildData(
+  lots: Lot[],
+  verdicts: Verdict[],
+  triages: Triage[],
+  mode: ColorMode,
+  matches: boolean[],
+  changed: boolean[] | null,
+): GeoData {
   return {
     type: "FeatureCollection",
     features: lots.map((l, i) => {
       const v = verdicts[i] ?? "unknown";
+      const t = triages[i] ?? "gray";
       const m = matches[i] ? 1 : 0;
       const c = changed?.[i] && m ? 1 : 0;
       return {
         type: "Feature" as const,
         id: i,
         geometry: { type: "Point" as const, coordinates: [l.lon, l.lat] },
-        properties: { i, v, m, c, k: m * 10 + c * 6 + SORT[v] },
+        properties: { i, v, t, m, c, k: m * 10 + c * 6 + (mode === "triage" ? TSORT[t] : SORT[v]) },
       };
     }),
   };
 }
 
-function MapView({ lots, verdicts, matches, changed, selectedIdx, onSelect, flyTo, colorBy, ruleSet }: Props) {
+function MapView({ lots, verdicts, triages, colorMode, onColorMode, matches, changed, selectedIdx, onSelect, flyTo, colorBy, ruleSet }: Props) {
   const el = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MLMap | null>(null);
   const [ready, setReady] = useState(false);
@@ -88,19 +137,7 @@ function MapView({ lots, verdicts, matches, changed, selectedIdx, onSelect, flyT
         source: "lots",
         layout: { "circle-sort-key": ["get", "k"] },
         paint: {
-          "circle-color": [
-            "match",
-            ["get", "v"],
-            "by-right",
-            VERDICT_COLOR["by-right"],
-            "review",
-            VERDICT_COLOR.review,
-            "variance",
-            VERDICT_COLOR.variance,
-            "prohibited",
-            VERDICT_COLOR.prohibited,
-            VERDICT_COLOR.unknown,
-          ],
+          "circle-color": VERDICT_PAINT,
           "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 1.8, 12, 3, 14, 5, 16, 8, 18, 12],
           "circle-opacity": ["case", ["==", ["get", "m"], 1], 0.9, 0.12],
           "circle-stroke-color": ["case", ["==", ["get", "c"], 1], "#e0a800", "#ffffff"],
@@ -157,8 +194,11 @@ function MapView({ lots, verdicts, matches, changed, selectedIdx, onSelect, flyT
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map) return;
-    (map.getSource("lots") as GeoJSONSource | undefined)?.setData(buildData(lots, verdicts, matches, changed));
-  }, [ready, lots, verdicts, matches, changed]);
+    (map.getSource("lots") as GeoJSONSource | undefined)?.setData(
+      buildData(lots, verdicts, triages, colorMode, matches, changed),
+    );
+    map.setPaintProperty("lots", "circle-color", colorMode === "triage" ? TRIAGE_PAINT : VERDICT_PAINT);
+  }, [ready, lots, verdicts, triages, colorMode, matches, changed]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -187,6 +227,7 @@ function MapView({ lots, verdicts, matches, changed, selectedIdx, onSelect, flyT
 
   const hl = hover ? lots[hover.i] : null;
   const hv = hover ? verdicts[hover.i] : null;
+  const ht = hover ? triages[hover.i] : null;
 
   return (
     <div className="absolute inset-0">
@@ -200,21 +241,53 @@ function MapView({ lots, verdicts, matches, changed, selectedIdx, onSelect, flyT
           <div className="mt-0.5 text-[11px] text-muted">
             {hl.neighborhood}, zoned {hl.zone || "none"}
           </div>
-          <div className="mt-1.5 flex items-center gap-1.5 text-[12px]" style={{ color: VERDICT_COLOR[hv] }}>
+          {ht && (
+            <div className="mt-1.5 flex items-center gap-1.5 text-[12px]" style={{ color: TRIAGE_INK[ht] }}>
+              <span className="h-2 w-2 rounded-full" style={{ background: TRIAGE_COLOR[ht] }} />
+              <span className="font-medium">{TRIAGE_WORD[ht]}</span>
+              <span className="text-muted">{TRIAGE_SHORT[ht].toLowerCase()}</span>
+            </div>
+          )}
+          <div className="mt-1 flex items-center gap-1.5 text-[12px]" style={{ color: VERDICT_COLOR[hv] }}>
             <span className="h-2 w-2 rounded-full" style={{ background: VERDICT_COLOR[hv] }} />
             <span className="font-medium">{VERDICT_SHORT[hv]}</span>
             <span className="text-muted">{colorBy ? `for ${TYPOLOGY_LABEL[colorBy]}` : "best of five home types"}</span>
           </div>
         </div>
       )}
-      <div className="pointer-events-none absolute top-3 left-3 z-10 rounded-lg border border-hairline bg-panel/95 px-3 py-2 shadow-sm backdrop-blur">
+      <div className="absolute top-3 left-3 z-10 max-w-[440px] rounded-lg border border-hairline bg-panel/95 px-3 py-2 shadow-sm backdrop-blur">
+        <div className="mb-1.5 flex items-center gap-2">
+          <div
+            role="radiogroup"
+            aria-label="Map color mode"
+            className="grid shrink-0 grid-cols-2 rounded-md border border-hairline bg-surface p-0.5 text-[11px] font-medium"
+          >
+            {(["triage", "verdict"] as ColorMode[]).map((m) => (
+              <button
+                key={m}
+                role="radio"
+                aria-checked={colorMode === m}
+                onClick={() => onColorMode(m)}
+                className={`rounded px-2 py-0.5 transition-colors ${
+                  colorMode === m ? "bg-white text-ink shadow-[0_0_0_1px_rgba(23,33,30,.08)]" : "text-muted hover:text-ink"
+                }`}
+              >
+                {m === "triage" ? "Triage" : "Verdict"}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="mb-1 text-[11px] text-muted">
-          {colorBy ? `Colored by ${TYPOLOGY_LABEL[colorBy]} verdict` : "Colored by best verdict across five home types"}
+          {colorMode === "triage"
+            ? "Green, yellow, red: can it be built, and does it pencil"
+            : colorBy
+              ? `Colored by ${TYPOLOGY_LABEL[colorBy]} verdict`
+              : "Colored by best verdict across five home types"}
           <span className={ruleSet === "current" ? "" : "font-medium text-[#7a5a00]"}>
             {ruleSet === "current" ? ", today's code" : ", with Bill 2025-1545"}
           </span>
         </div>
-        <VerdictLegend />
+        {colorMode === "triage" ? <TriageLegend /> : <VerdictLegend />}
         {changed && (
           <div className="fade-in mt-1.5 flex items-center gap-1.5 text-[11px] text-[#7a5a00]">
             <span className="inline-block h-2.5 w-2.5 rounded-full border-2 border-[#e0a800] bg-v-byright" />

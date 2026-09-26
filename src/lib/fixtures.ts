@@ -1,4 +1,4 @@
-import type { LotsFile } from "./types";
+import type { CompsFile, LotsFile } from "./types";
 
 // Sample of real City-owned vacant lots (WPRDC city-owned-properties) with
 // synthetic frontage, land value, and hazard flags. Used only when
@@ -927,3 +927,5 @@ export const FIXTURE_LOTS: LotsFile = {
     }
   ]
 };
+
+export const EMPTY_COMPS: CompsFile = { generatedAt: "none", sources: [], byNeighborhood: {}, byZip: {}, lotZip: {} };
