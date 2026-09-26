@@ -127,7 +127,7 @@ const PARKING_CURRENT: Record<UseRow, number> = { single: 1, townhome: 0, duplex
 const ADU_CURRENT: AduRule = { permitted: "N", maxPerLot: 1, ownerOccupancyRequired: true, maxSizeSqFt: 800 };
 const ADU_BILL: AduRule = { permitted: "P", maxPerLot: 2, ownerOccupancyRequired: false, maxSizeSqFt: 1000 };
 
-function useStandards(ruleSet: RuleSet, family: DistrictFamily): Record<UseRow, Standard<UseEntry>> {
+function buildUseStandards(ruleSet: RuleSet, family: DistrictFamily): Record<UseRow, Standard<UseEntry>> {
   const rows = USE_LETTERS[family];
   const out = {} as Record<UseRow, Standard<UseEntry>>;
   for (const row of Object.keys(rows) as UseRow[]) {
@@ -192,7 +192,7 @@ function residential(ruleSet: RuleSet, family: DistrictFamily, sub: Subdistrict)
     family,
     subdistrict: sub,
     name: `${FAMILY_NAME[family]}, ${s.label}`,
-    uses: useStandards(ruleSet, family),
+    uses: buildUseStandards(ruleSet, family),
     minLotAreaSqFt: {
       value: s.minLot,
       citation: c,
@@ -220,7 +220,7 @@ function lnc(ruleSet: RuleSet): DistrictStandards {
     family: "LNC",
     subdistrict: null,
     name: FAMILY_NAME.LNC,
-    uses: useStandards(ruleSet, "LNC"),
+    uses: buildUseStandards(ruleSet, "LNC"),
     minLotAreaSqFt: { value: 0, citation: c, note: "Minimum Lot Size 0 (unchanged by Bill 2025-1545 § 2)." },
     minLotAreaPerUnitSqFt: { value: null, citation: c, note: "No minimum lot area per unit in §904.02.C." },
     minLotWidthFt: { value: null, citation: c, note: "§904.02.C sets no minimum lot width." },
@@ -236,7 +236,7 @@ function hillside(ruleSet: RuleSet): DistrictStandards {
     family: "H",
     subdistrict: null,
     name: FAMILY_NAME.H,
-    uses: useStandards(ruleSet, "H"),
+    uses: buildUseStandards(ruleSet, "H"),
     minLotAreaSqFt: { value: 3200, citation: c },
     minLotAreaPerUnitSqFt: { value: null, citation: c, note: "No minimum lot area per unit in §905.02.C." },
     minLotWidthFt: { value: null, citation: c, note: "§905.02.C sets no minimum lot width." },

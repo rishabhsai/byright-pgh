@@ -1,26 +1,78 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --surface: #eceeea;
+  --panel: #fbfbf9;
+  --ink: #17211e;
+  --muted: #5d6762;
+  --faint: #8a938e;
+  --hairline: #d8dbd5;
+  --accent: #0d5c5a;
+  --accent-soft: #e2eeec;
+  --gold: #f2b705;
+  --gold-soft: #fdf3cf;
+
+  --v-byright: #16a34a;
+  --v-review: #2563eb;
+  --v-variance: #d97706;
+  --v-prohibited: #e11d48;
+  --v-unknown: #9ca3af;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-surface: var(--surface);
+  --color-panel: var(--panel);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-hairline: var(--hairline);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-gold: var(--gold);
+  --color-gold-soft: var(--gold-soft);
+  --color-v-byright: var(--v-byright);
+  --color-v-review: var(--v-review);
+  --color-v-variance: var(--v-variance);
+  --color-v-prohibited: var(--v-prohibited);
+  --color-v-unknown: var(--v-unknown);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-serif), ui-serif, Georgia, serif;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-feature-settings: "tnum" 1, "ss01" 1;
 }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: #c9cdc6 transparent;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+.fade-in { animation: fade-in 220ms ease-out both; }
+
+@keyframes pop {
+  0% { transform: scale(0.9); opacity: 0; }
+  60% { transform: scale(1.04); opacity: 1; }
+  100% { transform: scale(1); }
+}
+.pop { animation: pop 360ms cubic-bezier(.2,.8,.2,1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
+}
+
+.maplibregl-ctrl-attrib { font-size: 10px; background: rgba(251,251,249,.85) !important; }
+.maplibregl-canvas:focus-visible { outline: none; }

@@ -39,18 +39,23 @@ function resolveUse(entry: UseEntry, lot: Lot): { letter: UseLetter; note?: stri
     : { letter: entry.otherwise, note: `Lot width ${fmt(lot.frontageFt)} ft exceeds the ${entry.widthFt} ft by-right threshold.` };
 }
 
-function useCheck(d: DistrictStandards, typology: Typology, lot: Lot): { check: Check; letter: UseLetter } {
+function permittedUseCheck(d: DistrictStandards, typology: Typology, lot: Lot): { check: Check; letter: UseLetter } {
   const row = TYPOLOGY_USE_ROW[typology];
   const std = d.uses[row];
   const resolved = resolveUse(std.value, lot);
   let letter = resolved.letter;
-  const notes = [std.note, resolved.note].filter(Boolean) as string[];
+  let notes = [std.note, resolved.note].filter(Boolean) as string[];
 
   // single_adu: the ADU is an accessory use gated by §912.08, on top of the primary single-unit use.
   if (typology === "single_adu") {
     const adu = d.adu.value;
-    if (adu.permitted === "N" && letter !== "N") letter = "N";
-    notes.push(d.adu.note ?? `ADU permitted as accessory to a residential use, up to ${adu.maxPerLot} per lot.`);
+    const aduNote = d.adu.note ?? `ADU permitted as accessory to a residential use, up to ${adu.maxPerLot} per lot.`;
+    if (adu.permitted === "N" && letter !== "N") {
+      letter = "N";
+      notes = [aduNote]; // the ADU rule is the blocker; the primary-use note would only confuse
+    } else {
+      notes.push(aduNote);
+    }
   }
 
   const check: Check = {
@@ -208,7 +213,7 @@ function summarize(d: DistrictStandards, typology: Typology, verdict: Verdict, l
 }
 
 function evaluateTypology(d: DistrictStandards, typology: Typology, lot: Lot): Finding {
-  const { check: use, letter } = useCheck(d, typology, lot);
+  const { check: use, letter } = permittedUseCheck(d, typology, lot);
   const checks: Check[] = [use, ...dimensionalChecks(d, typology, lot), parkingCheck(d, typology)];
   if (typology === "single_adu") checks.push(aduCheck(d));
   const verdict = verdictFor(letter, checks);
