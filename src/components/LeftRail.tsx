@@ -4,6 +4,7 @@ import type { Lot, RuleSet, Triage, Typology } from "@/lib/types";
 import { TYPOLOGY_LABEL } from "@/lib/types";
 import { scoreLot, compareTriageRanked, type TriageRanked } from "@/lib/ranking";
 import type { Evaluations, Triages } from "./ByRightApp";
+import NeighborhoodPicker, { type NeighborhoodOption } from "./NeighborhoodPicker";
 import {
   TRIAGE_COLOR,
   TRIAGE_WORD,
@@ -17,14 +18,48 @@ import {
 } from "./verdict";
 
 export interface Filters {
-  neighborhood: string;
+  /** Empty means every neighborhood. */
+  neighborhoods: string[];
   typology: Typology | "";
   onlyByRight: boolean;
   minArea: number;
   triage: Exclude<Triage, "gray"> | "";
 }
 
+export const DEFAULT_FILTERS: Filters = {
+  neighborhoods: [],
+  typology: "",
+  onlyByRight: false,
+  minArea: 0,
+  triage: "",
+};
+
+export function filtersActive(f: Filters): boolean {
+  return f.neighborhoods.length > 0 || !!f.typology || f.onlyByRight || f.minArea > 0 || !!f.triage;
+}
+
 const TRIAGE_FILTERS: Filters["triage"][] = ["", "green", "yellow", "red"];
+
+const TYPE_CHIP: Record<Typology, string> = {
+  single: "Single",
+  single_adu: "+ADU",
+  duplex: "Duplex",
+  triplex: "Triplex",
+  townhome: "Townhome",
+};
+
+/** Base minimum lot sizes of the density subdistricts, Title Nine §903.03. */
+const AREA_PRESETS: { sf: number; title: string }[] = [
+  { sf: 0, title: "No minimum" },
+  { sf: 1200, title: "High-density (-H) subdistrict minimum" },
+  { sf: 2400, title: "Moderate-density (-M) subdistrict minimum" },
+  { sf: 3000, title: "Low-density (-L) subdistrict minimum" },
+];
+
+const segBtn = (on: boolean) =>
+  `inline-flex items-center justify-center gap-1.5 rounded px-1.5 py-1 whitespace-nowrap transition-colors ${
+    on ? "bg-white font-medium text-ink shadow-[0_0_0_1px_rgba(23,33,30,.08)]" : "text-muted hover:text-ink"
+  }`;
 
 interface Props {
   lots: Lot[];
@@ -41,10 +76,20 @@ interface Props {
 const LIST_LIMIT = 200;
 
 function LeftRail({ lots, evals, triages, ruleSet, filters, onFilters, matches, selectedIdx, onSelect }: Props) {
-  const neighborhoods = useMemo(
-    () => Array.from(new Set(lots.map((l) => l.neighborhood).filter(Boolean))).sort(),
-    [lots],
-  );
+  const hoodOptions = useMemo<NeighborhoodOption[]>(() => {
+    const m = new Map<string, NeighborhoodOption>();
+    const tr = triages?.[ruleSet].results;
+    lots.forEach((l, i) => {
+      if (!l.neighborhood) return;
+      let o = m.get(l.neighborhood);
+      if (!o) m.set(l.neighborhood, (o = { name: l.neighborhood, lots: 0, green: 0 }));
+      o.lots++;
+      if (tr?.[i].triage === "green") o.green++;
+    });
+    return Array.from(m.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [lots, triages, ruleSet]);
+
+  const matchCount = useMemo(() => matches.reduce((n, m) => (m ? n + 1 : n), 0), [matches]);
 
   const typIdx = filters.typology ? TYPOLOGIES.indexOf(filters.typology) : -1;
 
@@ -92,6 +137,13 @@ function LeftRail({ lots, evals, triages, ruleSet, filters, onFilters, matches, 
   }, [evals, triages, ruleSet, lots, matches]);
 
   const set = <K extends keyof Filters>(k: K, v: Filters[K]) => onFilters({ ...filters, [k]: v });
+  const toggleHood = (name: string) =>
+    set(
+      "neighborhoods",
+      filters.neighborhoods.includes(name)
+        ? filters.neighborhoods.filter((n) => n !== name)
+        : [...filters.neighborhoods, name],
+    );
 
   return (
     <aside className="flex w-[344px] shrink-0 flex-col border-r border-hairline bg-panel">
@@ -121,54 +173,100 @@ function LeftRail({ lots, evals, triages, ruleSet, filters, onFilters, matches, 
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <Field label="Neighborhood">
-            <select
-              value={filters.neighborhood}
-              onChange={(e) => set("neighborhood", e.target.value)}
-              className="w-full rounded-md border border-hairline bg-white px-2 py-1.5 text-[12px]"
-            >
-              <option value="">All neighborhoods</option>
-              {neighborhoods.map((n) => (
-                <option key={n}>{n}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Home type">
-            <select
-              value={filters.typology}
-              onChange={(e) => set("typology", e.target.value as Typology | "")}
-              className="w-full rounded-md border border-hairline bg-white px-2 py-1.5 text-[12px]"
-            >
-              <option value="">Any type</option>
-              {TYPOLOGIES.map((t) => (
-                <option key={t} value={t}>
-                  {TYPOLOGY_LABEL[t]}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Min lot area (sf)">
-            <input
-              type="number"
-              min={0}
-              step={500}
-              value={filters.minArea || ""}
-              placeholder="0"
-              onChange={(e) => set("minArea", Math.max(0, Number(e.target.value) || 0))}
-              className="w-full rounded-md border border-hairline bg-white px-2 py-1.5 text-[12px] tabular-nums"
-            />
-          </Field>
-          <label className="flex cursor-pointer items-end gap-2 pb-1.5 text-[12px] text-ink select-none">
+        <div className="mt-3">
+          <NeighborhoodPicker
+            options={hoodOptions}
+            selected={filters.neighborhoods}
+            onChange={(v) => set("neighborhoods", v)}
+          />
+        </div>
+
+        <div className="mt-3">
+          <span className="mb-1 block text-[11px] text-muted">Home type</span>
+          <div role="radiogroup" aria-label="Home type" className="flex rounded-md border border-hairline bg-surface p-0.5 text-[12px]">
+            {(["", ...TYPOLOGIES] as const).map((t) => (
+              <button
+                key={t || "any"}
+                role="radio"
+                aria-checked={filters.typology === t}
+                title={t ? `${TYPOLOGY_LABEL[t]}: map and dots show this type's verdict` : "Best verdict across all types"}
+                onClick={() => set("typology", t)}
+                className={`flex-auto ${segBtn(filters.typology === t)}`}
+              >
+                {t && filters.typology === t && <span className="h-2 w-2 rounded-full bg-v-byright" aria-hidden />}
+                {t ? TYPE_CHIP[t] : "Any"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-3 grid grid-cols-[1fr_auto] items-start gap-x-4">
+          <div>
+            <label htmlFor="min-lot-area" className="mb-1 block text-[11px] text-muted">
+              Min lot area
+            </label>
+            <div className="flex items-center rounded-md border border-hairline bg-white focus-within:border-accent/60 focus-within:ring-2 focus-within:ring-accent/15">
+              <input
+                id="min-lot-area"
+                inputMode="numeric"
+                autoComplete="off"
+                value={filters.minArea ? filters.minArea.toLocaleString() : ""}
+                placeholder="Any"
+                onChange={(e) => set("minArea", Number(e.target.value.replace(/[^\d]/g, "").slice(0, 7)) || 0)}
+                className="w-full min-w-0 bg-transparent py-1.5 pl-2 text-[12px] tabular-nums placeholder:text-faint"
+                style={{ outline: "none" }}
+              />
+              <span className="pr-2 pl-1 text-[11px] text-faint select-none">sf</span>
+            </div>
+            <div className="mt-1.5 flex gap-1" role="group" aria-label="Lot area presets">
+              {AREA_PRESETS.map((p) => {
+                const on = filters.minArea === p.sf;
+                return (
+                  <button
+                    key={p.sf}
+                    title={p.title}
+                    aria-pressed={on}
+                    onClick={() => set("minArea", p.sf)}
+                    className={`rounded border px-1.5 py-px text-[11px] tabular-nums transition-colors ${
+                      on
+                        ? "border-accent/40 bg-accent-soft font-medium text-accent"
+                        : "border-hairline bg-white text-muted hover:border-[#bfc4bd] hover:text-ink"
+                    }`}
+                  >
+                    {p.sf ? p.sf.toLocaleString() : "Any"}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <label className="mt-[22px] flex cursor-pointer items-center gap-2 py-1.5 text-[12px] text-ink select-none">
             <input
               type="checkbox"
+              role="switch"
               checked={filters.onlyByRight}
               onChange={(e) => set("onlyByRight", e.target.checked)}
-              className="h-4 w-4 accent-[var(--v-byright)]"
+              className="peer sr-only"
+            />
+            <span
+              aria-hidden
+              className="relative inline-flex h-[18px] w-[30px] shrink-0 items-center rounded-full bg-[#cfd3cc] transition-colors peer-checked:bg-v-byright peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent after:absolute after:left-[2px] after:h-[14px] after:w-[14px] after:rounded-full after:bg-white after:shadow-[0_1px_2px_rgba(0,0,0,.2)] after:transition-transform peer-checked:after:translate-x-[12px]"
             />
             Only by-right
           </label>
         </div>
+
+        {filtersActive(filters) && (
+          <div className="mt-3 flex items-center justify-between rounded-md bg-surface px-2.5 py-1.5 text-[12px]" aria-live="polite">
+            <span className="text-muted">
+              Showing <span className="font-medium text-ink tabular-nums">{matchCount.toLocaleString()}</span> of{" "}
+              <span className="tabular-nums">{lots.length.toLocaleString()}</span> lots
+            </span>
+            <button onClick={() => onFilters(DEFAULT_FILTERS)} className="text-[12px] font-medium text-accent hover:underline">
+              Reset
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="border-b border-hairline px-4 py-3">
@@ -185,9 +283,11 @@ function LeftRail({ lots, evals, triages, ruleSet, filters, onFilters, matches, 
           {topHoods.map((h) => (
             <li key={h.name}>
               <button
-                onClick={() => set("neighborhood", filters.neighborhood === h.name ? "" : h.name)}
+                onClick={() => toggleHood(h.name)}
+                aria-pressed={filters.neighborhoods.includes(h.name)}
+                title={filters.neighborhoods.includes(h.name) ? `Remove ${h.name} from the filter` : `Add ${h.name} to the filter`}
                 className={`group relative flex w-full items-center gap-2 rounded px-1.5 py-0.5 text-left text-[12px] ${
-                  filters.neighborhood === h.name ? "bg-accent-soft" : "hover:bg-surface"
+                  filters.neighborhoods.includes(h.name) ? "bg-accent-soft font-medium" : "hover:bg-surface"
                 }`}
               >
                 <span
@@ -218,7 +318,11 @@ function LeftRail({ lots, evals, triages, ruleSet, filters, onFilters, matches, 
         </span>
         <span className="flex items-center gap-1 text-[11px] text-faint">
           {TYPOLOGIES.map((t) => (
-            <span key={t} title={TYPOLOGY_LABEL[t]} className="w-3 text-center">
+            <span
+              key={t}
+              title={TYPOLOGY_LABEL[t]}
+              className={`w-3 text-center ${filters.typology === t ? "font-semibold text-ink" : ""}`}
+            >
               {TYPOLOGY_SHORT[t][0]}
             </span>
           ))}
@@ -278,15 +382,6 @@ function LeftRail({ lots, evals, triages, ruleSet, filters, onFilters, matches, 
         <VerdictLegend />
       </div>
     </aside>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-[11px] text-muted">{label}</span>
-      {children}
-    </label>
   );
 }
 

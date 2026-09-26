@@ -5,7 +5,7 @@ import { evaluateLot, bestVerdict, countByRight } from "@/lib/engine";
 import { FIXTURE_LOTS } from "@/lib/fixtures";
 import type { Comps, CompsFile, Finding, Lot, LotsFile, RuleSet, Triage, TriageResult, Verdict } from "@/lib/types";
 import TopBar from "./TopBar";
-import LeftRail, { type Filters } from "./LeftRail";
+import LeftRail, { DEFAULT_FILTERS, type Filters } from "./LeftRail";
 import DetailPanel from "./DetailPanel";
 import AboutDrawer from "./AboutDrawer";
 import { TYPOLOGIES } from "./verdict";
@@ -97,13 +97,7 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
   const [assumptions, setAssumptions] = useState<FinanceAssumptions>(DEFAULT_FINANCE);
   const [compsFile, setCompsFile] = useState<CompsFile | null>(null);
   const [colorMode, setColorMode] = useState<ColorMode>("triage");
-  const [filters, setFilters] = useState<Filters>({
-    neighborhood: "",
-    typology: "",
-    onlyByRight: false,
-    minArea: 0,
-    triage: "",
-  });
+  const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
 
   useEffect(() => {
     let cancelled = false;
@@ -187,9 +181,10 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
   );
 
   const matches = useMemo<boolean[]>(() => {
+    const hoods = filters.neighborhoods.length ? new Set(filters.neighborhoods) : null;
     return lots.map((l, i) => {
       if (filters.triage && mapTriage[i] !== filters.triage) return false;
-      if (filters.neighborhood && l.neighborhood !== filters.neighborhood) return false;
+      if (hoods && !hoods.has(l.neighborhood)) return false;
       if (filters.minArea && (l.lotAreaSqFt ?? 0) < filters.minArea) return false;
       if (filters.onlyByRight && mapVerdicts[i] !== "by-right") return false;
       return true;
