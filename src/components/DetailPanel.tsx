@@ -16,6 +16,7 @@ import {
 import { districtName } from "./district";
 import { buildMemo, REVIEW_CHECKLIST } from "./memo";
 import ProForma from "./ProForma";
+import ApplicationPlanner from "./ApplicationPlanner";
 
 interface Props {
   lot: Lot | null;
@@ -317,6 +318,19 @@ function LotDetail({
           <p className="mt-2 text-[11px] text-faint">
             Built from the rule findings above with every citation. Rules decide; text only explains.
           </p>
+        </Section>
+
+        <Section n={7} title="Plan your application">
+          <ApplicationPlanner
+            key={ruleSet}
+            lot={lot}
+            findings={findings}
+            ruleSet={ruleSet}
+            triage={triage}
+            comps={comps}
+            assumptions={assumptions}
+            onFlash={flash}
+          />
         </Section>
       </div>
 
