@@ -224,7 +224,7 @@ export function runProforma(
       key: "hardCostPerSf",
       label: "Hard cost per sf",
       value: a.hardCostPerSf,
-      display: `${fmtUsd(a.hardCostPerSf)}/sf × ${c.buildingSf.toLocaleString("en-US")} sf`,
+      display: `${fmtUsd(a.hardCostPerSf)}/sf × ${fmtNum(c.buildingSf)} sf`,
       source: "Assumption for small wood-frame infill in Pittsburgh; editable",
       assumed: true,
     },
@@ -273,7 +273,7 @@ export function runProforma(
         key: "saleScale",
         label: "Size scale",
         value: scale,
-        display: `${sfPerSale.toLocaleString("en-US")} sf ÷ ${a.typicalHomeSf.toLocaleString("en-US")} sf typical home = ${scale.toFixed(2)} (clamped ${SALE_SCALE_MIN}–${SALE_SCALE_MAX})`,
+        display: `${fmtNum(sfPerSale)} sf ÷ ${fmtNum(a.typicalHomeSf)} sf typical home = ${scale.toFixed(2)} (clamped ${SALE_SCALE_MIN}–${SALE_SCALE_MAX})`,
         source: "Assumption: sale price scales with unit size relative to a typical home",
         assumed: true,
       },
@@ -414,7 +414,16 @@ export function computeProforma(
   };
 }
 
+// One shared formatter: Number#toLocaleString builds a new Intl.NumberFormat per call, which made
+// the city-wide triage (tens of thousands of pro formas) roughly 25x slower in Chrome.
+const NUM = new Intl.NumberFormat("en-US");
+
+/** Same output as n.toLocaleString("en-US"). */
+export function fmtNum(n: number): string {
+  return NUM.format(n);
+}
+
 export function fmtUsd(n: number): string {
   const sign = n < 0 ? "−" : "";
-  return `${sign}$${Math.round(Math.abs(n)).toLocaleString("en-US")}`;
+  return `${sign}$${NUM.format(Math.round(Math.abs(n)))}`;
 }

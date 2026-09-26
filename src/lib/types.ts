@@ -103,4 +103,6 @@ export interface TriageResult {
   bestTypology: Typology | null;
   pencils: boolean | null;
   gap: number | null;
+  /** Dollar margin of the best home type's pro forma, or null when finance was not assessed. */
+  margin: number | null;
 }

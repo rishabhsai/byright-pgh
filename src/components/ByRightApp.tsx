@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { evaluateLot, bestVerdict, countByRight } from "@/lib/engine";
 import { FIXTURE_LOTS } from "@/lib/fixtures";
@@ -14,7 +14,6 @@ import {
   countTriage,
   DEFAULT_FINANCE,
   FALLBACK_COMPS,
-  lotMargin,
   triageLot,
   type FinanceAssumptions,
 } from "@/lib/finance";
@@ -94,6 +93,7 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const [flyTo, setFlyTo] = useState<{ lon: number; lat: number; seq: number } | null>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [assumptions, setAssumptions] = useState<FinanceAssumptions>(DEFAULT_FINANCE);
   const [compsFile, setCompsFile] = useState<CompsFile | null>(null);
   const [colorMode, setColorMode] = useState<ColorMode>("triage");
@@ -155,15 +155,20 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
   const activeComps = compsFile ?? FALLBACK_COMPS;
   const comps = useMemo<(Comps | null)[]>(() => lots.map((l) => compsFor(l, activeComps)), [activeComps, lots]);
 
+  // The city-wide triage re-runs a pro forma for every lot, so it follows a deferred copy of the
+  // assumptions: the detail panel reads `assumptions` directly and stays responsive while this catches up.
+  const cityAssumptions = useDeferredValue(assumptions);
+  const recomputing = cityAssumptions !== assumptions;
+
   const triages = useMemo<Triages | null>(() => {
     if (!evals) return null;
     const out = {} as Triages;
     for (const rs of RULE_SETS) {
-      const results = lots.map((l, i) => triageLot(l, evals[rs].findings[i], comps[i], assumptions));
-      out[rs] = { results, margin: results.map((t, i) => lotMargin(lots[i], t, comps[i], assumptions)) };
+      const results = lots.map((l, i) => triageLot(l, evals[rs].findings[i], comps[i], cityAssumptions));
+      out[rs] = { results, margin: results.map((t) => t.margin) };
     }
     return out;
-  }, [evals, lots, comps, assumptions]);
+  }, [evals, lots, comps, cityAssumptions]);
 
   const stats = useMemo(() => (evals && triages ? computeStats(evals, triages) : null), [evals, triages]);
   const changed = useMemo(() => (evals ? computeChanged(evals) : []), [evals]);
@@ -192,6 +197,10 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
   }, [lots, filters, mapVerdicts, mapTriage]);
 
   const selectFromMap = useCallback((i: number) => setSelectedIdx(i), []);
+  const clearSelection = useCallback(() => {
+    setSelectedIdx(null);
+    setExpanded(false);
+  }, []);
   const selectFromList = useCallback(
     (i: number) => {
       setSelectedIdx(i);
@@ -204,13 +213,15 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        // Peel one layer per press: About drawer, then expanded reading mode, then the selection.
         if (aboutOpen) setAboutOpen(false);
-        else setSelectedIdx(null);
+        else if (expanded) setExpanded(false);
+        else clearSelection();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [aboutOpen]);
+  }, [aboutOpen, expanded, clearSelection]);
 
   const selectedLot = selectedIdx != null ? lots[selectedIdx] : null;
 
@@ -235,36 +246,42 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
           selectedIdx={selectedIdx}
           onSelect={selectFromList}
         />
-        <main className="relative min-w-0 flex-1">
-          <MapView
-            lots={lots}
-            verdicts={mapVerdicts}
-            triages={mapTriage}
-            colorMode={colorMode}
-            onColorMode={setColorMode}
-            matches={matches}
-            changed={ruleSet === "bill-2025-1545" && !filters.typology ? changed : null}
-            selectedIdx={selectedIdx}
-            onSelect={selectFromMap}
-            flyTo={flyTo}
-            colorBy={filters.typology || null}
+        {/* Positioning context for the expanded detail panel, which overlays the map area. */}
+        <div className="relative flex min-w-0 flex-1">
+          <main className="relative min-w-0 flex-1">
+            <MapView
+              lots={lots}
+              verdicts={mapVerdicts}
+              triages={mapTriage}
+              colorMode={colorMode}
+              onColorMode={setColorMode}
+              matches={matches}
+              changed={ruleSet === "bill-2025-1545" && !filters.typology ? changed : null}
+              selectedIdx={selectedIdx}
+              onSelect={selectFromMap}
+              flyTo={flyTo}
+              colorBy={filters.typology || null}
+              ruleSet={ruleSet}
+            />
+          </main>
+          <DetailPanel
+            key={selectedIdx ?? "empty"}
+            lot={selectedLot}
             ruleSet={ruleSet}
+            findings={selectedIdx != null && evals ? evals[ruleSet].findings[selectedIdx] : null}
+            findingsCurrent={selectedIdx != null && evals ? evals.current.findings[selectedIdx] : null}
+            findingsBill={selectedIdx != null && evals ? evals["bill-2025-1545"].findings[selectedIdx] : null}
+            onClose={clearSelection}
+            triage={selectedIdx != null && triages ? triages[ruleSet].results[selectedIdx] : null}
+            comps={selectedIdx != null ? comps[selectedIdx] : null}
+            assumptions={assumptions}
+            onAssumptions={setAssumptions}
+            recomputing={recomputing}
+            expanded={expanded}
+            onExpanded={setExpanded}
+            onGenerateMemo={onGenerateMemo}
           />
-        </main>
-        <DetailPanel
-          key={selectedIdx ?? "empty"}
-          lot={selectedLot}
-          ruleSet={ruleSet}
-          findings={selectedIdx != null && evals ? evals[ruleSet].findings[selectedIdx] : null}
-          findingsCurrent={selectedIdx != null && evals ? evals.current.findings[selectedIdx] : null}
-          findingsBill={selectedIdx != null && evals ? evals["bill-2025-1545"].findings[selectedIdx] : null}
-          onClose={() => setSelectedIdx(null)}
-          triage={selectedIdx != null && triages ? triages[ruleSet].results[selectedIdx] : null}
-          comps={selectedIdx != null ? comps[selectedIdx] : null}
-          assumptions={assumptions}
-          onAssumptions={setAssumptions}
-          onGenerateMemo={onGenerateMemo}
-        />
+        </div>
       </div>
       <AboutDrawer
         open={aboutOpen}

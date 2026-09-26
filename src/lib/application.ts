@@ -129,7 +129,8 @@ const TYPOLOGY_NOUN: Record<Typology, string> = {
 };
 
 const standardName = (c: Check) => c.label.toLowerCase().replace(/ \(.*\)$/, "");
-const fmt = (n: number) => n.toLocaleString("en-US");
+const NUM = new Intl.NumberFormat("en-US");
+const fmt = (n: number) => NUM.format(n);
 
 type UseLetter = "P" | "A" | "S" | "N";
 

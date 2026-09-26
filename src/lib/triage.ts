@@ -1,7 +1,7 @@
 import type { CompsFile, Comps, Finding, Lot, RuleSet, Triage, TriageResult, Typology, Verdict } from "./types";
 import { TYPOLOGY_LABEL } from "./types";
 import { evaluateLot } from "./rules";
-import { compsForLot, DEFAULT_FINANCE, fmtUsd, runProforma, type FinanceAssumptions, type Proforma } from "./proforma";
+import { compsForLot, DEFAULT_FINANCE, fmtNum, fmtUsd, runProforma, type FinanceAssumptions, type Proforma } from "./proforma";
 
 /*
  * Green / Yellow / Red triage (organizer definition, AI Horizons 2026):
@@ -34,7 +34,7 @@ function hazardList(lot: Lot): string[] {
 }
 
 function result(triage: Triage, reasons: string[], best: Typology | null, pf: Proforma | null): TriageResult {
-  return { triage, reasons, bestTypology: best, pencils: pf ? pf.pencils : null, gap: pf ? pf.gap : null };
+  return { triage, reasons, bestTypology: best, pencils: pf ? pf.pencils : null, gap: pf ? pf.gap : null, margin: pf ? pf.margin : null };
 }
 
 export function triageLot(
@@ -81,7 +81,7 @@ export function triageLot(
   const sliver = lot.lotAreaSqFt !== null && lot.lotAreaSqFt < MIN_PRACTICAL_LOT_SQFT;
   if (sliver) {
     reasons.push(
-      `Site: ${lot.lotAreaSqFt!.toLocaleString("en-US")} sq ft is below the ${MIN_PRACTICAL_LOT_SQFT.toLocaleString("en-US")} sq ft screening floor; likely needs consolidation with a neighboring lot (assumption, not code).`,
+      `Site: ${fmtNum(lot.lotAreaSqFt!)} sq ft is below the ${fmtNum(MIN_PRACTICAL_LOT_SQFT)} sq ft screening floor; likely needs consolidation with a neighboring lot (assumption, not code).`,
     );
   }
 

@@ -48,14 +48,3 @@ export function proformaWithFallback(
     runProforma(lot, typology, comps, { ...a, mode: a.mode === "sale" ? "rent" : "sale" })
   );
 }
-
-/** Dollar margin of the lot's best home type, or null when finance was not assessed. */
-export function lotMargin(
-  lot: Lot,
-  t: TriageResult,
-  comps: Comps | null,
-  a: FinanceAssumptions = DEFAULT_FINANCE,
-): number | null {
-  if (!t.bestTypology) return null;
-  return proformaWithFallback(lot, t.bestTypology, comps, a)?.margin ?? null;
-}

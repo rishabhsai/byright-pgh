@@ -23,7 +23,8 @@ const USE_LETTER_LABEL: Record<UseLetter, string> = {
 
 const NEEDS_SURVEY = "needs survey";
 
-const fmt = (n: number) => n.toLocaleString("en-US");
+const NUM = new Intl.NumberFormat("en-US");
+const fmt = (n: number) => NUM.format(n);
 
 /** Resolve a conditional use entry against the lot. Unknown width falls back to the stricter letter. */
 function resolveUse(entry: UseEntry, lot: Lot): { letter: UseLetter; note?: string } {

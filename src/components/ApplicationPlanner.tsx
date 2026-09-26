@@ -22,6 +22,8 @@ interface Props {
   comps: Comps | null;
   assumptions: FinanceAssumptions;
   onFlash: (msg: string) => void;
+  /** Expanded reading mode: wider form layout. */
+  wide?: boolean;
 }
 
 interface Narrative {
@@ -29,7 +31,7 @@ interface Narrative {
   findings: string[];
 }
 
-export default function ApplicationPlanner({ lot, findings, ruleSet, triage, comps, assumptions, onFlash }: Props) {
+export default function ApplicationPlanner({ lot, findings, ruleSet, triage, comps, assumptions, onFlash, wide = false }: Props) {
   const [typology, setTypology] = useState<Typology | null>(() => defaultTypology(findings, triage));
   const [prepared, setPrepared] = useState(false);
   const [polish, setPolish] = useState<{ key: string; narrative: Narrative; model: string } | null>(null);
@@ -161,7 +163,7 @@ export default function ApplicationPlanner({ lot, findings, ruleSet, triage, com
       {plan && (
         <div className="fade-in space-y-4 pt-1">
           <Stepper steps={plan.steps} />
-          <PurchaseForm fields={plan.purchaseForm} polished={!!narrative} />
+          <PurchaseForm fields={plan.purchaseForm} polished={!!narrative} wide={wide} />
           {plan.zba && (
             <ZbaCard
               plan={plan}
@@ -246,7 +248,7 @@ function Stepper({ steps }: { steps: Step[] }) {
                   {s.callout.text}
                 </p>
               )}
-              <ul className="mt-1.5 space-y-1">
+              <ul className="mt-1.5 max-w-[70ch] space-y-1">
                 {s.body.map((b) => (
                   <li key={b} className="text-[12px] leading-snug text-ink">
                     {b}
@@ -269,7 +271,7 @@ function Stepper({ steps }: { steps: Step[] }) {
 }
 
 /** Rendered like page 2 of the City's paper form: typed values on ruled lines, blanks for the applicant. */
-function PurchaseForm({ fields, polished }: { fields: PrefilledField[]; polished: boolean }) {
+function PurchaseForm({ fields, polished, wide }: { fields: PrefilledField[]; polished: boolean; wide: boolean }) {
   const filled = fields.filter((f) => f.who === "prefilled");
   const blank = fields.filter((f) => f.who === "you");
   return (
@@ -278,12 +280,14 @@ function PurchaseForm({ fields, polished }: { fields: PrefilledField[]; polished
         <h4 className="text-[12.5px] font-semibold text-ink">Pre-filled: Request to Purchase, page 2</h4>
         <span className="text-[10.5px] text-faint">City form V. 1/2018</span>
       </header>
-      <dl className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.3fr)] text-[11.5px]">
+      <dl
+        className={`grid text-[11.5px] ${wide ? "grid-cols-[240px_minmax(0,1fr)]" : "grid-cols-[minmax(0,0.9fr)_minmax(0,1.3fr)]"}`}
+      >
         {filled.map((f) => (
           <div key={f.label} className="contents">
             <dt className="border-b border-hairline px-3 py-2 leading-snug text-muted">{f.label}</dt>
             <dd className="border-b border-hairline px-3 py-2 leading-snug text-ink">
-              <span className="font-serif text-[13px]">{f.value}</span>
+              <span className={`font-serif text-[13px] ${wide ? "block max-w-[70ch]" : ""}`}>{f.value}</span>
               {f.label.startsWith("Detailed description") && polished && (
                 <span className="mt-0.5 block text-[10px] text-faint">Wording polished; facts unchanged.</span>
               )}
@@ -294,12 +298,13 @@ function PurchaseForm({ fields, polished }: { fields: PrefilledField[]; polished
       </dl>
       <div className="px-3 pt-2.5 pb-3">
         <p className="mb-1.5 text-[11px] font-semibold text-ink">You complete</p>
-        <ul className="space-y-1.5">
+        <ul className={wide ? "grid grid-cols-2 gap-x-8 gap-y-2" : "space-y-1.5"}>
           {blank.map((f) => (
-            <li key={f.label} className="text-[11.5px]">
-              <div className="flex items-end gap-2">
-                <span className="min-w-0 text-muted">{f.label}</span>
-                <span aria-hidden className="mb-[3px] min-w-6 flex-1 border-b border-dashed border-[#b9bfb8]" />
+            <li key={f.label} className="min-w-0 text-[11.5px]">
+              {/* Label wraps in its own column; the fill-in rule takes the rest and never pushes past the edge. */}
+              <div className="grid grid-cols-[minmax(0,1fr)_minmax(2.5rem,30%)] items-end gap-2">
+                <span className="min-w-0 text-muted [overflow-wrap:anywhere]">{f.label}</span>
+                <span aria-hidden className="mb-[3px] border-b border-dashed border-[#b9bfb8]" />
               </div>
               {f.note && <p className="mt-0.5 text-[10.5px] text-[#8a4b00]">{f.note}</p>}
             </li>
@@ -353,7 +358,7 @@ function ZbaCard({ plan, polishedBy, polishing }: { plan: ApplicationPlan; polis
             {z.findings.map((f) => (
               <li key={f.n} className="flex gap-2.5">
                 <span className="font-serif text-[18px] leading-none text-[#b45309] italic">{f.n}</span>
-                <div className="min-w-0">
+                <div className="min-w-0 max-w-[70ch]">
                   <p className="text-[11.5px] font-semibold text-ink">{f.title}</p>
                   <p className={`mt-0.5 leading-relaxed text-ink ${polishing ? "opacity-70" : ""}`}>{f.text}</p>
                 </div>

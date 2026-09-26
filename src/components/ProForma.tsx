@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Comps, Lot, Typology } from "@/lib/types";
 import { TYPOLOGY_LABEL } from "@/lib/types";
 import {
@@ -18,14 +18,54 @@ interface Props {
   initialTypology: Typology | null;
   assumptions: FinanceAssumptions;
   onAssumptions: (a: FinanceAssumptions) => void;
+  /** Reports whether an edit is waiting to be committed to the city-wide triage. */
+  onPending?: (pending: boolean) => void;
 }
+
+/** Edits reach the city-wide triage this long after the last keystroke (or on blur). */
+const COMMIT_DELAY_MS = 500;
 
 export const NO_COMPS = "No Zillow comps for this neighborhood; finance not assessed";
 
-export default function ProForma({ lot, comps, initialTypology, assumptions: a, onAssumptions }: Props) {
-  const [typology, setTypology] = useState<Typology>(initialTypology ?? "single");
+export default function ProForma({ lot, comps, initialTypology, assumptions, onAssumptions, onPending }: Props) {
+  // Follows the triage's best home type until the user picks one. Not keyed on it: the best type can
+  // flip when an edit is committed, and a remount would steal focus from the field being typed in.
+  const [picked, setPicked] = useState<Typology | null>(null);
+  const typology = picked ?? initialTypology ?? "single";
+
+  // The inputs and this lot's numbers run off a local draft so typing never waits on the
+  // city-wide recompute; the draft is committed to the app after a pause or on blur.
+  const [draft, setDraft] = useState(assumptions);
+  const [seen, setSeen] = useState(assumptions);
+  if (assumptions !== seen) {
+    setSeen(assumptions);
+    if (assumptions !== draft) setDraft(assumptions);
+  }
+  const latest = useRef(draft);
+  const timer = useRef<number | null>(null);
+
+  const commit = useCallback(() => {
+    if (timer.current == null) return;
+    window.clearTimeout(timer.current);
+    timer.current = null;
+    onPending?.(false);
+    onAssumptions(latest.current);
+  }, [onAssumptions, onPending]);
+
+  useEffect(() => commit, [commit]);
+
+  const update = (next: FinanceAssumptions, immediate = false) => {
+    latest.current = next;
+    setDraft(next);
+    if (timer.current != null) window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(commit, COMMIT_DELAY_MS);
+    onPending?.(true);
+    if (immediate) commit();
+  };
+
+  const a = draft;
   const r = useMemo(() => proformaWithFallback(lot, typology, comps, a), [lot, typology, comps, a]);
-  const set = <K extends keyof FinanceAssumptions>(k: K) => (v: FinanceAssumptions[K]) => onAssumptions({ ...a, [k]: v });
+  const set = <K extends keyof FinanceAssumptions>(k: K, v: FinanceAssumptions[K]) => update({ ...a, [k]: v });
   const mode: RevenueMode = a.mode;
 
   if (!comps) {
@@ -79,12 +119,12 @@ export default function ProForma({ lot, comps, initialTypology, assumptions: a, 
         </ul>
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-2 gap-2" onBlur={commit}>
         <label className="col-span-2 block">
           <span className="mb-1 block text-[11px] text-muted">Home type</span>
           <select
             value={typology}
-            onChange={(e) => setTypology(e.target.value as Typology)}
+            onChange={(e) => setPicked(e.target.value as Typology)}
             className="w-full rounded-md border border-hairline bg-white px-2 py-1.5 text-[12px]"
           >
             {TYPOLOGIES.map((t) => (
@@ -98,7 +138,7 @@ export default function ProForma({ lot, comps, initialTypology, assumptions: a, 
           {(["sale", "rent"] as RevenueMode[]).map((m) => (
             <button
               key={m}
-              onClick={() => set("mode")(m)}
+              onClick={() => update({ ...a, mode: m }, true)}
               className={`flex-1 rounded px-2 py-1 transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                 mode === m ? "bg-white font-medium shadow-sm" : "text-muted"
               }`}
@@ -107,12 +147,12 @@ export default function ProForma({ lot, comps, initialTypology, assumptions: a, 
             </button>
           ))}
         </div>
-        <Num label="Hard cost ($/sf)" value={a.hardCostPerSf} onChange={set("hardCostPerSf")} />
-        <Num label="Soft cost (% of hard)" value={a.softCostPct} onChange={set("softCostPct")} />
-        <Num label="Developer fee (%)" value={a.devFeePct} onChange={set("devFeePct")} />
-        <Num label="Target margin (%)" value={a.targetMarginPct} onChange={set("targetMarginPct")} />
+        <Num label="Hard cost ($/sf)" value={a.hardCostPerSf} onChange={(v) => set("hardCostPerSf", v)} />
+        <Num label="Soft cost (% of hard)" value={a.softCostPct} onChange={(v) => set("softCostPct", v)} />
+        <Num label="Developer fee (%)" value={a.devFeePct} onChange={(v) => set("devFeePct", v)} />
+        <Num label="Target margin (%)" value={a.targetMarginPct} onChange={(v) => set("targetMarginPct", v)} />
         {mode === "sale" && (
-          <Num label="Typical home size (sf)" value={a.typicalHomeSf} onChange={set("typicalHomeSf")} step={50} />
+          <Num label="Typical home size (sf)" value={a.typicalHomeSf} onChange={(v) => set("typicalHomeSf", v)} step={50} />
         )}
         <label className="block">
           <span className="mb-1 block text-[11px] text-muted">Land cost override ($)</span>
@@ -122,14 +162,14 @@ export default function ProForma({ lot, comps, initialTypology, assumptions: a, 
             step={1000}
             value={a.landOverride ?? ""}
             placeholder={lot.landValue != null ? `${lot.landValue} assessed` : `${a.defaultLand} default`}
-            onChange={(e) => set("landOverride")(e.target.value === "" ? null : Math.max(0, Number(e.target.value) || 0))}
+            onChange={(e) => set("landOverride", e.target.value === "" ? null : Math.max(0, Number(e.target.value) || 0))}
             className="w-full rounded-md border border-hairline bg-white px-2 py-1.5 text-[12px] tabular-nums"
           />
         </label>
         {mode === "rent" && (
           <>
-            <Num label="Operating costs (% of rent)" value={a.opexPct} onChange={set("opexPct")} />
-            <Num label="Cap rate (%)" value={a.capRate} onChange={set("capRate")} step={0.25} />
+            <Num label="Operating costs (% of rent)" value={a.opexPct} onChange={(v) => set("opexPct", v)} />
+            <Num label="Cap rate (%)" value={a.capRate} onChange={(v) => set("capRate", v)} step={0.25} />
           </>
         )}
       </div>

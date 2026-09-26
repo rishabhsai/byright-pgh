@@ -29,16 +29,41 @@ interface Props {
   comps: Comps | null;
   assumptions: FinanceAssumptions;
   onAssumptions: (a: FinanceAssumptions) => void;
+  /** True while the city-wide triage is catching up with the latest assumptions. */
+  recomputing: boolean;
+  /** Reading mode: the panel overlays the map as a wide, centered surface. */
+  expanded: boolean;
+  onExpanded: (expanded: boolean) => void;
   /** Hook for an AI-drafted memo. Not implemented here; the lead wires the API route. */
   onGenerateMemo?: (lot: Lot, findings: Finding[], ruleSet: RuleSet) => Promise<string>;
 }
 
 export default function DetailPanel(props: Props) {
-  const { lot, findings } = props;
+  const { lot, findings, onExpanded } = props;
+  const expanded = props.expanded && !!lot && !!findings;
+  // The aside keeps its width in both modes so the map never resizes; expanded mode lifts the
+  // same LotDetail (same tree position, so no state is lost) into an overlay over the map area.
   return (
     <aside className="flex w-[412px] shrink-0 flex-col border-l border-hairline bg-panel">
       {lot && findings ? (
-        <LotDetail {...props} lot={lot} findings={findings} />
+        <div className={expanded ? "absolute inset-0 z-30 flex justify-center" : "contents"}>
+          <div
+            aria-hidden
+            onClick={() => onExpanded(false)}
+            className={expanded ? "backdrop-in absolute inset-0 bg-[#17211e]/25" : "hidden"}
+          />
+          <div
+            role={expanded ? "dialog" : undefined}
+            aria-label={expanded ? "Lot details, expanded" : undefined}
+            className={
+              expanded
+                ? "expand-in relative flex h-full w-[920px] max-w-[min(90vw,100%)] flex-col border-x border-hairline bg-panel shadow-[0_20px_60px_-20px_rgba(23,33,30,.45)]"
+                : "flex min-h-0 flex-1 flex-col"
+            }
+          >
+            <LotDetail {...props} lot={lot} findings={findings} expanded={expanded} />
+          </div>
+        </div>
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center px-10 text-center">
           <svg width="56" height="56" viewBox="0 0 56 56" aria-hidden className="mb-4 text-hairline">
@@ -67,9 +92,13 @@ function LotDetail({
   comps,
   assumptions,
   onAssumptions,
+  recomputing,
+  expanded,
+  onExpanded,
   onGenerateMemo,
 }: Props & { lot: Lot; findings: Finding[] }) {
   const [open, setOpen] = useState<string | null>(null);
+  const [pfPending, setPfPending] = useState(false);
   const [checked, setChecked] = useState<boolean[]>(REVIEW_CHECKLIST.map(() => false));
   const [copied, setCopied] = useState<string | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
@@ -127,7 +156,7 @@ function LotDetail({
 
   return (
     <div className="fade-in scroll-thin flex-1 overflow-y-auto">
-      <div className="sticky top-0 z-10 border-b border-hairline bg-panel/95 px-5 pt-4 pb-3 backdrop-blur">
+      <div className={`sticky top-0 z-10 border-b border-hairline bg-panel/95 pt-4 pb-3 backdrop-blur ${expanded ? "px-10" : "px-5"}`}>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 className="font-serif text-[28px] leading-[1.05] text-ink">{lot.address || "Unaddressed lot"}</h2>
@@ -136,14 +165,25 @@ function LotDetail({
               {lot.councilDistrict && <>, Council District {lot.councilDistrict}</>}
             </p>
           </div>
-          <button
-            onClick={onClose}
-            aria-label="Clear selection (Esc)"
-            title="Clear selection (Esc)"
-            className="mt-1 rounded-md border border-hairline px-1.5 py-0.5 text-[11px] text-muted hover:bg-surface"
-          >
-            Esc
-          </button>
+          <div className="mt-1 flex shrink-0 items-center gap-1.5">
+            <button
+              onClick={() => onExpanded(!expanded)}
+              aria-pressed={expanded}
+              title={expanded ? "Collapse to the side panel (Esc)" : "Expand for reading"}
+              className="inline-flex items-center gap-1 rounded-md border border-hairline px-1.5 py-0.5 text-[11px] text-muted transition-colors hover:bg-surface hover:text-ink"
+            >
+              <ExpandIcon expanded={expanded} />
+              {expanded ? "Collapse" : <span className="sr-only">Expand</span>}
+            </button>
+            <button
+              onClick={onClose}
+              aria-label="Clear selection (Esc)"
+              title={expanded ? "Clear selection" : "Clear selection (Esc)"}
+              className="rounded-md border border-hairline px-1.5 py-0.5 text-[11px] text-muted hover:bg-surface"
+            >
+              Esc
+            </button>
+          </div>
         </div>
         <button
           onClick={async () => {
@@ -159,25 +199,25 @@ function LotDetail({
         </button>
       </div>
 
-      <div className="space-y-6 px-5 py-5">
+      <div className={expanded ? "space-y-8 px-10 py-7" : "space-y-6 px-5 py-5"}>
         {triage && <TriageBlock t={triage} ruleSet={ruleSet} />}
 
         <Section n={1} title="The lot">
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-[12px]">
-            <Fact label="Zone" wide>
+          <dl className={`grid grid-cols-2 text-[12px] ${expanded ? "gap-x-8 gap-y-0" : "gap-x-4 gap-y-3"}`}>
+            <Fact label="Zone" wide inline={expanded}>
               <span className="flex items-center gap-2">
                 <ZoneChip zone={lot.zone} />
                 <span className="text-ink">{dName ?? "District not in registry"}</span>
               </span>
             </Fact>
-            <Fact label="Lot area">
+            <Fact label="Lot area" inline={expanded}>
               {lot.lotAreaSqFt != null ? `${lot.lotAreaSqFt.toLocaleString()} sf` : <Missing />}
             </Fact>
-            <Fact label="Frontage">{lot.frontageFt != null ? `${lot.frontageFt} ft` : <Missing />}</Fact>
-            <Fact label="Assessed land value" hint="County assessed, not market">
+            <Fact label="Frontage" inline={expanded}>{lot.frontageFt != null ? `${lot.frontageFt} ft` : <Missing />}</Fact>
+            <Fact label="Assessed land value" hint="County assessed, not market" inline={expanded}>
               {lot.landValue != null ? `$${lot.landValue.toLocaleString()}` : <Missing />}
             </Fact>
-            <Fact label="Inventory status">{lot.status || <Missing />}</Fact>
+            <Fact label="Inventory status" inline={expanded}>{lot.status || <Missing />}</Fact>
           </dl>
           <div className="mt-4">
             <div className="flex flex-wrap items-center gap-1.5">
@@ -200,11 +240,23 @@ function LotDetail({
         </Section>
 
         <Section n={2} title={ruleSet === "current" ? "Verdicts under today's code" : "Verdicts if Bill 2025-1545 passes"}>
-          <ul className="overflow-hidden rounded-lg border border-hairline bg-white">
-            {findings.map((f) => {
+          <ul
+            className={`overflow-hidden rounded-lg border border-hairline ${
+              expanded ? "grid grid-cols-2 items-start gap-px bg-hairline" : "bg-white"
+            }`}
+          >
+            {findings.map((f, i) => {
               const isOpen = open === f.typology;
+              const spanLast = expanded && i === findings.length - 1 && findings.length % 2 === 1;
               return (
-                <li key={f.typology} className="border-b border-hairline last:border-b-0">
+                <li
+                  key={f.typology}
+                  className={
+                    expanded
+                      ? `h-full bg-white ${spanLast ? "col-span-2" : ""}`
+                      : "border-b border-hairline last:border-b-0"
+                  }
+                >
                   <button
                     onClick={() => setOpen(isOpen ? null : f.typology)}
                     aria-expanded={isOpen}
@@ -262,14 +314,32 @@ function LotDetail({
           )}
         </Section>
 
-        <Section n={4} title="Does it pencil?">
+        <Section
+          n={4}
+          title="Does it pencil?"
+          action={
+            <span
+              aria-live="polite"
+              className={`flex items-center gap-1.5 text-[11px] text-muted transition-opacity duration-150 ${
+                pfPending || recomputing ? "opacity-100" : "opacity-0"
+              }`}
+            >
+              {(pfPending || recomputing) && (
+                <>
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+                  Recomputing all lots…
+                </>
+              )}
+            </span>
+          }
+        >
           <ProForma
-            key={triage?.bestTypology ?? "none"}
             lot={lot}
             comps={comps}
             initialTypology={triage?.bestTypology ?? findings.find((f) => f.verdict === "by-right")?.typology ?? null}
             assumptions={assumptions}
             onAssumptions={onAssumptions}
+            onPending={setPfPending}
           />
         </Section>
 
@@ -330,6 +400,7 @@ function LotDetail({
             comps={comps}
             assumptions={assumptions}
             onFlash={flash}
+            wide={expanded}
           />
         </Section>
       </div>
@@ -397,7 +468,32 @@ function Section({
   );
 }
 
-function Fact({ label, hint, wide, children }: { label: string; hint?: string; wide?: boolean; children: React.ReactNode }) {
+function Fact({
+  label,
+  hint,
+  wide,
+  inline,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  wide?: boolean;
+  /** Label and value on one row (expanded reading mode). */
+  inline?: boolean;
+  children: React.ReactNode;
+}) {
+  if (inline)
+    return (
+      <div
+        className={`grid grid-cols-[150px_minmax(0,1fr)] items-baseline gap-3 border-b border-hairline py-2 ${wide ? "col-span-2" : ""}`}
+      >
+        <dt className="text-[11.5px] text-muted">{label}</dt>
+        <dd className="text-[13px] text-ink tabular-nums">
+          {children}
+          {hint && <span className="block text-[10.5px] text-faint">{hint}</span>}
+        </dd>
+      </div>
+    );
   return (
     <div className={wide ? "col-span-2" : ""}>
       <dt className="text-[11px] text-muted">{label}</dt>
@@ -483,6 +579,18 @@ function Chevron({ open }: { open: boolean }) {
       style={{ transform: open ? "rotate(180deg)" : "none" }}
     >
       <path d="M3 4.5l3 3 3-3" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function ExpandIcon({ expanded }: { expanded: boolean }) {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden className="shrink-0">
+      {expanded ? (
+        <path d="M5 1v4H1M7 11V7h4M5 5L1 1M7 7l4 4" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      ) : (
+        <path d="M7.5 1H11v3.5M4.5 11H1V7.5M11 1L7 5M1 11l4-4" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      )}
     </svg>
   );
 }
