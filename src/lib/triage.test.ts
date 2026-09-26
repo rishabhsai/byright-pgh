@@ -10,6 +10,7 @@ function lot(overrides: Partial<Lot> = {}): Lot {
     address: "1 Test St",
     neighborhood: "Test",
     councilDistrict: "1",
+    ward: "8",
     lat: 40.44,
     lon: -79.99,
     zone: "R1D-H",
