@@ -1,7 +1,7 @@
 // Single import point for triage, the comps-driven pro forma, and comps.
-import type { Comps, CompsFile, Lot, Triage, TriageResult } from "./types";
+import type { Comps, CompsFile, Lot, Triage, TriageResult, Typology } from "./types";
 import { EMPTY_COMPS } from "./fixtures";
-import { compsForLot, runProforma, DEFAULT_FINANCE, type FinanceAssumptions } from "./proforma";
+import { compsForLot, runProforma, DEFAULT_FINANCE, type FinanceAssumptions, type Proforma } from "./proforma";
 
 export { triageLot } from "./triage";
 export {
@@ -33,6 +33,22 @@ export function countTriage(results: TriageResult[]): Record<Triage, number> {
   return c;
 }
 
+/**
+ * Pro forma in the chosen revenue mode, falling back to the other mode when the lot lacks
+ * that comp. Mirrors triageLot so the pencil section and the triage reasons agree.
+ */
+export function proformaWithFallback(
+  lot: Lot,
+  typology: Typology,
+  comps: Comps | null,
+  a: FinanceAssumptions = DEFAULT_FINANCE,
+): Proforma | null {
+  return (
+    runProforma(lot, typology, comps, a) ??
+    runProforma(lot, typology, comps, { ...a, mode: a.mode === "sale" ? "rent" : "sale" })
+  );
+}
+
 /** Dollar margin of the lot's best home type, or null when finance was not assessed. */
 export function lotMargin(
   lot: Lot,
@@ -41,5 +57,5 @@ export function lotMargin(
   a: FinanceAssumptions = DEFAULT_FINANCE,
 ): number | null {
   if (!t.bestTypology) return null;
-  return runProforma(lot, t.bestTypology, comps, a)?.margin ?? null;
+  return proformaWithFallback(lot, t.bestTypology, comps, a)?.margin ?? null;
 }

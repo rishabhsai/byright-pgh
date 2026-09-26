@@ -4,7 +4,7 @@ import type { Comps, Lot, Typology } from "@/lib/types";
 import { TYPOLOGY_LABEL } from "@/lib/types";
 import {
   fmtUsd,
-  runProforma,
+  proformaWithFallback,
   UNIT_PLAN,
   ZILLOW_DATA_URL,
   type FinanceAssumptions,
@@ -24,7 +24,7 @@ export const NO_COMPS = "No Zillow comps for this neighborhood; finance not asse
 
 export default function ProForma({ lot, comps, initialTypology, assumptions: a, onAssumptions }: Props) {
   const [typology, setTypology] = useState<Typology>(initialTypology ?? "single");
-  const r = useMemo(() => runProforma(lot, typology, comps, a), [lot, typology, comps, a]);
+  const r = useMemo(() => proformaWithFallback(lot, typology, comps, a), [lot, typology, comps, a]);
   const set = <K extends keyof FinanceAssumptions>(k: K) => (v: FinanceAssumptions[K]) => onAssumptions({ ...a, [k]: v });
   const mode: RevenueMode = a.mode;
 
@@ -46,6 +46,11 @@ export default function ProForma({ lot, comps, initialTypology, assumptions: a, 
           <p className={`font-serif text-[24px] leading-tight ${r.pencils ? "text-[#15803d]" : "text-[#be123c]"}`}>
             {r.pencils ? `Pencils at ${Math.round(r.marginPct)}% margin` : `Gap: ${fmtUsd(r.gap)} subsidy needed`}
           </p>
+          {r.mode !== mode && (
+            <p className="mt-0.5 text-[12px] text-ink">
+              No {mode === "sale" ? "home value" : "rent"} comp here, so {r.mode === "sale" ? "the neighborhood home value" : "ZIP rent"} was used.
+            </p>
+          )}
           <p className="mt-0.5 text-[12px] text-muted">
             {r.pencils
               ? `A ${TYPOLOGY_LABEL[typology].toLowerCase()} here is worth more than it costs to build, with room for a ${a.targetMarginPct}% return.`
@@ -53,11 +58,7 @@ export default function ProForma({ lot, comps, initialTypology, assumptions: a, 
           </p>
         </div>
       ) : (
-        <p className="rounded-lg border border-dashed border-hairline px-3 py-3 text-[12px] text-muted">
-          {mode === "sale"
-            ? "No Zillow home value for this neighborhood; switch to rent to assess."
-            : "No Zillow rent for this ZIP; switch to sale to assess."}
-        </p>
+        <p className="rounded-lg border border-dashed border-hairline px-3 py-3 text-[12px] text-muted">{NO_COMPS}.</p>
       )}
 
       <div>
