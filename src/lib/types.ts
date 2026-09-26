@@ -69,3 +69,37 @@ export const VERDICT_LABEL: Record<Verdict, string> = {
   prohibited: "Not permitted",
   unknown: "Not evaluated",
 };
+
+export type Triage = "green" | "yellow" | "red" | "gray";
+
+export const TRIAGE_LABEL: Record<Triage, string> = {
+  green: "Green: buildable as is",
+  yellow: "Yellow: needs a variance, review, or subsidy",
+  red: "Red: not developable for housing",
+  gray: "Gray: not evaluated",
+};
+
+export interface Comps {
+  neighborhood: string;
+  zip: string | null;
+  zhvi: number | null;
+  zhviDate: string | null;
+  zori: number | null;
+  zoriDate: string | null;
+}
+
+export interface CompsFile {
+  generatedAt: string;
+  sources: { name: string; url: string; vintage: string }[];
+  byNeighborhood: Record<string, { zhvi: number | null; zhviDate: string | null }>;
+  byZip: Record<string, { zori: number | null; zoriDate: string | null }>;
+  lotZip: Record<string, string>;
+}
+
+export interface TriageResult {
+  triage: Triage;
+  reasons: string[];
+  bestTypology: Typology | null;
+  pencils: boolean | null;
+  gap: number | null;
+}
