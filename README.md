@@ -55,6 +55,7 @@ Full list of encoded standards, with section numbers and access dates: [`docs/ru
 - **Only residential districts, LNC, and Hillside are encoded.** Lots in other districts (Parks, industrial, downtown, planned developments) show *not evaluated*.
 - **Not all standards are encoded.** Setbacks, height, lot coverage, overlay districts (riverfront, IPOD, historic), steep-slope overlay rules, and subdivision requirements are out of scope. A by-right verdict here means the use is permitted and the lot-size, lot-width, and parking checks pass. It is not a zoning determination.
 - **Assessed land value is not market value.** The pro forma is a screen with editable assumptions.
+- **Lots under 1,000 sq ft can't be Green.** That floor is our screening assumption, not code; LNC and VH districts set no minimum. Such lots likely need consolidation.
 - **Comps are neighborhood and ZIP aggregates,** not parcel-level sales. Zillow's public research files are used under their attribution terms; where a neighborhood has no Zillow series, finance is marked "not assessed" and the lot can't be Green.
 - **Frontage is parsed from the legal description** when present and is approximate. A survey governs.
 - **Hazard flags are screening layers,** not site engineering. Undermined-area maps in particular are historic and incomplete.

@@ -22,6 +22,9 @@ const VERDICT_PHRASE: Record<Verdict, string> = {
   unknown: "was not evaluated",
 };
 
+/** Screening floor for a buildable footprint; the code sets no minimum in LNC or VH districts. */
+export const MIN_PRACTICAL_LOT_SQFT = 1000;
+
 function hazardList(lot: Lot): string[] {
   const h: string[] = [];
   if (lot.hazards.steepSlope) h.push("steep slope (25%+)");
@@ -75,6 +78,12 @@ export function triageLot(
 
   const hazards = hazardList(lot);
   if (hazards.length) reasons.push(`Site: flagged for ${hazards.join(" and ")}; needs a site review.`);
+  const sliver = lot.lotAreaSqFt !== null && lot.lotAreaSqFt < MIN_PRACTICAL_LOT_SQFT;
+  if (sliver) {
+    reasons.push(
+      `Site: ${lot.lotAreaSqFt!.toLocaleString("en-US")} sq ft is below the ${MIN_PRACTICAL_LOT_SQFT.toLocaleString("en-US")} sq ft screening floor; likely needs consolidation with a neighboring lot (assumption, not code).`,
+    );
+  }
 
   if (!pf) {
     reasons.push("Finance: comps unavailable; finance not assessed.");
@@ -87,7 +96,7 @@ export function triageLot(
     );
   }
 
-  const green = best.verdict === "by-right" && hazards.length === 0 && pf !== null && pf.pencils;
+  const green = best.verdict === "by-right" && hazards.length === 0 && !sliver && pf !== null && pf.pencils;
   return result(green ? "green" : "yellow", reasons, best.typology, pf);
 }
 

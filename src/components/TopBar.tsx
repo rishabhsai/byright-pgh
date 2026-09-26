@@ -106,7 +106,7 @@ export default function TopBar({ ruleSet, onRuleSet, stats, onAbout, usingFixtur
             key={delta}
             className="pop inline-flex h-7 shrink-0 items-center rounded-full bg-gold-soft px-3 text-[12px] font-semibold whitespace-nowrap text-[#7a5a00] ring-1 ring-gold/60"
           >
-            +{delta.toLocaleString("en-US")} lots unlock a by-right home type
+            +{delta.toLocaleString("en-US")} ADUs become by right, one on each by-right lot
           </span>
         )}
       </div>
