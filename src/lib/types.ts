@@ -48,11 +48,17 @@ export interface Check {
   note?: string;
 }
 
+export type ReviewKind = "administrator" | "special";
+
 export interface Finding {
   typology: Typology;
   verdict: Verdict;
   checks: Check[];
   summary: string;
+  /** Ids of checks that could not be verified from the data (passed === null). */
+  unresolved: string[];
+  /** Which exception the use needs: Administrator Exception (§ 922.08) or Special Exception (§ 922.07). */
+  reviewKind: ReviewKind | null;
 }
 
 export const TYPOLOGY_LABEL: Record<Typology, string> = {
@@ -66,7 +72,7 @@ export const TYPOLOGY_LABEL: Record<Typology, string> = {
 export const VERDICT_LABEL: Record<Verdict, string> = {
   "by-right": "By right",
   review: "Administrative / special exception",
-  variance: "Variance required",
+  variance: "Relief required (variance or § 921.04 exception)",
   prohibited: "Not permitted",
   unknown: "Not evaluated",
 };
@@ -74,9 +80,9 @@ export const VERDICT_LABEL: Record<Verdict, string> = {
 export type Triage = "green" | "yellow" | "red" | "gray";
 
 export const TRIAGE_LABEL: Record<Triage, string> = {
-  green: "Green: buildable as is",
-  yellow: "Yellow: needs a variance, review, or subsidy",
-  red: "Red: not developable for housing",
+  green: "Green: passes the preliminary screen under displayed assumptions",
+  yellow: "Yellow: needs more information, review, or a different financial scenario",
+  red: "Red: major screening obstacle; specialist review",
   gray: "Gray: not evaluated",
 };
 

@@ -22,13 +22,15 @@ export function buildMemo(
   lines.push(`- Lot area: ${lot.lotAreaSqFt != null ? `${lot.lotAreaSqFt.toLocaleString()} sf` : "not in record"}`);
   lines.push(`- Frontage: ${lot.frontageFt != null ? `${lot.frontageFt} ft` : "not in record"}`);
   lines.push(`- Assessed land value: ${lot.landValue != null ? `$${lot.landValue.toLocaleString()}` : "not in record"} (county assessed, not market)`);
-  lines.push(`- Inventory status: ${lot.status}`);
+  lines.push(`- Inventory status: ${lot.status} (City inventory; not proof of current ownership or availability)`);
   const hz = [
     lot.hazards.steepSlope && "steep slope (25%+)",
     lot.hazards.undermined && "undermined area",
     lot.hazards.floodZone && "FEMA flood zone",
   ].filter(Boolean);
-  lines.push(`- Hazard screening: ${hz.length ? hz.join(", ") : "none flagged"}${lot.hazards.floodZone == null ? "; flood zone not checked" : ""}`);
+  lines.push(
+    `- Hazard screening: ${hz.length ? `${hz.join(", ")} flagged at the inventory point` : "no hazard found at the inventory point"}${lot.hazards.floodZone == null ? "; flood zone not checked" : ""} (tested at one point, not the parcel polygon)`,
+  );
   lines.push("");
   lines.push(`## Findings under ${RULESET_LABEL[ruleSet]}`);
   for (const f of findings) {
@@ -36,7 +38,7 @@ export function buildMemo(
     lines.push(`### ${TYPOLOGY_LABEL[f.typology]}: ${VERDICT_LABEL[f.verdict]}`);
     if (f.summary) lines.push(f.summary);
     for (const c of f.checks) {
-      const status = c.passed === true ? "pass" : c.passed === false ? "fail" : "needs survey";
+      const status = c.passed === true ? "pass" : c.passed === false ? "fail" : "not verified";
       const mr = [c.measured && `measured ${c.measured}`, c.required && `required ${c.required}`].filter(Boolean).join(", ");
       lines.push(`- ${c.label}: ${status}${mr ? ` (${mr})` : ""}. [${c.citation.section} ${c.citation.title}](${c.citation.url})${c.note ? ` ${c.note}` : ""}`);
     }

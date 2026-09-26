@@ -15,8 +15,11 @@ export interface FinanceAssumptions {
   softCostPct: number;
   /** Developer fee + overhead as % of hard cost. */
   devFeePct: number;
-  /** Land cost override in $. null uses the county assessed land value. */
-  landOverride: number | null;
+  /**
+   * Per-lot land cost in $, set by the caller for one lot only (never in the shared assumptions).
+   * null or absent uses the county assessed land value.
+   */
+  landOverride?: number | null;
   /** Land cost used when the lot has no assessed value and no override. */
   defaultLand: number;
   mode: RevenueMode;
@@ -34,7 +37,6 @@ export const DEFAULT_FINANCE: FinanceAssumptions = {
   hardCostPerSf: 185,
   softCostPct: 22,
   devFeePct: 13,
-  landOverride: null,
   defaultLand: 5000,
   mode: "sale",
   typicalHomeSf: 1400,
@@ -42,6 +44,36 @@ export const DEFAULT_FINANCE: FinanceAssumptions = {
   opexPct: 35,
   targetMarginPct: 10,
 };
+
+type RangedKey = "hardCostPerSf" | "softCostPct" | "devFeePct" | "targetMarginPct" | "typicalHomeSf" | "capRate" | "opexPct";
+
+/** Accepted range for each editable number; values outside are clamped, blanks and non-numbers use the default. */
+export const FINANCE_RANGES: Record<RangedKey, { min: number; max: number }> = {
+  hardCostPerSf: { min: 50, max: 600 },
+  softCostPct: { min: 0, max: 60 },
+  devFeePct: { min: 0, max: 30 },
+  targetMarginPct: { min: 0, max: 50 },
+  typicalHomeSf: { min: 500, max: 4000 },
+  capRate: { min: 3, max: 15 },
+  opexPct: { min: 10, max: 60 },
+};
+
+/** The value the model will actually use for one input. Zero on a field that cannot be zero reads as blank. */
+export function acceptedValue(key: RangedKey, v: number): number {
+  const { min, max } = FINANCE_RANGES[key];
+  if (!Number.isFinite(v) || (v <= 0 && min > 0)) return DEFAULT_FINANCE[key];
+  return clamp(v, min, max);
+}
+
+/** Model-boundary validation: every number the pro forma uses is finite and inside its accepted range. */
+export function validateFinance(assumptions: Partial<FinanceAssumptions> = {}): FinanceAssumptions {
+  const a = { ...DEFAULT_FINANCE, ...assumptions };
+  for (const k of Object.keys(FINANCE_RANGES) as RangedKey[]) a[k] = acceptedValue(k, a[k]);
+  if (a.landOverride != null && !(Number.isFinite(a.landOverride) && a.landOverride >= 0)) a.landOverride = null;
+  if (!(Number.isFinite(a.defaultLand) && a.defaultLand >= 0)) a.defaultLand = DEFAULT_FINANCE.defaultLand;
+  if (a.mode !== "sale" && a.mode !== "rent") a.mode = DEFAULT_FINANCE.mode;
+  return a;
+}
 
 export const SALE_SCALE_MIN = 0.6;
 export const SALE_SCALE_MAX = 1.3;
@@ -138,8 +170,10 @@ export interface Proforma {
   margin: number;
   marginPct: number;
   pencils: boolean;
-  /** Subsidy needed to reach the target margin; 0 when the deal pencils. */
+  /** Modeled shortfall to the target return; 0 when the deal pencils. Not a subsidy award or eligibility finding. */
   gap: number;
+  /** Value at which the margin exactly equals the target return: total cost × (1 + target). */
+  breakEvenValue: number;
   inputsUsed: InputUsed[];
 }
 
@@ -200,7 +234,7 @@ export function runProforma(
   comps: Comps | null,
   assumptions: Partial<FinanceAssumptions> = {},
 ): Proforma | null {
-  const a = { ...DEFAULT_FINANCE, ...assumptions };
+  const a = validateFinance(assumptions);
   if (!comps) return null;
   const plan = UNIT_PLAN[typology];
   const c = costStack(typology, lot.landValue, a);
@@ -283,7 +317,7 @@ export function runProforma(
     grossAnnualRent = comps.zori * 12 * plan.units;
     const noi = grossAnnualRent * (1 - a.opexPct / 100);
     revenue = noi / (a.capRate / 100);
-    revenueNote = `${plan.units} × ${fmtUsd(comps.zori)}/mo ZIP ${comps.zip} rent = ${fmtUsd(grossAnnualRent)}/yr gross, less ${a.opexPct}% opex, capitalized at ${a.capRate}%`;
+    revenueNote = `Capitalized value (NOI ÷ cap rate): ${plan.units} × ${fmtUsd(comps.zori)}/mo ZIP ${comps.zip} rent = ${fmtUsd(grossAnnualRent)}/yr gross, less ${a.opexPct}% opex, ÷ ${a.capRate}%`;
     inputs.push(
       {
         key: "zori",
@@ -338,6 +372,7 @@ export function runProforma(
     marginPct: c.totalCost > 0 ? (margin / c.totalCost) * 100 : 0,
     pencils,
     gap: pencils ? 0 : required - margin,
+    breakEvenValue: c.totalCost + required,
     inputsUsed: inputs,
   };
 }

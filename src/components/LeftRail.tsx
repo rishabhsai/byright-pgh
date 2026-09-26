@@ -2,7 +2,7 @@
 import { memo, useMemo } from "react";
 import type { Lot, RuleSet, Triage, Typology } from "@/lib/types";
 import { TYPOLOGY_LABEL } from "@/lib/types";
-import { scoreLot, compareTriageRanked, type TriageRanked } from "@/lib/ranking";
+import { scoreLot, compareTriageRanked, isAvailable, type TriageRanked } from "@/lib/ranking";
 import type { Evaluations, Triages } from "./ByRightApp";
 import NeighborhoodPicker, { type NeighborhoodOption } from "./NeighborhoodPicker";
 import {
@@ -23,7 +23,8 @@ export interface Filters {
   typology: Typology | "";
   onlyByRight: boolean;
   minArea: number;
-  triage: Exclude<Triage, "gray"> | "";
+  triage: Triage | "";
+  availableOnly: boolean;
 }
 
 export const DEFAULT_FILTERS: Filters = {
@@ -32,13 +33,20 @@ export const DEFAULT_FILTERS: Filters = {
   onlyByRight: false,
   minArea: 0,
   triage: "",
+  availableOnly: false,
 };
 
 export function filtersActive(f: Filters): boolean {
-  return f.neighborhoods.length > 0 || !!f.typology || f.onlyByRight || f.minArea > 0 || !!f.triage;
+  return f.neighborhoods.length > 0 || !!f.typology || f.onlyByRight || f.minArea > 0 || !!f.triage || f.availableOnly;
 }
 
-const TRIAGE_FILTERS: Filters["triage"][] = ["", "green", "yellow", "red"];
+const TRIAGE_FILTERS: Filters["triage"][] = ["", "green", "yellow", "red", "gray"];
+
+/** Short chip text for City inventory statuses. */
+function statusChip(status: string): string {
+  if (status === "Available for Sale") return "For sale";
+  return status || "Status n/a";
+}
 
 const TYPE_CHIP: Record<Typology, string> = {
   single: "Single",
@@ -150,19 +158,20 @@ function LeftRail({ lots, evals, triages, ruleSet, filters, onFilters, matches, 
       <div className="border-b border-hairline px-4 pt-4 pb-3">
         <h2 className="font-serif text-[22px] leading-none">Fast-track finder</h2>
         <p className="mt-1 text-[12px] text-muted">
-          Green lots first, then yellow and red. Within a color, most home types by right, then best margin.
+          Lots available for sale first, then green, yellow, red and gray. Within a color, most home types by right, then best margin.
         </p>
 
         <div className="mt-3">
           <span className="mb-1 block text-[11px] text-muted">Triage</span>
-          <div role="radiogroup" aria-label="Triage filter" className="grid grid-cols-4 rounded-md border border-hairline bg-surface p-0.5 text-[12px]">
+          <div role="radiogroup" aria-label="Triage filter" className="grid grid-cols-5 rounded-md border border-hairline bg-surface p-0.5 text-[12px]">
             {TRIAGE_FILTERS.map((t) => (
               <button
                 key={t || "any"}
                 role="radio"
                 aria-checked={filters.triage === t}
                 onClick={() => set("triage", t)}
-                className={`inline-flex items-center justify-center gap-1.5 rounded px-2 py-1 transition-colors ${
+                title={t === "gray" ? "Gray / not evaluated" : undefined}
+                className={`inline-flex items-center justify-center gap-1.5 rounded px-1.5 py-1 transition-colors ${
                   filters.triage === t ? "bg-white font-medium text-ink shadow-[0_0_0_1px_rgba(23,33,30,.08)]" : "text-muted hover:text-ink"
                 }`}
               >
@@ -240,7 +249,8 @@ function LeftRail({ lots, evals, triages, ruleSet, filters, onFilters, matches, 
             </div>
           </div>
 
-          <label className="mt-[22px] flex cursor-pointer items-center gap-2 py-1.5 text-[12px] text-ink select-none">
+<div className="mt-[22px] flex flex-col">
+          <label className="flex cursor-pointer items-center gap-2 py-1.5 text-[12px] text-ink select-none">
             <input
               type="checkbox"
               role="switch"
@@ -254,6 +264,21 @@ function LeftRail({ lots, evals, triages, ruleSet, filters, onFilters, matches, 
             />
             Only by-right
           </label>
+          <label className="flex cursor-pointer items-center gap-2 py-1.5 text-[12px] text-ink select-none">
+            <input
+              type="checkbox"
+              role="switch"
+              checked={filters.availableOnly}
+              onChange={(e) => set("availableOnly", e.target.checked)}
+              className="peer sr-only"
+            />
+            <span
+              aria-hidden
+              className="relative inline-flex h-[18px] w-[30px] shrink-0 items-center rounded-full bg-[#cfd3cc] transition-colors peer-checked:bg-v-byright peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent after:absolute after:left-[2px] after:h-[14px] after:w-[14px] after:rounded-full after:bg-white after:shadow-[0_1px_2px_rgba(0,0,0,.2)] after:transition-transform peer-checked:after:translate-x-[12px]"
+            />
+            Available for sale only
+          </label>
+          </div>
         </div>
 
         {filtersActive(filters) && (
@@ -348,6 +373,14 @@ function LeftRail({ lots, evals, triages, ruleSet, filters, onFilters, matches, 
                   <div className="truncate text-[13px] font-medium text-ink">{lot.address || lot.id}</div>
                   <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted">
                     <ZoneChip zone={lot.zone} />
+                    <span
+                      title={`City inventory status: ${lot.status || "not recorded"}`}
+                      className={`shrink-0 rounded px-1 py-px text-[10px] leading-[14px] ${
+                        isAvailable(lot) ? "bg-accent-soft font-medium text-accent" : "bg-surface text-faint"
+                      }`}
+                    >
+                      {statusChip(lot.status)}
+                    </span>
                     <span className="truncate">{lot.neighborhood}</span>
                   </div>
                 </div>

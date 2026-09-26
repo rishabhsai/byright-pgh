@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
-import type { Lot } from "./types";
+import type { Finding, Lot } from "./types";
 import { evaluateLot } from "./rules";
 import { triageLot } from "./triage";
-import { buildApplicationPlan, formatBlockLot, NEVER_SUBMITS, renderApplicationMarkdown } from "./application";
+import {
+  buildApplicationPlan,
+  formatBlockLot,
+  NEVER_SUBMITS,
+  renderApplicationMarkdown,
+  WORKSHEET_LABEL,
+  type ApplicationPlan,
+} from "./application";
 
 function lot(overrides: Partial<Lot> = {}): Lot {
   return {
@@ -24,35 +31,94 @@ function lot(overrides: Partial<Lot> = {}): Lot {
   };
 }
 
-function plan(l: Lot, typology: Parameters<typeof buildApplicationPlan>[6]) {
-  const findings = evaluateLot(l, "current");
+function plan(l: Lot, typology: Parameters<typeof buildApplicationPlan>[6], findings: Finding[] = evaluateLot(l, "current")) {
   return buildApplicationPlan(l, findings, "current", triageLot(l, findings, null), null, null, typology);
 }
 
-const field = (p: ReturnType<typeof plan>, label: string) => p.purchaseForm.find((f) => f.label.startsWith(label));
+const field = (p: ApplicationPlan, label: string) => p.purchaseForm.find((f) => f.label.startsWith(label));
 
-describe("buildApplicationPlan", () => {
-  it("by-right lot: no ZBA draft, 'No' on the variance field", () => {
-    const p = plan(lot(), "single");
-    expect(p.verdict).toBe("by-right");
-    expect(p.zba).toBeNull();
-    expect(field(p, "Will you need to seek a variance")?.value).toBe("No");
-    expect(field(p, "When will you apply")?.value).toContain("6 months");
-    expect(p.steps.find((s) => s.id === "zoning")?.body[0]).toContain("no hearing expected");
-    expect(p.steps[0].callout?.text).toBe("Listed as available for sale.");
+/** Every string the plan can show or export, split into sentences. */
+function sentences(p: ApplicationPlan): string[] {
+  const all: string[] = [renderApplicationMarkdown(p)];
+  const walk = (v: unknown) => {
+    if (typeof v === "string") all.push(v);
+    else if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === "object") Object.values(v).forEach(walk);
+  };
+  walk(p);
+  return all.flatMap((s) => s.split(/(?<=[.?!])\s+|\n+/)).map((s) => s.trim()).filter(Boolean);
+}
+
+const SMALL_R2 = lot({ zone: "R2-L", lotAreaSqFt: 2400, frontageFt: 30, hazards: { steepSlope: true, undermined: false, floodZone: false } });
+
+describe("buildApplicationPlan: worksheet states only what the record shows", () => {
+  const cases: [string, ApplicationPlan][] = [
+    ["by-right single", plan(lot(), "single")],
+    ["dimensional failure", plan(SMALL_R2, "single")],
+    ["use variance", plan(lot(), "duplex")],
+    ["hillside", plan(lot({ zone: "H", lotAreaSqFt: 20000, frontageFt: 80 }), "single")],
+  ];
+
+  it.each(cases)("%s: no invented hardship, vacancy, or lot-of-record claims", (_, p) => {
+    for (const s of sentences(p)) {
+      expect(s).not.toMatch(/not (been )?created by the (applicant|appellant)/i);
+      expect(s).not.toMatch(/would (otherwise )?remain vacant/i);
+      if (/lot of record/i.test(s)) expect(s).toMatch(/\?$/);
+    }
   });
 
-  it("R2-L lot of 2,400 sf: dimensional variance citing § 903.03, required 3,000, measured 2,400", () => {
-    const p = plan(lot({ zone: "R2-L", lotAreaSqFt: 2400, frontageFt: 30 }), "single");
+  it("R2-L lot of 2,400 sf: record cites § 903.03 with required and measured values", () => {
+    const p = plan(SMALL_R2, "single");
     expect(p.verdict).toBe("variance");
-    expect(p.zba).not.toBeNull();
-    expect(p.zba!.requestTypes).toContain("Dimensional variance");
-    const line = p.zba!.sections.find((s) => s.text.includes("§ 903.03"));
-    expect(line?.text).toMatch(/required 3,000 sq ft, lot has 2,400 sq ft/);
-    expect(p.zba!.findings).toHaveLength(5);
-    expect(p.zba!.criteria.section).toBe("§ 922.09.E");
+    const z = p.zba!;
+    expect(z.label).toBe(WORKSHEET_LABEL);
+    expect(WORKSHEET_LABEL).toBe("ZBA review worksheet (DRAFT)");
+    expect(z.criteria.section).toBe("§ 922.09.E");
+    expect(z.findings).toHaveLength(5);
+    const record = z.findings.flatMap((f) => f.record).join("\n");
+    expect(record).toMatch(/§ 903\.03.*required 3,000 sq ft, lot has 2,400 sq ft/);
+    expect(record).toMatch(/steep slope.*inventory point/i);
+    expect(record).toContain("R2-L");
+  });
+
+  it("asks the applicant for the evidence the Board needs, as questions with attachments", () => {
+    const z = plan(SMALL_R2, "single").zba!;
+    const ask = z.findings.flatMap((f) => f.establish).join("\n");
+    expect(ask).toContain("Is this a lot of record? Attach the deed and recorded plat.");
+    expect(ask).toMatch(/Has the lot been subdivided or consolidated since the standard was adopted\?/);
+    expect(ask).toMatch(/What conforming development did you consider, and why is none feasible\? Attach a site sketch\./);
+    expect(ask).toMatch(/How does the proposal fit adjacent lot sizes and heights\? Attach photos and a block survey\./);
+  });
+
+  it("dimensional failure: staff decide between a § 922.09 variance and a § 921.04 nonconforming-lot exception", () => {
+    const p = plan(SMALL_R2, "single");
+    const zoning = p.steps.find((s) => s.id === "zoning")!.body.join(" ");
+    expect(zoning).toContain(
+      "Relief path determined by zoning staff: dimensional variance under § 922.09 or nonconforming-lot exception under § 921.04 (https://ecode360.com/45478977).",
+    );
     expect(field(p, "Will you need to seek a variance")?.value).toMatch(/^Yes: .*§ 903\.03/);
-    expect(p.steps.find((s) => s.id === "zoning")?.chips.map((c) => c.label).join(" ")).toContain("$400");
+  });
+
+  it("administrator review kind: staff review under § 922.08, no ZBA hearing or fee, no worksheet", () => {
+    const l = lot();
+    const base = evaluateLot(l, "current");
+    const findings = base.map((f) =>
+      f.typology === "single" ? { ...f, verdict: "review" as const, reviewKind: "administrator" as const } : f,
+    );
+    const p = plan(l, "single", findings);
+    const zoning = p.steps.find((s) => s.id === "zoning")!;
+    expect(zoning.body.join(" ")).toContain("Administrator Exception, staff review under § 922.08, no ZBA hearing or $400 ZBA fee");
+    expect(zoning.chips.map((c) => c.label).join(" ")).not.toContain("$400");
+    expect(p.zba).toBeNull();
+  });
+
+  it("special review kind: Special Exception hearing under § 922.07", () => {
+    const l = lot();
+    const findings = evaluateLot(l, "current").map((f) =>
+      f.typology === "single" ? { ...f, verdict: "review" as const, reviewKind: "special" as const } : f,
+    );
+    const zoning = plan(l, "single", findings).steps.find((s) => s.id === "zoning")!;
+    expect(zoning.body.join(" ")).toContain("Special Exception hearing under § 922.07");
   });
 
   it("R1D duplex: use variance with the by-right alternatives line", () => {
@@ -62,19 +128,54 @@ describe("buildApplicationPlan", () => {
     const zoning = p.steps.find((s) => s.id === "zoning")!;
     expect(zoning.body.join(" ")).toMatch(/Consider a typology that is by right here instead: .*Single-unit detached/);
   });
+});
 
-  it("cautions on lots not listed for sale", () => {
-    const p = plan(lot({ status: "Hold for Study", inventoryType: "Hold For Study" }), "single");
-    expect(p.steps[0].callout).toEqual({
-      tone: "warn",
-      text: "This lot's inventory status is Hold for Study; confirm availability with the Real Estate Division before applying.",
-    });
+describe("buildApplicationPlan: purchase form", () => {
+  it("by-right lot: never a bare 'No' on the variance field, no invented timeline", () => {
+    const p = plan(lot(), "single");
+    expect(p.verdict).toBe("by-right");
+    expect(p.zba).toBeNull();
+    expect(field(p, "Will you need to seek a variance")?.value).toBe("Not under the checks we ran; zoning staff confirm");
+    const when = field(p, "When will you apply")?.value ?? "";
+    expect(when).toBe("You estimate; typically after closing");
+    expect(when).not.toMatch(/month/);
+    expect(p.steps.find((s) => s.id === "zoning")?.body[0]).toContain("no hearing expected");
   });
 
   it("never fabricates applicant fields", () => {
     const p = plan(lot(), "single");
     for (const f of p.purchaseForm.filter((f) => f.who === "you")) expect(f.value).toBeNull();
     expect(field(p, "Have you verified")?.note).toBe("You must visit the site.");
+  });
+});
+
+describe("buildApplicationPlan: acquisition channel", () => {
+  const acquire = (l: Lot) => plan(l, "single").steps.find((s) => s.id === "acquire")!;
+
+  it("Public Sale, available: the City Request to Purchase form", () => {
+    const s = acquire(lot());
+    expect(s.callout?.tone).toBe("ok");
+    expect(s.body.join(" ")).toContain("Request to Purchase Application – Individuals");
+    expect(s.body.join(" ")).toMatch(/businesses and nonprofits use the City's Request to Purchase Application – Businesses/i);
+    expect(s.body.join(" ")).toContain("https://pghlandbank.org/how-to-buy-vacant-blighted-or-tax-delinquent-property-in-pittsburgh/");
+  });
+
+  it("URA Transfer, available: route to the URA, not the City Finance form", () => {
+    const p = plan(lot({ inventoryType: "URA Transfer" }), "single");
+    const s = p.steps.find((x) => x.id === "acquire")!;
+    expect(s.callout?.text).toBe(
+      "Listed for transfer to the URA; contact propertyquestions@ura.org, purchases are subject to URA Board approval",
+    );
+    expect(s.body.join(" ")).not.toContain("property.sales.3tb@pittsburghpa.gov");
+    expect(p.acquisition).toBe("ura");
+  });
+
+  it("any other status: caution to confirm availability", () => {
+    const s = acquire(lot({ status: "Hold for Study", inventoryType: "Hold For Study" }));
+    expect(s.callout).toEqual({
+      tone: "warn",
+      text: "This lot's inventory status is Hold for Study. Confirm availability with the Real Estate Division before applying.",
+    });
   });
 });
 
@@ -90,10 +191,12 @@ describe("formatBlockLot", () => {
 });
 
 describe("renderApplicationMarkdown", () => {
-  it("contains the never-submits banner", () => {
-    const md = renderApplicationMarkdown(plan(lot({ zone: "R2-L", lotAreaSqFt: 2400 }), "single"));
+  it("contains the never-submits banner and the worksheet label", () => {
+    const md = renderApplicationMarkdown(plan(SMALL_R2, "single"));
     expect(md).toContain(NEVER_SUBMITS);
-    expect(md).toContain("DRAFT: edit before filing");
+    expect(md).toContain("ZBA review worksheet (DRAFT)");
+    expect(md).toContain("What the record shows");
+    expect(md).toContain("What you must establish");
     expect(md).not.toMatch(/\bsubmit(ted|ting)? (your|the) application\b/i);
   });
 });

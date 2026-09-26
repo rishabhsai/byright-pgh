@@ -106,6 +106,14 @@ describe("evaluateLot", () => {
     expect(f.single.summary).toContain("needs survey");
   });
 
+  it("lists every check that could not be verified in `unresolved`", () => {
+    const f = byTypology(lot({ zone: "R1D-H", lotAreaSqFt: null }));
+    expect(f.single.unresolved).toEqual(expect.arrayContaining(["lot-area", "parking"]));
+    expect(f.single.unresolved).not.toContain("use");
+    const bill = byTypology(lot({ zone: "R1D-H", lotAreaSqFt: 3000 }), "bill-2025-1545");
+    expect(bill.single.unresolved).not.toContain("parking");
+  });
+
   it("H (Hillside): single needs Administrator Exception review; 3,000 sq ft is under the 3,200 sq ft minimum so variance; duplex prohibited", () => {
     const small = byTypology(lot({ zone: "H", lotAreaSqFt: 3000 }));
     expect(small.single.verdict).toBe("variance");
@@ -122,11 +130,50 @@ describe("evaluateLot", () => {
     expect(byTypology(lot({ zone: "R1D-M", frontageFt: null })).townhome.verdict).toBe("review");
   });
 
-  it("LNC: minimum lot size 0, all four housing rows permitted by right", () => {
-    const f = byTypology(lot({ zone: "LNC", lotAreaSqFt: 900, frontageFt: 18 }));
+  it("LNC: minimum lot size 0, all four housing rows permitted by right on a lot big enough for the 2:1 FAR", () => {
+    const f = byTypology(lot({ zone: "LNC", lotAreaSqFt: 1500, frontageFt: 18 }));
     expect(f.single.verdict).toBe("by-right");
     expect(f.triplex.verdict).toBe("by-right");
     expect(f.townhome.verdict).toBe("by-right");
+    expect(f.triplex.checks.find((c) => c.id === "far")?.passed).toBe(true);
+  });
+
+  it("LNC 2:1 FAR caps floor area: the 259 sq ft Forbes Av lot cannot hold a 2,550 sq ft triplex", () => {
+    const forbes = lot({ id: "0086L00500000000", zone: "LNC", lotAreaSqFt: 259, frontageFt: 14.4 });
+    const f = byTypology(forbes);
+    expect(f.triplex.verdict).toBe("variance");
+    const far = f.triplex.checks.find((c) => c.id === "far");
+    expect(far?.passed).toBe(false);
+    expect(far?.label).toBe("Floor area ratio");
+    expect(far?.required).toContain("518");
+    expect(far?.citation.section).toContain("904.02");
+    expect(f.triplex.summary).toContain("floor area ratio");
+    expect(f.single.verdict).toBe("variance"); // 1,200 sq ft > 518
+  });
+
+  it("districts without an encoded FAR name building fit as unresolved", () => {
+    const f = byTypology(lot({ zone: "R2-M", lotAreaSqFt: 3000 }));
+    const fit = f.duplex.checks.find((c) => c.id === "building-fit");
+    expect(fit?.passed).toBeNull();
+    expect(fit?.label).toBe("Building fit (setbacks, height, coverage): not evaluated");
+    expect(f.duplex.unresolved).toContain("building-fit");
+    expect(f.duplex.verdict).toBe("by-right");
+  });
+
+  it("a failed lot-size check asks staff to pick the relief path and cites § 921.04", () => {
+    const f = byTypology(lot({ zone: "R2-L", lotAreaSqFt: 2000 }));
+    expect(f.single.summary).toContain("Relief required: a dimensional variance, or the nonconforming-lot exception under § 921.04");
+    expect(f.single.summary).not.toMatch(/variance from the Zoning Board/);
+    expect(f.single.checks.find((c) => c.id === "lot-area")?.note).toContain("https://ecode360.com/45478977");
+  });
+
+  it("Hillside review names the exception and the body that decides it", () => {
+    const big = byTypology(lot({ zone: "H", lotAreaSqFt: 4000 }));
+    expect(big.single.reviewKind).toBe("administrator");
+    expect(big.single.summary).toContain("Administrator Exception (staff review, § 922.08)");
+    expect(big.townhome.reviewKind).toBe("special");
+    expect(big.townhome.summary).toContain("Special Exception (ZBA hearing, § 922.07)");
+    expect(byTypology(lot({ zone: "R2-M" })).single.reviewKind).toBeNull();
   });
 
   it("every check in every encoded district and rule set has a non-empty citation url and section", () => {

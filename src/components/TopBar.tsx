@@ -15,7 +15,11 @@ interface Props {
 const OPTIONS: RuleSet[] = ["current", "bill-2025-1545"];
 const TOGGLE_LABEL: Record<RuleSet, string> = {
   current: "Today's code",
-  "bill-2025-1545": "If Bill 2025-1545 passes",
+  "bill-2025-1545": "Proposed ADU + parking reform",
+};
+const TOGGLE_TITLE: Record<RuleSet, string> = {
+  current: "Title Nine as in force today",
+  "bill-2025-1545": "Bill 2025-1545 (substitute, corrected July 24, 2026), pending before City Council",
 };
 
 export default function TopBar({ ruleSet, onRuleSet, stats, onAbout, usingFixtures }: Props) {
@@ -69,6 +73,7 @@ export default function TopBar({ ruleSet, onRuleSet, stats, onAbout, usingFixtur
               key={o}
               role="radio"
               aria-checked={ruleSet === o}
+              title={TOGGLE_TITLE[o]}
               onClick={() => onRuleSet(o)}
               className={`relative z-10 rounded-full px-4 py-1.5 whitespace-nowrap transition-colors ${
                 ruleSet === o ? "text-ink" : "text-muted hover:text-ink"
@@ -82,7 +87,7 @@ export default function TopBar({ ruleSet, onRuleSet, stats, onAbout, usingFixtur
         <div className="flex min-w-0 items-center gap-6">
           <Stat label="lots by right for at least one home type" value={s?.byRightAny} tone="var(--v-byright)" />
           <Stat label="by-right home options across all lots" value={s?.byRightPairs} tone="var(--v-byright)" ring />
-          <Stat label="lots need a variance" value={s?.variance} tone="var(--v-variance)" />
+          <Stat label="lots need zoning relief" value={s?.variance} tone="var(--v-variance)" />
           <Stat label="lots in districts not encoded" value={s?.unknown} tone="var(--v-unknown)" hideBelow2xl />
         </div>
         <div
@@ -104,9 +109,10 @@ export default function TopBar({ ruleSet, onRuleSet, stats, onAbout, usingFixtur
         {bill && delta > 0 && (
           <span
             key={delta}
-            className="pop inline-flex h-7 shrink-0 items-center rounded-full bg-gold-soft px-3 text-[12px] font-semibold whitespace-nowrap text-[#7a5a00] ring-1 ring-gold/60"
+            title="Bill 2025-1545: lots where the proposed code adds a by-right home type (the ADU)"
+            className="pop inline-flex h-6 shrink-0 items-center rounded-full bg-gold-soft px-2.5 text-[11px] font-medium whitespace-nowrap text-[#7a5a00] ring-1 ring-gold/40"
           >
-            +{delta.toLocaleString("en-US")} ADUs become by right, one on each by-right lot
+            +{delta.toLocaleString("en-US")} lots would allow an ADU by right
           </span>
         )}
       </div>

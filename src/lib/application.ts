@@ -5,7 +5,9 @@ import { buildingSf, fmtUsd, UNIT_PLAN, type Proforma } from "./proforma";
 
 /*
  * Application planner: turns structured findings into the filings a lot needs, pre-fills the
- * City's Request to Purchase form (page 2), and drafts a variance justification from facts only.
+ * City's Request to Purchase form (page 2), and builds a ZBA review worksheet: what the public record
+ * shows about the lot, and the questions the applicant must answer with evidence. It never asserts
+ * facts the record does not establish (lot of record, boundary history, who created a hardship).
  * Pure functions. ByRight never submits anything; the applicant reviews, signs, and files.
  *
  * Sources (verbatim text in docs/sources/):
@@ -15,7 +17,11 @@ import { buildingSf, fmtUsd, UNIT_PLAN, type Proforma } from "./proforma";
 
 export const NEVER_SUBMITS =
   "Prepared from public records for your review. You file it; ByRight does not submit applications.";
-export const DRAFT_LABEL = "DRAFT: edit before filing";
+export const WORKSHEET_LABEL = "ZBA review worksheet (DRAFT)";
+export const BY_RIGHT_VARIANCE_ANSWER = "Not under the checks we ran; zoning staff confirm";
+/** Label on any model-suggested rewording of the proposed-use description. */
+export const SUGGESTION_LABEL = "Suggested wording, unverified; edit before filing";
+export const PERMIT_TIMING_ANSWER = "You estimate; typically after closing";
 
 export const SOURCE = {
   purchaseForm: {
@@ -30,6 +36,10 @@ export const SOURCE = {
     title: "Pittsburgh Land Bank, How to buy vacant, blighted, or tax-delinquent property in Pittsburgh",
     url: "https://pghlandbank.org/how-to-buy-vacant-blighted-or-tax-delinquent-property-in-pittsburgh/",
   },
+  uraContact: {
+    title: "Urban Redevelopment Authority of Pittsburgh, property questions (propertyquestions@ura.org)",
+    url: "mailto:propertyquestions@ura.org",
+  },
   abutting311: {
     title: "Pittsburgh 311 knowledge base, article 812 (abutting property owners list)",
     url: "https://pittsburghpa.qscend.com/311/knowledgebase/article/812",
@@ -43,6 +53,9 @@ export const VARIANCE_CRITERIA = {
   url: "https://ecode360.com/45479331",
   mirrors: "PA Municipalities Planning Code § 910.2(a)",
 };
+
+/** § 921.04: nonconforming lots, the alternative relief path for an undersized lot. */
+export const NONCONFORMING_LOTS = { section: "§ 921.04", title: "Nonconforming Lots", url: "https://ecode360.com/45478977" };
 
 /** § 922.09.C: notice list the applicant must supply with a variance application. */
 export const NOTICE_CITATION = { section: "§ 922.09.C", title: "Variances, Notice", url: "https://ecode360.com/45479331" };
@@ -68,8 +81,12 @@ export interface PrefilledField {
 
 export interface ZbaFinding {
   n: number;
+  /** The § 922.09.E criterion, named neutrally. */
   title: string;
-  text: string;
+  /** What the record shows: parcel facts with their source, never inferences. */
+  record: string[];
+  /** What you must establish: questions and evidence prompts for the applicant. */
+  establish: string[];
 }
 
 export interface ZbaDraft {
@@ -77,9 +94,11 @@ export interface ZbaDraft {
   sections: { text: string; url: string }[];
   criteria: typeof VARIANCE_CRITERIA;
   findings: ZbaFinding[];
-  label: typeof DRAFT_LABEL;
+  label: typeof WORKSHEET_LABEL;
   note?: string;
 }
+
+export type AcquisitionChannel = "city-form" | "ura" | "confirm";
 
 export interface ApplicationPlan {
   lotId: string;
@@ -90,8 +109,10 @@ export interface ApplicationPlan {
   banner: typeof NEVER_SUBMITS;
   steps: Step[];
   purchaseForm: PrefilledField[];
-  /** The "detailed description" value, kept separately so the LLM polish can swap it. */
+  /** The "detailed description" value; the only text a model may suggest rewording for. */
   description: string;
+  /** How the lot is acquired: City purchase form, URA transfer, or confirm with the City first. */
+  acquisition: AcquisitionChannel;
   zba: ZbaDraft | null;
   attachments: string[];
   sources: { title: string; url: string }[];
@@ -118,7 +139,6 @@ export function formatBlockLot(parid: string): { text: string; note?: string } {
 /* ---------- Helpers ---------- */
 
 const DIMENSIONAL = new Set(["lot-area", "lot-width", "lot-area-per-unit"]);
-const DIM_NOUN: Record<string, string> = { "lot-area": "area", "lot-width": "frontage", "lot-area-per-unit": "area" };
 
 const TYPOLOGY_NOUN: Record<Typology, string> = {
   single: "a single-unit detached house",
@@ -128,7 +148,6 @@ const TYPOLOGY_NOUN: Record<Typology, string> = {
   townhome: "an attached townhome",
 };
 
-const standardName = (c: Check) => c.label.toLowerCase().replace(/ \(.*\)$/, "");
 const NUM = new Intl.NumberFormat("en-US");
 const fmt = (n: number) => NUM.format(n);
 
@@ -136,6 +155,8 @@ type UseLetter = "P" | "A" | "S" | "N";
 
 function letterOf(finding: Finding): UseLetter {
   if (finding.verdict === "prohibited") return "N";
+  if (finding.reviewKind === "administrator") return "A";
+  if (finding.reviewKind === "special") return "S";
   const m = finding.checks.find((c) => c.id === "use")?.measured ?? "";
   if (m.startsWith("Administrator")) return "A";
   if (m.startsWith("Special")) return "S";
@@ -147,13 +168,19 @@ function failingDimensional(finding: Finding): Check[] {
   return finding.checks.filter((c) => DIMENSIONAL.has(c.id) && c.passed === false);
 }
 
+const DIM_PATH =
+  `Relief path determined by zoning staff: dimensional variance under § 922.09 or nonconforming-lot exception under ${NONCONFORMING_LOTS.section} (${NONCONFORMING_LOTS.url}).`;
+const ADMIN_PATH = "Administrator Exception, staff review under § 922.08, no ZBA hearing or $400 ZBA fee.";
+const SPECIAL_PATH = "Special Exception hearing under § 922.07.";
+
 function requestTypes(finding: Finding): string[] {
   const types: string[] = [];
-  if (failingDimensional(finding).length) types.push("Dimensional variance");
+  if (failingDimensional(finding).length)
+    types.push(`Dimensional variance (§ 922.09) or nonconforming-lot exception (${NONCONFORMING_LOTS.section}); zoning staff determine which`);
   const letter = letterOf(finding);
   if (letter === "N") types.push("Use variance");
-  if (letter === "A") types.push("Administrator exception");
-  if (letter === "S") types.push("Special exception");
+  if (letter === "A") types.push("Administrator exception (§ 922.08)");
+  if (letter === "S") types.push("Special exception (§ 922.07)");
   return types;
 }
 
@@ -186,18 +213,67 @@ function hazardList(lot: Lot): string[] {
   return h;
 }
 
-function acquisitionCallout(lot: Lot): Step["callout"] {
-  if (lot.status === "Available for Sale") return { tone: "ok", text: "Listed as available for sale." };
-  const flagged =
-    lot.inventoryType === "URA Transfer"
-      ? "URA Transfer"
-      : lot.status || lot.inventoryType || "not recorded";
-  return {
-    tone: "warn",
-    text: `This lot's inventory status is ${flagged}; confirm availability with the Real Estate Division before applying.`,
-  };
+const URA_CALLOUT =
+  "Listed for transfer to the URA; contact propertyquestions@ura.org, purchases are subject to URA Board approval";
+
+function acquisitionChannel(lot: Lot): AcquisitionChannel {
+  if (lot.status !== "Available for Sale") return "confirm";
+  if (lot.inventoryType === "URA Transfer") return "ura";
+  if (lot.inventoryType === "Public Sale") return "city-form";
+  return "confirm";
 }
 
+function acquireStep(lot: Lot, channel: AcquisitionChannel): Step {
+  const guide = `How City and Land Bank sales work: ${SOURCE.landBank.url}`;
+  const forms = [
+    "The Request to Purchase Application – Individuals (V. 1/2018) is for individuals; businesses and nonprofits use the City's Request to Purchase Application – Businesses form.",
+  ];
+  if (channel === "ura") {
+    return {
+      id: "acquire",
+      title: "Acquire the lot through the URA",
+      callout: { tone: "warn", text: URA_CALLOUT },
+      body: [
+        "The City inventory lists this lot for transfer to the Urban Redevelopment Authority (URA), so the City's Request to Purchase form is not the channel. Email propertyquestions@ura.org with the parcel ID.",
+        guide,
+      ],
+      chips: [{ label: "URA Board approval", tone: "place" }],
+    };
+  }
+  const cityBody = [
+    "Complete the Request to Purchase Application – Individuals (V. 1/2018), both pages. Page 2 is pre-filled below.",
+    ...forms,
+    "Send it to the Department of Finance, Real Estate Division, City-County Building, 414 Grant Street, Pittsburgh, PA 15219-2476, or email property.sales.3tb@pittsburghpa.gov (send encrypted).",
+    "Qualified-buyer check: applicants must not have unresolved taxes, balances, permit violations, or unregistered businesses; the City runs a background check.",
+    "Sales are subject to City Council approval. The application does not bind the City to a transaction.",
+    guide,
+  ];
+  const chips: Step["chips"] = [
+    { label: "Up to 6 weeks to process", tone: "time" },
+    { label: "Deposit: $200 or 10% of price, whichever is greater", tone: "fee" },
+    { label: "City Council approval", tone: "place" },
+  ];
+  if (channel === "city-form") {
+    return {
+      id: "acquire",
+      title: "Acquire the lot from the City",
+      callout: { tone: "ok", text: "Listed as available for sale (Public Sale) in the City inventory." },
+      body: cityBody,
+      chips,
+    };
+  }
+  const flagged =
+    lot.status === "Available for Sale"
+      ? `This lot's inventory type is ${lot.inventoryType || "not recorded"}.`
+      : `This lot's inventory status is ${lot.status || "not recorded"}.`;
+  return {
+    id: "acquire",
+    title: "Acquire the lot from the City",
+    callout: { tone: "warn", text: `${flagged} Confirm availability with the Real Estate Division before applying.` },
+    body: cityBody,
+    chips,
+  };
+}
 
 function describe(lot: Lot, typology: Typology, zoneName: string | null, pf: Proforma | null, comps: Comps | null): string {
   const units = UNIT_PLAN[typology].units;
@@ -221,83 +297,98 @@ function describe(lot: Lot, typology: Typology, zoneName: string | null, pf: Pro
   return [s1, s2, s3].join(" ");
 }
 
-/* ---------- Variance findings (facts only) ---------- */
+/* ---------- ZBA review worksheet (§ 922.09.E): record facts and applicant questions ---------- */
 
-function draftFindings(
-  lot: Lot,
-  finding: Finding,
-  byRight: Typology[],
-  zoneName: string | null,
-): ZbaFinding[] {
-  const relief = reliefChecks(finding);
+function worksheet(lot: Lot, finding: Finding, byRight: Typology[], zoneName: string | null): ZbaFinding[] {
   const dims = failingDimensional(finding);
   const letter = letterOf(finding);
   const hazards = hazardList(lot);
   const noun = TYPOLOGY_NOUN[finding.typology];
-  const zone = `${lot.zone}${zoneName ? ` (${zoneName})` : ""}`;
-  const frontage = lot.frontageFt != null ? `${fmt(lot.frontageFt)} ft of frontage` : "frontage not in the City inventory (needs survey)";
+  const useCheck = finding.checks.find((c) => c.id === "use");
 
-  const shortfalls = dims.map(
-    (c) => `${DIM_NOUN[c.id]} is ${c.measured} against the ${c.required} ${standardName(c)} required (${c.citation.section})`,
-  );
+  const zoneFact = `Zone: ${lot.zone}${zoneName ? ` (${zoneName})` : ""}, from the City inventory's zoned_as field.`;
+  const areaFact =
+    lot.lotAreaSqFt != null
+      ? `Lot area: ${fmt(lot.lotAreaSqFt)} sq ft (Allegheny County assessment).`
+      : "Lot area: not in the record (needs survey).";
+  const frontageFact =
+    lot.frontageFt != null
+      ? `Frontage: ${fmt(lot.frontageFt)} ft as parsed from the county legal description (approximate; a survey governs).`
+      : "Frontage: not in the record (needs survey).";
+  const statusFact = `City inventory status: ${lot.status || "not recorded"}; inventory type: ${lot.inventoryType || "not recorded"}. Inventory listing is not proof of current ownership or availability.`;
+  const hazardFact = hazards.length
+    ? `Hazard screening: ${hazards.join(", ")} flagged at the inventory point (screening layer tested at one point, not the parcel polygon or a site survey).`
+    : `Hazard screening: no hazard found at the inventory point${lot.hazards.floodZone == null ? "; flood zone not checked" : ""}.`;
+  const standardFacts = dims.map((c) => `Failing standard: ${reliefLine(c)}.`);
+  const useFact =
+    letter !== "P" && useCheck
+      ? `Use: ${TYPOLOGY_LABEL[finding.typology]} is ${useCheck.measured ?? "not listed"} in ${lot.zone} (${useCheck.citation.section}).`
+      : null;
+  const screened = byRight.length
+    ? `Under the checks we ran (use, lot area, lot width, parking; setbacks, height, and overlays not checked), ${byRight.map((t) => TYPOLOGY_LABEL[t].toLowerCase()).join(", ")} passed on this lot.`
+    : "Under the checks we ran (use, lot area, lot width, parking; setbacks, height, and overlays not checked), none of the five small-home types we screened passed on this lot.";
 
-  const f1 = [
-    `The subject property, ${lot.address || lot.id} (parcel ${lot.id}), is a vacant City-owned lot of record in the ${zone} district with ${lot.lotAreaSqFt != null ? `${fmt(lot.lotAreaSqFt)} sq ft of area` : "an unrecorded area (needs survey)"} and ${frontage}, per the City's property inventory.`,
-    shortfalls.length ? `Its ${shortfalls.join("; its ")}.` : "",
-    hazards.length
-      ? `City screening layers also flag the lot for ${hazards.join(" and ")}, a physical condition to document with a survey.`
-      : "",
-    letter === "N"
-      ? "Applicant to add: the physical conditions (shape, topography, size) that make this lot unlike others in the district; public records alone do not establish them."
-      : "These are conditions of the lot itself, not of the proposed building.",
-  ]
-    .filter(Boolean)
-    .join(" ");
-
-  const f2 = dims.length
-    ? [
-        `Because the lot is below the ${dims.map((c) => `${c.required} ${standardName(c)}`).join(" and ")} set for ${lot.zone}, ${noun} cannot be built on it in strict conformity with the Zoning Code.`,
-        byRight.length
-          ? `Note: under the checks we ran, ${byRight.map((t) => TYPOLOGY_LABEL[t].toLowerCase()).join(", ")} ${byRight.length > 1 ? "are" : "is"} by right on this lot; the Board may ask why that option is not pursued.`
-          : "None of the five small-home types we screened is by right on this lot, so without relief it would remain vacant.",
-      ].join(" ")
-    : [
-        `${TYPOLOGY_LABEL[finding.typology]} is ${letter === "N" ? "not listed as a permitted use" : "allowed only by exception"} in ${lot.zone}.`,
-        byRight.length
-          ? `Under the checks we ran, ${byRight.map((t) => TYPOLOGY_LABEL[t].toLowerCase()).join(", ")} ${byRight.length > 1 ? "are" : "is"} by right here, which weakens this finding; the applicant must explain why a conforming use is not feasible.`
-          : "None of the five small-home types we screened is by right on this lot.",
-      ].join(" ");
-
-  const f3 =
-    `The lot's area and frontage are as recorded in the City's inventory (status: ${lot.status || "not recorded"}) before the applicant acquires it. ` +
-    "The applicant has not subdivided, consolidated, or otherwise changed the lot's boundaries; the condition was not created by the applicant.";
-
-  const f4 = [
-    `The proposal is ${noun} of about ${fmt(buildingSf(finding.typology))} sf, a residential use on a vacant lot in ${lot.neighborhood}.`,
-    letter === "N"
-      ? `The ${lot.zone} district permits other residential uses; applicant to show how ${UNIT_PLAN[finding.typology].units} units fit the scale of the block.`
-      : `Residential use of this kind is ${letter === "P" ? "permitted" : "allowed by exception"} in ${lot.zone}, and the building would return a vacant lot to residential use.`,
-    "Applicant to add: photographs of the block, sizes of neighboring lots, and elevations showing the building's height and setbacks relative to adjacent houses.",
-  ].join(" ");
-
-  const f5 = [
-    `Relief is requested only from ${relief.map((c) => c.citation.section).filter((s, i, a) => a.indexOf(s) === i).join(" and ")}.`,
-    dims.length
-      ? `The request is limited to the recorded ${dims.map((c) => `${standardName(c)} (${c.measured} of ${c.required})`).join(" and ")}; no other relief is sought under the checks we ran.`
-      : "No dimensional relief is sought under the checks we ran.",
-    finding.checks.some((c) => c.id === "parking" && c.passed === null)
-      ? `Parking (${finding.checks.find((c) => c.id === "parking")!.citation.section}) requires ${finding.checks.find((c) => c.id === "parking")!.required}; the site plan must show the required parking or the request must add parking relief.`
-      : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
+  const parking = finding.checks.find((c) => c.id === "parking");
 
   return [
-    { n: 1, title: "Unique physical circumstances or conditions of the lot", text: f1 },
-    { n: 2, title: "No possibility the property can be developed in strict conformity", text: f2 },
-    { n: 3, title: "Hardship not created by the applicant", text: f3 },
-    { n: 4, title: "Will not alter the essential character of the neighborhood or impair adjacent property", text: f4 },
-    { n: 5, title: "Minimum variance that affords relief", text: f5 },
+    {
+      n: 1,
+      title: "Unique physical circumstances or conditions of the lot",
+      record: [zoneFact, areaFact, frontageFact, ...standardFacts, hazardFact],
+      establish: [
+        "What physical condition (narrowness, shallowness, irregular shape, topography) is peculiar to this lot rather than common in the district? Attach a survey.",
+        ...(hazards.length ? [`Does the flagged ${hazards.join(" and ")} affect this parcel? Attach a site survey or engineer's letter.`] : []),
+        "Is this a lot of record? Attach the deed and recorded plat.",
+      ],
+    },
+    {
+      n: 2,
+      title: "Whether the property can be developed in strict conformity",
+      record: [...standardFacts, ...(useFact ? [useFact] : []), screened],
+      establish: [
+        "What conforming development did you consider, and why is none feasible? Attach a site sketch.",
+        ...(byRight.length ? ["Our screen found a type that passed the checks we ran; explain why it does not work for you."] : []),
+      ],
+    },
+    {
+      n: 3,
+      title: "Whether the hardship was created by the appellant",
+      record: [statusFact],
+      establish: [
+        "Has the lot been subdivided or consolidated since the standard was adopted? Attach the deed history and recorded plat.",
+        "Did you, or anyone acting for you, create the condition you are asking relief from? Explain.",
+      ],
+    },
+    {
+      n: 4,
+      title: "Effect on the essential character of the neighborhood and adjacent property",
+      record: [
+        zoneFact,
+        `Neighborhood: ${lot.neighborhood || "not recorded"} (City inventory).`,
+        `Proposal in this packet: ${noun}, about ${fmt(buildingSf(finding.typology))} sf (our planning assumption, not a design).`,
+      ],
+      establish: [
+        "How does the proposal fit adjacent lot sizes and heights? Attach photos and a block survey.",
+        "Attach elevations showing the building's height and setbacks next to the neighboring houses.",
+      ],
+    },
+    {
+      n: 5,
+      title: "Minimum variance that will afford relief",
+      record: [
+        ...(dims.length ? standardFacts : ["No failing dimensional standard under the checks we ran."]),
+        ...(useFact ? [useFact] : []),
+        ...(parking && parking.passed === null
+          ? [`Parking (${parking.citation.section}): requires ${parking.required ?? "n/a"}; not verified by this screen.`]
+          : []),
+      ],
+      establish: [
+        "Is this the smallest departure from the standard that makes the proposal work? Show the alternatives you considered.",
+        ...(parking && parking.passed === null
+          ? ["Does your site plan provide the required parking, or do you need parking relief too?"]
+          : []),
+      ],
+    },
   ];
 }
 
@@ -317,33 +408,21 @@ export function buildApplicationPlan(
   const zoneName = lookupDistrict(ruleSet, lot.zone)?.name ?? null;
   const byRight = findings.filter((f) => f.verdict === "by-right").map((f) => f.typology);
   const pf = proforma && proforma.typology === typology ? proforma : null;
-  const needsZba = verdict === "variance" || verdict === "review" || verdict === "prohibited";
+  const needsRelief = verdict === "variance" || verdict === "review" || verdict === "prohibited";
   const relief = reliefChecks(finding);
   const letter = letterOf(finding);
 
-  const steps: Step[] = [];
-
-  steps.push({
-    id: "acquire",
-    title: "Acquire the lot from the City",
-    callout: acquisitionCallout(lot),
-    body: [
-      "Complete the Request to Purchase Application – Individuals (V. 1/2018), both pages. Page 2 is pre-filled below.",
-      "Send it to the Department of Finance, Real Estate Division, City-County Building, 414 Grant Street, Pittsburgh, PA 15219-2476, or email property.sales.3tb@pittsburghpa.gov (send encrypted).",
-      "Qualified-buyer check: applicants must not have unresolved taxes, balances, permit violations, or unregistered businesses; the City runs a background check.",
-      "Sales are subject to City Council approval. The application does not bind the City to a transaction.",
-    ],
-    chips: [
-      { label: "Up to 6 weeks to process", tone: "time" },
-      { label: "Deposit: $200 or 10% of price, whichever is greater", tone: "fee" },
-      { label: "City Council approval", tone: "place" },
-    ],
-  });
+  const channel = acquisitionChannel(lot);
+  const steps: Step[] = [acquireStep(lot, channel)];
 
   const rsNote =
     ruleSet === "bill-2025-1545"
       ? "This plan applies Bill 2025-1545, which is not law yet. Staff review your application under the code in force when you file."
       : null;
+
+  const dimsFail = failingDimensional(finding).length > 0;
+  /** Administrator exception with nothing else to relieve: staff review, no Board hearing. */
+  const adminOnly = letter === "A" && !dimsFail;
 
   if (verdict === "by-right") {
     steps.push({
@@ -351,6 +430,20 @@ export function buildApplicationPlan(
       title: "Zoning review",
       body: [
         "File a Building and Development Application (BDA) on OneStopPGH after you own the lot; staff zoning review only, no hearing expected under the checks we ran.",
+        ...(rsNote ? [rsNote] : []),
+      ],
+      chips: [
+        { label: "Base zoning review fees", tone: "fee" },
+        { label: "OneStopPGH", tone: "place" },
+      ],
+    });
+  } else if (adminOnly) {
+    steps.push({
+      id: "zoning",
+      title: "Zoning review: Administrator Exception",
+      body: [
+        ADMIN_PATH,
+        "File a Building and Development Application (BDA) on OneStopPGH; staff confirm the review path.",
         ...(rsNote ? [rsNote] : []),
       ],
       chips: [
@@ -373,12 +466,12 @@ export function buildApplicationPlan(
         }`,
       );
     }
-    body.push("File a BDA on OneStopPGH; staff will schedule a Zoning Board of Adjustment hearing.");
-    if (letter === "A" && failingDimensional(finding).length === 0) {
-      body.push("Administrator exceptions are decided under § 922.08; staff will confirm whether a hearing is needed.");
-    }
+    if (dimsFail) body.push(DIM_PATH);
+    if (letter === "S") body.push(SPECIAL_PATH);
+    if (letter === "A") body.push("The use also needs an Administrator Exception under § 922.08; staff confirm how the two reviews combine.");
+    body.push("File a BDA on OneStopPGH; staff determine whether a Zoning Board of Adjustment hearing is required and schedule it.");
     body.push(
-      "Hang the notice poster on the property at least 21 days before the hearing, readable from the primary street, and photograph it on the day you post it.",
+      "If there is a hearing: hang the notice poster on the property at least 21 days before it, readable from the primary street, and photograph it on the day you post it.",
       "Hearings are the first three Thursdays of the month, in the basement hearing room of 412 Boulevard of the Allies (in person or Zoom).",
       "The Board decides within 45 days after the record closes. The decision expires one year after mailing; get a permit and start construction within that year.",
       "If the lot is inside a Registered Community Organization's boundaries, a Development Activities Meeting may be required at least 30 days before the hearing.",
@@ -386,10 +479,10 @@ export function buildApplicationPlan(
     if (rsNote) body.push(rsNote);
     steps.push({
       id: "zoning",
-      title: "Zoning review with a ZBA hearing",
+      title: letter === "S" && !dimsFail ? "Zoning review: Special Exception hearing" : "Zoning review: relief needed",
       body,
       chips: [
-        { label: "$400 ZBA fee + base zoning fees", tone: "fee" },
+        { label: "$400 ZBA fee if heard + base zoning fees", tone: "fee" },
         { label: "21-day posted notice", tone: "time" },
         { label: "Decision ≤ 45 days after record closes", tone: "time" },
         { label: "412 Blvd of the Allies", tone: "place" },
@@ -449,12 +542,12 @@ export function buildApplicationPlan(
     { label: "Will you need to seek a building permit?", value: "Yes", who: "prefilled" },
     {
       label: "Will you need to seek a variance or special exception?",
-      value: needsZba ? `Yes: ${reliefSections.join(", ")}` : "No",
+      value: needsRelief && reliefSections.length ? `Yes: ${reliefSections.join(", ")}` : BY_RIGHT_VARIANCE_ANSWER,
       who: "prefilled",
     },
     {
       label: "When will you apply for a permit (Approximately)?",
-      value: `After closing; est. ${needsZba ? "9–12" : "6"} months`,
+      value: PERMIT_TIMING_ANSWER,
       who: "prefilled",
       note: "You may only build on a property after ownership.",
     },
@@ -468,26 +561,29 @@ export function buildApplicationPlan(
     { label: "Signature and date", value: null, who: "you" },
   ];
 
-  const zba: ZbaDraft | null = needsZba
-    ? {
-        requestTypes: requestTypes(finding),
-        sections: relief.map((c) => ({ text: reliefLine(c), url: c.citation.url })),
-        criteria: VARIANCE_CRITERIA,
-        findings: draftFindings(lot, finding, byRight, zoneName),
-        label: DRAFT_LABEL,
-        note:
-          letter === "A" || letter === "S"
-            ? `Exceptions are reviewed under ${letter === "A" ? "§ 922.08" : "§ 922.07"}, not the variance findings; adapt these paragraphs to those criteria.`
-            : undefined,
-      }
-    : null;
+  const variancePossible = dimsFail || letter === "N";
+  const zba: ZbaDraft | null =
+    needsRelief && !adminOnly
+      ? {
+          requestTypes: requestTypes(finding),
+          sections: relief.map((c) => ({ text: reliefLine(c), url: c.citation.url })),
+          criteria: VARIANCE_CRITERIA,
+          findings: variancePossible ? worksheet(lot, finding, byRight, zoneName) : [],
+          label: WORKSHEET_LABEL,
+          note: !variancePossible
+            ? "Special exceptions are decided under § 922.07 criteria, not the § 922.09.E variance conditions; ask staff for the criteria that apply."
+            : dimsFail
+              ? `These § 922.09.E questions apply if staff route this as a variance. If staff route it under ${NONCONFORMING_LOTS.section} (nonconforming lots) instead, bring the same deed and plat evidence.`
+              : undefined,
+        }
+      : null;
 
   const attachments: string[] = ["Site plan detailing the proposal", "Photographs of the property"];
-  if (needsZba) {
+  if (zba) {
     attachments.push(
       "Photo of the posted notice showing its location on the property",
       "Names and mailing addresses of at least 6 nearest property owners, including all abutting owners and those across the street, from Allegheny County records (§ 922.09.C)",
-      "Evidence for each approval criterion (the draft justification in this packet, edited)",
+      "Evidence for each approval criterion (answer the questions in the ZBA review worksheet)",
     );
   }
   attachments.push(
@@ -495,8 +591,10 @@ export function buildApplicationPlan(
     "Jordan Tax Services (JTS) certification, if you are on a payment plan",
   );
 
-  const sources: { title: string; url: string }[] = [SOURCE.purchaseForm, SOURCE.landBank];
-  if (needsZba)
+  const sources: { title: string; url: string }[] =
+    channel === "ura" ? [SOURCE.uraContact, SOURCE.landBank] : [SOURCE.purchaseForm, SOURCE.landBank];
+  if (dimsFail) sources.push({ title: `${NONCONFORMING_LOTS.section} ${NONCONFORMING_LOTS.title}`, url: NONCONFORMING_LOTS.url });
+  if (zba)
     sources.push(
       SOURCE.zbaGuide,
       SOURCE.abutting311,
@@ -522,6 +620,7 @@ export function buildApplicationPlan(
     steps,
     purchaseForm,
     description,
+    acquisition: channel,
     zba,
     attachments,
     sources,
@@ -560,6 +659,7 @@ export function renderApplicationMarkdown(plan: ApplicationPlan): string {
   L.push("");
   L.push("## Pre-filled: Request to Purchase, page 2");
   L.push("");
+  if (plan.acquisition === "ura") L.push("_This lot is listed for transfer to the URA; the City form below is for reference only._\n");
   for (const f of plan.purchaseForm.filter((f) => f.who === "prefilled")) {
     L.push(`- **${f.label}:** ${f.value}${f.note ? ` _(${f.note})_` : ""}`);
   }
@@ -570,19 +670,25 @@ export function renderApplicationMarkdown(plan: ApplicationPlan): string {
   }
   if (plan.zba) {
     L.push("");
-    L.push("## Zoning Board of Adjustment request");
+    L.push(`## ${plan.zba.label}`);
     L.push("");
-    L.push(`**${plan.zba.label}**`);
+    L.push("_Questions and evidence prompts, not a completed justification. The record lines are public-record facts; everything else is yours to establish._");
     L.push("");
     L.push(`- **Request type:** ${plan.zba.requestTypes.join("; ")}`);
     L.push("- **Sections from which relief is requested:**");
     for (const s of plan.zba.sections) L.push(`  - [${s.text}](${s.url})`);
     L.push("");
-    L.push(`### Justification (${plan.zba.criteria.section}, ${plan.zba.criteria.title}; mirrors ${plan.zba.criteria.mirrors})`);
+    L.push(`### Criteria (${plan.zba.criteria.section}, ${plan.zba.criteria.title}; mirrors ${plan.zba.criteria.mirrors})`);
     if (plan.zba.note) L.push(`_${plan.zba.note}_`);
     for (const f of plan.zba.findings) {
       L.push("");
-      L.push(`**${f.n}. ${f.title}.** ${f.text}`);
+      L.push(`**${f.n}. ${f.title}**`);
+      L.push("");
+      L.push("What the record shows:");
+      for (const r of f.record) L.push(`- ${r}`);
+      L.push("");
+      L.push("What you must establish:");
+      for (const q of f.establish) L.push(`- [ ] ${q}`);
     }
   }
   L.push("");

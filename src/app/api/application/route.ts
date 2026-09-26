@@ -1,95 +1,51 @@
-import type { ApplicationPlan } from "@/lib/application";
+import { evaluateLot } from "@/lib/rules";
+import { compsFor, proformaWithFallback, triageLot } from "@/lib/finance";
+import { buildApplicationPlan, SUGGESTION_LABEL } from "@/lib/application";
+import { badRequest, complete, loadData, parseLotRequest } from "../_lib/server";
 
-export const maxDuration = 60;
+export const maxDuration = 15;
 
-interface Provider {
-  url: string;
-  model: string;
-  token: string;
-}
+/*
+ * POST { lotId, ruleSet, typology } -> { source, suggestion, label }.
+ * The model may reword only the purchase form's "Detailed description of your proposed end use".
+ * It never sees or rewrites the § 922.09.E worksheet. `source` is the deterministic description
+ * the suggestion was made from, so the client can drop a suggestion that no longer matches.
+ */
 
-function provider(): Provider | null {
-  if (process.env.OPENAI_API_KEY) {
-    return {
-      url: "https://api.openai.com/v1/chat/completions",
-      model: process.env.MEMO_MODEL ?? "gpt-4.1-mini",
-      token: process.env.OPENAI_API_KEY,
-    };
-  }
-  const gatewayToken = process.env.AI_GATEWAY_API_KEY ?? process.env.VERCEL_OIDC_TOKEN;
-  if (gatewayToken) {
-    return {
-      url: "https://ai-gateway.vercel.sh/v1/chat/completions",
-      model: process.env.MEMO_MODEL ?? "anthropic/claude-sonnet-4.5",
-      token: gatewayToken,
-    };
-  }
-  return null;
-}
-
-export interface Narrative {
-  description: string;
-  findings: string[];
-}
-
-const SYSTEM = `You edit draft text for a zoning variance application and a City property purchase form in Pittsburgh.
-You receive a "detailed description" and five variance justification paragraphs, each already drafted from public records.
-Rewrite ONLY these six texts into clear, plain applicant prose in the first person plural ("we").
-Rules: do not add facts, numbers, dates, dollar amounts, code sections, or claims. Keep every number and section exactly as given. Keep every "Applicant to add:" instruction. Do not remove caveats such as "needs survey" or "under the checks we ran". Never say the application was or will be submitted by anyone but the applicant.
-Return JSON only: {"description": string, "findings": [five strings, in order]}. Total under 400 words.`;
-
-/** Every number in the polished text must already appear in the template; otherwise reject the polish. */
-function numbersPreserved(source: string, polished: string): boolean {
-  const nums = (t: string) => new Set((t.match(/\d[\d,.]*/g) ?? []).map((n) => n.replace(/[.,]$/, "")));
-  const allowed = nums(source);
-  for (const n of nums(polished)) if (!allowed.has(n)) return false;
-  return true;
-}
-
-function parse(content: string): Narrative | null {
-  const m = content.match(/\{[\s\S]*\}/);
-  if (!m) return null;
-  try {
-    const j = JSON.parse(m[0]) as Partial<Narrative>;
-    if (typeof j.description !== "string" || !Array.isArray(j.findings) || j.findings.length !== 5) return null;
-    if (!j.findings.every((f) => typeof f === "string" && f.trim())) return null;
-    return { description: j.description, findings: j.findings };
-  } catch {
-    return null;
-  }
-}
+const SYSTEM = `You reword one paragraph for a City of Pittsburgh property purchase form: the applicant's description of the proposed end use.
+Rewrite it as clear first-person-plural ("we") prose. Do not add facts, numbers, dates, dollar amounts, code sections, approvals, ownership, or claims. Keep every number exactly as given. Keep caveats such as "needs survey" or "at our screening assumptions".
+Return only the paragraph, under 90 words.`;
 
 export async function POST(request: Request) {
-  const { plan } = (await request.json()) as { plan: ApplicationPlan };
-  const p = provider();
-  if (!p || !plan?.zba) return Response.json({ narrative: null });
-  const source = [
-    `Detailed description:\n${plan.description}`,
-    ...plan.zba.findings.map((f) => `Finding ${f.n} (${f.title}):\n${f.text}`),
-  ].join("\n\n");
+  let req;
   try {
-    const res = await fetch(p.url, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${p.token}` },
-      body: JSON.stringify({
-        model: p.model,
-        max_tokens: 900,
-        temperature: 0.2,
-        messages: [
-          { role: "system", content: SYSTEM },
-          { role: "user", content: source },
-        ],
-      }),
-    });
-    if (!res.ok) return Response.json({ narrative: null, error: `gateway-${res.status}` });
-    const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-    const narrative = parse(data.choices?.[0]?.message?.content ?? "");
-    if (!narrative) return Response.json({ narrative: null, error: "unparseable" });
-    if (!numbersPreserved(source, [narrative.description, ...narrative.findings].join("\n"))) {
-      return Response.json({ narrative: null, error: "numbers-changed" });
-    }
-    return Response.json({ narrative, model: p.model });
+    req = await parseLotRequest(request, true);
   } catch (err) {
-    return Response.json({ narrative: null, error: String(err) });
+    const r = badRequest(err);
+    if (r) return r;
+    throw err;
   }
+  const typology = req.typology!;
+  const { lots, comps: compsFile } = await loadData();
+  const lot = lots.get(req.lotId);
+  if (!lot) return Response.json({ error: "unknown lotId" }, { status: 404 });
+
+  const findings = evaluateLot(lot, req.ruleSet);
+  const comps = compsFor(lot, compsFile);
+  const triage = triageLot(lot, findings, comps);
+  const pf = proformaWithFallback(lot, typology, comps);
+  const plan = buildApplicationPlan(lot, findings, req.ruleSet, triage, pf, comps, typology);
+  const source = plan.description;
+
+  const out = await complete(SYSTEM, source, 250);
+  if (out.text === null) return Response.json({ source, suggestion: null, label: SUGGESTION_LABEL, error: out.error });
+  // A cheap reject filter, not a guarantee: drop text with numbers the source does not contain.
+  if (!numbersSubset(source, out.text)) return Response.json({ source, suggestion: null, label: SUGGESTION_LABEL, error: "numbers-changed" });
+  return Response.json({ source, suggestion: out.text, label: SUGGESTION_LABEL, model: out.model });
+}
+
+function numbersSubset(source: string, text: string): boolean {
+  const nums = (t: string) => new Set((t.match(/\d[\d,.]*/g) ?? []).map((n) => n.replace(/[.,]$/, "")));
+  const allowed = nums(source);
+  return [...nums(text)].every((n) => allowed.has(n));
 }

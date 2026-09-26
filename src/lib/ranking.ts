@@ -9,7 +9,7 @@ export function scoreLot(lot: Lot, findings: Finding[]): number {
   if (lot.hazards.steepSlope) s -= 2;
   if (lot.hazards.undermined) s -= 2;
   if (lot.hazards.floodZone) s -= 3;
-  if (lot.status === "Available for Sale") s += 1;
+  if (isAvailable(lot)) s += 1;
   return s;
 }
 
@@ -31,8 +31,14 @@ export interface TriageRanked {
   margin: number | null;
 }
 
-/** Green first, then yellow, red, gray; within a color by score, then margin, then lot area. */
+export const AVAILABLE_FOR_SALE = "Available for Sale";
+
+export const isAvailable = (lot: Lot) => lot.status === AVAILABLE_FOR_SALE;
+
+/** Lots available for sale first; then green, yellow, red, gray; within a color by score, then margin, then lot area. */
 export function compareTriageRanked(a: TriageRanked, b: TriageRanked): number {
+  const av = Number(isAvailable(b.lot)) - Number(isAvailable(a.lot));
+  if (av) return av;
   const t = TRIAGE_RANK[a.triage] - TRIAGE_RANK[b.triage];
   if (t) return t;
   if (b.score !== a.score) return b.score - a.score;

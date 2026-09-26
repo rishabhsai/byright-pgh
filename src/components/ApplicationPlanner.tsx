@@ -7,6 +7,8 @@ import {
   defaultTypology,
   NEVER_SUBMITS,
   renderApplicationMarkdown,
+  SUGGESTION_LABEL,
+  type AcquisitionChannel,
   type ApplicationPlan,
   type ChipTone,
   type PrefilledField,
@@ -26,65 +28,56 @@ interface Props {
   wide?: boolean;
 }
 
-interface Narrative {
-  description: string;
-  findings: string[];
+/** A model's rewording of the proposed-use description, tied to the exact text it was made from. */
+interface Suggestion {
+  key: string;
+  source: string;
+  text: string;
 }
 
 export default function ApplicationPlanner({ lot, findings, ruleSet, triage, comps, assumptions, onFlash, wide = false }: Props) {
   const [typology, setTypology] = useState<Typology | null>(() => defaultTypology(findings, triage));
   const [prepared, setPrepared] = useState(false);
-  const [polish, setPolish] = useState<{ key: string; narrative: Narrative; model: string } | null>(null);
-  const [polishing, setPolishing] = useState(false);
+  const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
+  const [suggesting, setSuggesting] = useState(false);
 
-  const basePlan = useMemo<ApplicationPlan | null>(() => {
+  /** Deterministic plan. Model text never replaces any of it. */
+  const plan = useMemo<ApplicationPlan | null>(() => {
     if (!prepared || !typology) return null;
     const pf = proformaWithFallback(lot, typology, comps, assumptions);
     return buildApplicationPlan(lot, findings, ruleSet, triage, pf, comps, typology);
   }, [prepared, typology, lot, findings, ruleSet, triage, comps, assumptions]);
 
-  const planKey = basePlan ? `${basePlan.lotId}|${basePlan.typology}|${basePlan.ruleSet}|${basePlan.description}` : "";
-  const narrative = polish && polish.key === planKey ? polish : null;
+  // The server rebuilds the description with default assumptions; show its suggestion only when
+  // that matches what this panel shows.
+  const shownSuggestion =
+    plan && suggestion && suggestion.key === `${plan.lotId}|${plan.typology}|${plan.ruleSet}` && suggestion.source === plan.description
+      ? suggestion.text
+      : null;
 
-  /** The plan with polished prose swapped in; facts, sections and labels are unchanged. */
-  const plan = useMemo<ApplicationPlan | null>(() => {
-    if (!basePlan || !narrative || !basePlan.zba) return basePlan;
-    const n = narrative.narrative;
-    return {
-      ...basePlan,
-      description: n.description,
-      purchaseForm: basePlan.purchaseForm.map((f) =>
-        f.label.startsWith("Detailed description") ? { ...f, value: n.description } : f,
-      ),
-      zba: { ...basePlan.zba, findings: basePlan.zba.findings.map((f, i) => ({ ...f, text: n.findings[i] ?? f.text })) },
-    };
-  }, [basePlan, narrative]);
-
-  const requestPolish = async (t: Typology) => {
-    const pf = proformaWithFallback(lot, t, comps, assumptions);
-    const p = buildApplicationPlan(lot, findings, ruleSet, triage, pf, comps, t);
-    if (!p.zba) return;
-    const key = `${p.lotId}|${p.typology}|${p.ruleSet}|${p.description}`;
-    setPolishing(true);
+  const requestSuggestion = async (t: Typology) => {
+    const key = `${lot.id}|${t}|${ruleSet}`;
+    setSuggesting(true);
     try {
       const res = await fetch("/api/application", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ plan: p }),
+        body: JSON.stringify({ lotId: lot.id, ruleSet, typology: t }),
       });
-      const data = (await res.json()) as { narrative: Narrative | null; model?: string };
-      if (data.narrative) setPolish({ key, narrative: data.narrative, model: data.model ?? "an LLM" });
+      if (!res.ok) return;
+      const data = (await res.json()) as { source?: string; suggestion?: string | null };
+      if (data.suggestion && data.source) setSuggestion({ key, source: data.source, text: data.suggestion });
     } catch {
-      // Keep the template text.
+      // No suggestion; the deterministic text stands.
     } finally {
-      setPolishing(false);
+      setSuggesting(false);
     }
   };
 
   const prepare = (t: Typology | null = typology) => {
     if (!t) return;
     setPrepared(true);
-    void requestPolish(t);
+    void requestSuggestion(t);
   };
 
   const pick = (t: Typology) => {
@@ -163,14 +156,14 @@ export default function ApplicationPlanner({ lot, findings, ruleSet, triage, com
       {plan && (
         <div className="fade-in space-y-4 pt-1">
           <Stepper steps={plan.steps} />
-          <PurchaseForm fields={plan.purchaseForm} polished={!!narrative} wide={wide} />
-          {plan.zba && (
-            <ZbaCard
-              plan={plan}
-              polishedBy={narrative?.model ?? null}
-              polishing={polishing && !narrative}
-            />
-          )}
+          <PurchaseForm
+            fields={plan.purchaseForm}
+            acquisition={plan.acquisition}
+            suggestion={shownSuggestion}
+            suggesting={suggesting}
+            wide={wide}
+          />
+          {plan.zba && <ZbaCard plan={plan} />}
           <Attachments items={plan.attachments} />
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -271,7 +264,19 @@ function Stepper({ steps }: { steps: Step[] }) {
 }
 
 /** Rendered like page 2 of the City's paper form: typed values on ruled lines, blanks for the applicant. */
-function PurchaseForm({ fields, polished, wide }: { fields: PrefilledField[]; polished: boolean; wide: boolean }) {
+function PurchaseForm({
+  fields,
+  acquisition,
+  suggestion,
+  suggesting,
+  wide,
+}: {
+  fields: PrefilledField[];
+  acquisition: AcquisitionChannel;
+  suggestion: string | null;
+  suggesting: boolean;
+  wide: boolean;
+}) {
   const filled = fields.filter((f) => f.who === "prefilled");
   const blank = fields.filter((f) => f.who === "you");
   return (
@@ -280,6 +285,13 @@ function PurchaseForm({ fields, polished, wide }: { fields: PrefilledField[]; po
         <h4 className="text-[12.5px] font-semibold text-ink">Pre-filled: Request to Purchase, page 2</h4>
         <span className="text-[10.5px] text-faint">City form V. 1/2018</span>
       </header>
+      {acquisition !== "city-form" && (
+        <p className="border-b border-hairline bg-[#fdf0e1] px-3 py-1.5 text-[11px] leading-snug text-[#8a4b00]">
+          {acquisition === "ura"
+            ? "This lot is listed for transfer to the URA; use this City form for reference only."
+            : "Confirm with the Real Estate Division that this lot is for sale before you file this form."}
+        </p>
+      )}
       <dl
         className={`grid text-[11.5px] ${wide ? "grid-cols-[240px_minmax(0,1fr)]" : "grid-cols-[minmax(0,0.9fr)_minmax(0,1.3fr)]"}`}
       >
@@ -288,8 +300,14 @@ function PurchaseForm({ fields, polished, wide }: { fields: PrefilledField[]; po
             <dt className="border-b border-hairline px-3 py-2 leading-snug text-muted">{f.label}</dt>
             <dd className="border-b border-hairline px-3 py-2 leading-snug text-ink">
               <span className={`font-serif text-[13px] ${wide ? "block max-w-[70ch]" : ""}`}>{f.value}</span>
-              {f.label.startsWith("Detailed description") && polished && (
-                <span className="mt-0.5 block text-[10px] text-faint">Wording polished; facts unchanged.</span>
+              {f.label.startsWith("Detailed description") && suggesting && !suggestion && (
+                <span className="mt-1 block text-[10px] text-faint">Checking for suggested wording…</span>
+              )}
+              {f.label.startsWith("Detailed description") && suggestion && (
+                <span className="mt-1.5 block rounded border border-dashed border-hairline px-2 py-1.5">
+                  <span className="block text-[10px] font-semibold text-[#8a4b00]">{SUGGESTION_LABEL}</span>
+                  <span className="mt-0.5 block text-[12px] leading-snug text-muted">{suggestion}</span>
+                </span>
               )}
               {f.note && <span className="mt-0.5 block text-[10.5px] text-faint">{f.note}</span>}
             </dd>
@@ -315,13 +333,13 @@ function PurchaseForm({ fields, polished, wide }: { fields: PrefilledField[]; po
   );
 }
 
-function ZbaCard({ plan, polishedBy, polishing }: { plan: ApplicationPlan; polishedBy: string | null; polishing: boolean }) {
+function ZbaCard({ plan }: { plan: ApplicationPlan }) {
   const z = plan.zba!;
   return (
     <section className="overflow-hidden rounded-lg border border-[#e7c9a0] bg-white">
       <header className="flex items-baseline justify-between gap-2 border-b border-[#e7c9a0] bg-[#fdf6ec] px-3 py-2">
-        <h4 className="text-[12.5px] font-semibold text-ink">Zoning Board of Adjustment request</h4>
-        <span className="rounded-sm bg-[#8a4b00] px-1.5 py-px text-[10px] font-semibold text-white">{z.label}</span>
+        <h4 className="text-[12.5px] font-semibold text-ink">{z.label}</h4>
+        <span className="text-[10.5px] text-faint">Questions, not a completed justification</span>
       </header>
       <div className="space-y-3 px-3 py-3 text-[12px]">
         <div>
@@ -346,26 +364,42 @@ function ZbaCard({ plan, polishedBy, polishing }: { plan: ApplicationPlan; polis
           </ul>
         </div>
         <div>
-          <p className="text-[11px] text-muted">
-            Justification under{" "}
-            <a href={z.criteria.url} target="_blank" rel="noreferrer" className="text-accent underline decoration-accent/30 underline-offset-2">
-              {z.criteria.section}
-            </a>{" "}
-            ({z.criteria.title}; mirrors {z.criteria.mirrors}). The Board must find all five.
-          </p>
+          {z.findings.length > 0 && (
+            <p className="text-[11px] text-muted">
+              Criteria under{" "}
+              <a href={z.criteria.url} target="_blank" rel="noreferrer" className="text-accent underline decoration-accent/30 underline-offset-2">
+                {z.criteria.section}
+              </a>{" "}
+              ({z.criteria.title}; mirrors {z.criteria.mirrors}). The Board must find all five; the burden of proof is yours.
+            </p>
+          )}
           {z.note && <p className="mt-1 text-[11px] text-[#8a4b00]">{z.note}</p>}
-          <ol className="mt-2 space-y-2.5">
+          <ol className="mt-2 space-y-3">
             {z.findings.map((f) => (
               <li key={f.n} className="flex gap-2.5">
                 <span className="font-serif text-[18px] leading-none text-[#b45309] italic">{f.n}</span>
                 <div className="min-w-0 max-w-[70ch]">
                   <p className="text-[11.5px] font-semibold text-ink">{f.title}</p>
-                  <p className={`mt-0.5 leading-relaxed text-ink ${polishing ? "opacity-70" : ""}`}>{f.text}</p>
+                  <p className="mt-1 text-[10.5px] font-semibold tracking-wide text-muted uppercase">What the record shows</p>
+                  <ul className="mt-0.5 space-y-0.5">
+                    {f.record.map((r) => (
+                      <li key={r} className="leading-snug text-ink">
+                        {r}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-1.5 text-[10.5px] font-semibold tracking-wide text-[#8a4b00] uppercase">What you must establish</p>
+                  <ul className="mt-0.5 space-y-0.5">
+                    {f.establish.map((q) => (
+                      <li key={q} className="leading-snug text-ink">
+                        ☐ {q}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               </li>
             ))}
           </ol>
-          {polishedBy && <p className="mt-2 text-[10.5px] text-faint">Polished by {polishedBy}; facts unchanged.</p>}
         </div>
       </div>
     </section>

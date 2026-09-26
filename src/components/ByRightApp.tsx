@@ -3,7 +3,8 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "rea
 import dynamic from "next/dynamic";
 import { evaluateLot, bestVerdict, countByRight } from "@/lib/engine";
 import { FIXTURE_LOTS } from "@/lib/fixtures";
-import type { Comps, CompsFile, Finding, Lot, LotsFile, RuleSet, Triage, TriageResult, Verdict } from "@/lib/types";
+import type { Comps, CompsFile, Finding, Lot, LotsFile, RuleSet, Triage, TriageResult, Typology, Verdict } from "@/lib/types";
+import { isAvailable } from "@/lib/ranking";
 import TopBar from "./TopBar";
 import LeftRail, { DEFAULT_FILTERS, type Filters } from "./LeftRail";
 import DetailPanel from "./DetailPanel";
@@ -98,6 +99,10 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
   const [compsFile, setCompsFile] = useState<CompsFile | null>(null);
   const [colorMode, setColorMode] = useState<ColorMode>("triage");
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
+  // The home type the user picked for the selected lot while the Home type filter is "Any".
+  const [pickedTypology, setPickedTypology] = useState<Typology | null>(null);
+  // Acquisition cost the user entered for individual lots; never shared across lots.
+  const [landOverrides, setLandOverrides] = useState<Record<string, number>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -152,17 +157,25 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
   // The city-wide triage re-runs a pro forma for every lot, so it follows a deferred copy of the
   // assumptions: the detail panel reads `assumptions` directly and stays responsive while this catches up.
   const cityAssumptions = useDeferredValue(assumptions);
-  const recomputing = cityAssumptions !== assumptions;
+  const cityLandOverrides = useDeferredValue(landOverrides);
+  const recomputing = cityAssumptions !== assumptions || cityLandOverrides !== landOverrides;
+
+  // With a Home type filter set, every lot is triaged for that one proposal; "Any" uses each lot's best type.
+  const filterTypology: Typology | null = filters.typology || null;
 
   const triages = useMemo<Triages | null>(() => {
     if (!evals) return null;
     const out = {} as Triages;
     for (const rs of RULE_SETS) {
-      const results = lots.map((l, i) => triageLot(l, evals[rs].findings[i], comps[i], cityAssumptions));
+      const results = lots.map((l, i) => {
+        const land = cityLandOverrides[l.id];
+        const a = land == null ? cityAssumptions : { ...cityAssumptions, landOverride: land };
+        return triageLot(l, evals[rs].findings[i], comps[i], a, filterTypology);
+      });
       out[rs] = { results, margin: results.map((t) => t.margin) };
     }
     return out;
-  }, [evals, lots, comps, cityAssumptions]);
+  }, [evals, lots, comps, cityAssumptions, cityLandOverrides, filterTypology]);
 
   const stats = useMemo(() => (evals && triages ? computeStats(evals, triages) : null), [evals, triages]);
   const changed = useMemo(() => (evals ? computeChanged(evals) : []), [evals]);
@@ -187,18 +200,24 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
       if (hoods && !hoods.has(l.neighborhood)) return false;
       if (filters.minArea && (l.lotAreaSqFt ?? 0) < filters.minArea) return false;
       if (filters.onlyByRight && mapVerdicts[i] !== "by-right") return false;
+      if (filters.availableOnly && !isAvailable(l)) return false;
       return true;
     });
   }, [lots, filters, mapVerdicts, mapTriage]);
 
-  const selectFromMap = useCallback((i: number) => setSelectedIdx(i), []);
+  const selectFromMap = useCallback((i: number) => {
+    setSelectedIdx(i);
+    setPickedTypology(null);
+  }, []);
   const clearSelection = useCallback(() => {
     setSelectedIdx(null);
+    setPickedTypology(null);
     setExpanded(false);
   }, []);
   const selectFromList = useCallback(
     (i: number) => {
       setSelectedIdx(i);
+      setPickedTypology(null);
       const l = lots[i];
       setFlyTo((prev) => ({ lon: l.lon, lat: l.lat, seq: (prev?.seq ?? 0) + 1 }));
     },
@@ -219,6 +238,40 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
   }, [aboutOpen, expanded, clearSelection]);
 
   const selectedLot = selectedIdx != null ? lots[selectedIdx] : null;
+  const selectedTriage = selectedIdx != null && triages ? triages[ruleSet].results[selectedIdx] : null;
+  const selectedFindings = selectedIdx != null && evals ? evals[ruleSet].findings[selectedIdx] : null;
+
+  // One proposal for the selected lot, shared by zoning, finance and the application worksheet.
+  const selectedTypology: Typology =
+    filterTypology ??
+    pickedTypology ??
+    selectedTriage?.bestTypology ??
+    selectedFindings?.find((f) => f.verdict === "by-right")?.typology ??
+    "single";
+
+  const onTypology = useCallback(
+    (t: Typology) => {
+      if (filters.typology) setFilters((f) => ({ ...f, typology: t }));
+      else setPickedTypology(t);
+    },
+    [filters.typology],
+  );
+
+  const selectedLandOverride = selectedLot ? (landOverrides[selectedLot.id] ?? null) : null;
+  const onLandOverride = useCallback(
+    (v: number | null) => {
+      if (!selectedLot) return;
+      const id = selectedLot.id;
+      setLandOverrides((m) => {
+        if ((m[id] ?? null) === v) return m;
+        const next = { ...m };
+        if (v == null) delete next[id];
+        else next[id] = v;
+        return next;
+      });
+    },
+    [selectedLot],
+  );
 
   return (
     <div className="flex h-dvh flex-col">
@@ -263,11 +316,15 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
             key={selectedIdx ?? "empty"}
             lot={selectedLot}
             ruleSet={ruleSet}
-            findings={selectedIdx != null && evals ? evals[ruleSet].findings[selectedIdx] : null}
+            findings={selectedFindings}
             findingsCurrent={selectedIdx != null && evals ? evals.current.findings[selectedIdx] : null}
             findingsBill={selectedIdx != null && evals ? evals["bill-2025-1545"].findings[selectedIdx] : null}
             onClose={clearSelection}
-            triage={selectedIdx != null && triages ? triages[ruleSet].results[selectedIdx] : null}
+            triage={selectedTriage}
+            typology={selectedTypology}
+            onTypology={onTypology}
+            landOverride={selectedLandOverride}
+            onLandOverride={onLandOverride}
             comps={selectedIdx != null ? comps[selectedIdx] : null}
             assumptions={assumptions}
             onAssumptions={setAssumptions}

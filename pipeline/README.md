@@ -9,12 +9,17 @@ From the repo root:
 ```sh
 python3 -m venv pipeline/.venv
 pipeline/.venv/bin/pip install shapely requests
+# 1. Download the City-Owned Properties dump; build.py reads it and does not fetch it.
+curl -L -o pipeline/city_owned.csv https://data.wprdc.org/datastore/dump/e1dcee82-9179-4306-8167-5891915b62a7
+# 2. Build lots.json.
 pipeline/.venv/bin/python pipeline/build.py
 ```
 
-The run takes about 1-2 minutes. Downloads are cached in `pipeline/raw/` (gitignored). A file is fetched only when it is missing, so delete it to refresh. The script ends by validating the output and printing counts.
+The run takes about 1-2 minutes. Downloads are cached in `pipeline/raw/` (gitignored). A file is fetched only when it is missing, so delete it to refresh. The script ends by validating the output and printing counts. The `retrieved` date in each source's vintage is the run date, even when a cached file was reused.
 
-Input `pipeline/city_owned.csv` is the WPRDC dump of City-Owned Properties: https://data.wprdc.org/datastore/dump/e1dcee82-9179-4306-8167-5891915b62a7
+Input `pipeline/city_owned.csv` is the WPRDC dump of City-Owned Properties (step 1 above): https://data.wprdc.org/datastore/dump/e1dcee82-9179-4306-8167-5891915b62a7
+
+The Bill 2025-1545 substitute text used for the "if it passes" rule set is archived at `docs/sources/bill-2025-1545.pdf` (source: https://www.pittsburghpa.gov/files/assets/city/v/1/dcp/documents/planning-commission/council-hearings-or-other/2025-1545-to-be-amended-by-substitute-from-june-2-2026-corrected-july-24-2026_final.pdf). Keep the archived copy with the page captures in `docs/sources/` so the encoded rules can be checked against the text that was read.
 
 ## Sources
 
@@ -38,7 +43,7 @@ The `sources` array in `lots.json` records the vintage of each source for each b
 
 - **Assessed land value is not market value.** `FAIRMARKETLAND` is the county's base-year (2012) appraised land value.
 - **Frontage from the legal description is approximate.** The script takes the first number of the first `A X B` or `A X AVG B` in the deed text. `LEGAL1` and `LEGAL2` are joined because the lines are fixed-width (46 chars) and wrap mid-number. Values below 10 ft or above 300 ft become null. In about 5% of parsed lots, frontage × depth differs from `LOTAREA` by more than 2×, because corner lots, irregular lots, and multi-lot descriptions do not parse cleanly.
-- **Hazard layers are for screening only.** A single point per lot misses a hazard that touches only part of the parcel, and flags a lot whose point falls just inside a polygon edge. The steep-slope layer flags about half of all vacant lots, which is consistent with Pittsburgh's hillside vacant inventory. The FEMA query uses the bbox -80.10,40.36,-79.86,40.50, which contains every lot. Flags never change a verdict.
+- **Hazard layers are for screening only.** Flags are tested at the lot's single City inventory point, not the parcel polygon, and the pipeline does not establish that the point is a centroid. A single point per lot misses a hazard that touches only part of the parcel, and flags a lot whose point falls just inside a polygon edge. The steep-slope layer flags about half of all vacant lots, which is consistent with Pittsburgh's hillside vacant inventory. The FEMA query uses the bbox -80.10,40.36,-79.86,40.50, which contains every lot. Flags never change a verdict.
 - `zone` is the City inventory's `zoned_as` field, not a spatial join to the zoning layer. `"UNKNOWN"` means that field was blank.
 
 ## Comps

@@ -1,108 +1,94 @@
-import type { Finding, Lot, RuleSet } from "@/lib/types";
-import { TYPOLOGY_LABEL, VERDICT_LABEL } from "@/lib/types";
+import type { Comps, Finding, Lot, RuleSet, TriageResult } from "@/lib/types";
+import { TRIAGE_LABEL, TYPOLOGY_LABEL, VERDICT_LABEL } from "@/lib/types";
+import { evaluateLot } from "@/lib/rules";
+import { compsFor, fmtUsd, proformaWithFallback, triageLot } from "@/lib/finance";
+import { buildMemo } from "@/components/memo";
+import { districtName } from "@/components/district";
+import { badRequest, complete, loadData, parseLotRequest } from "../_lib/server";
 
-export const maxDuration = 60;
+export const maxDuration = 15;
 
-interface MemoRequest {
-  lot: Lot;
-  ruleSet: RuleSet;
-  findings: Finding[];
-  bill?: Finding[];
-}
+/*
+ * POST { lotId, ruleSet } -> { deterministic, memo, facts }.
+ * `deterministic` is the rules-engine memo, always present. `memo` is an optional plain-language
+ * summary from a model, unverified, or null when no model is configured or the call fails.
+ */
 
-interface Provider {
-  url: string;
-  model: string;
-  token: string;
-}
-
-function provider(): Provider | null {
-  if (process.env.OPENAI_API_KEY) {
-    return {
-      url: "https://api.openai.com/v1/chat/completions",
-      model: process.env.MEMO_MODEL ?? "gpt-4.1-mini",
-      token: process.env.OPENAI_API_KEY,
-    };
-  }
-  const gatewayToken = process.env.AI_GATEWAY_API_KEY ?? process.env.VERCEL_OIDC_TOKEN;
-  if (gatewayToken) {
-    return {
-      url: "https://ai-gateway.vercel.sh/v1/chat/completions",
-      model: process.env.MEMO_MODEL ?? "anthropic/claude-sonnet-4.5",
-      token: gatewayToken,
-    };
-  }
-  return null;
-}
-
-function structuredFacts(req: MemoRequest): string {
-  const { lot, ruleSet, findings, bill } = req;
+function structuredFacts(
+  lot: Lot,
+  ruleSet: RuleSet,
+  findings: Finding[],
+  bill: Finding[] | null,
+  triage: TriageResult,
+  comps: Comps | null,
+): string {
   const lines: string[] = [];
-  lines.push(`Parcel ${lot.id}, ${lot.address}, ${lot.neighborhood}, zoning district ${lot.zone}.`);
+  lines.push(`Parcel ${lot.id}, ${lot.address}, ${lot.neighborhood}, zoning district ${lot.zone} (from the City inventory).`);
   lines.push(
-    `Lot area: ${lot.lotAreaSqFt ?? "not in record"} sq ft. Frontage: ${lot.frontageFt ?? "not in record"} ft. County assessed land value (not market value): ${lot.landValue ?? "not in record"}.`,
+    `Lot area: ${lot.lotAreaSqFt ?? "not in record"} sq ft. Frontage: ${lot.frontageFt ?? "not in record"} ft (parsed from the legal description, approximate). County assessed land value (not market value): ${lot.landValue ?? "not in record"}.`,
   );
+  lines.push(`City inventory status: ${lot.status || "not recorded"}; inventory type: ${lot.inventoryType || "not recorded"}. Listing is not proof of current ownership or availability.`);
   lines.push(
-    `Hazard screening: steep slope ${lot.hazards.steepSlope ? "yes" : "no"}, undermined ${lot.hazards.undermined ? "yes" : "no"}, flood zone ${lot.hazards.floodZone === null ? "not checked" : lot.hazards.floodZone ? "yes" : "no"}.`,
+    `Hazard screening at the inventory point (not the parcel polygon): steep slope ${lot.hazards.steepSlope ? "flagged" : "not found"}, undermined ${lot.hazards.undermined ? "flagged" : "not found"}, flood zone ${lot.hazards.floodZone === null ? "not checked" : lot.hazards.floodZone ? "flagged" : "not found"}.`,
   );
-  lines.push(`Rule set applied: ${ruleSet}.`);
+  lines.push(`Rule set applied: ${ruleSet}. Checks cover use, lot area, lot width, and parking; setbacks, height, and overlays are not checked.`);
   for (const f of findings) {
     lines.push(`\n${TYPOLOGY_LABEL[f.typology]}: ${VERDICT_LABEL[f.verdict]}. ${f.summary}`);
     for (const c of f.checks) {
-      const status = c.passed === null ? "needs survey" : c.passed ? "pass" : "FAIL";
+      const status = c.passed === null ? "not verified" : c.passed ? "pass" : "FAIL";
       lines.push(
-        `  - ${c.label}: ${status}; measured ${c.measured ?? "n/a"}, required ${c.required ?? "n/a"}; cite ${c.citation.section} (${c.citation.title}) ${c.citation.url}`,
+        `  - ${c.label}: ${status}; measured ${c.measured ?? "n/a"}, required ${c.required ?? "n/a"}; cite ${c.citation.section} (${c.citation.title})`,
       );
     }
   }
-  if (bill && ruleSet === "current") {
-    const changes = bill
-      .map((b, i) => ({ b, cur: findings[i] }))
-      .filter(({ b, cur }) => b.verdict !== cur.verdict);
+  if (bill) {
+    const changes = bill.map((b, i) => ({ b, cur: findings[i] })).filter(({ b, cur }) => cur && b.verdict !== cur.verdict);
     if (changes.length) {
-      lines.push("\nIf Council adopts Bill 2025-1545:");
+      lines.push("\nIf Council adopts Bill 2025-1545 (pending, not law):");
       for (const { b, cur } of changes) {
         lines.push(`  - ${TYPOLOGY_LABEL[b.typology]}: ${VERDICT_LABEL[cur.verdict]} -> ${VERDICT_LABEL[b.verdict]}`);
       }
     }
   }
+  lines.push(`\nScreening triage: ${TRIAGE_LABEL[triage.triage]}. Reasons: ${triage.reasons.join(" ")}`);
+  if (triage.bestTypology) {
+    const pf = proformaWithFallback(lot, triage.bestTypology, comps);
+    if (pf) {
+      lines.push(
+        `Screening pro forma (default assumptions, not underwriting) for ${TYPOLOGY_LABEL[pf.typology]}: total cost ${fmtUsd(pf.totalCost)}, revenue ${fmtUsd(pf.revenue)} (${pf.mode}), margin ${fmtUsd(pf.margin)}, ${pf.pencils ? "clears the screen" : `gap ${fmtUsd(pf.gap)}`}.`,
+      );
+    }
+  }
   return lines.join("\n");
 }
 
-const SYSTEM = `You write short zoning screening memos for the Pittsburgh Land Bank and City Planning staff.
-You are given structured findings produced by a deterministic rules engine. You must not add, remove, or reinterpret any finding, number, or citation. Do not invent code sections. If a value is "not in record" or "needs survey", say so plainly.
-Format: Markdown. Sections: "Bottom line" (2 sentences), "What fits by right", "What would need a variance or review" (name the failing check and cite its section inline like §903.03), "Hazards to review", "If Bill 2025-1545 passes" (only if provided), "Confirm before acting" (a 3-item checklist starting with confirming the determination with the City's Zoning Administrator).
-End with the sentence: "This memo is decision support generated from public records and is not a zoning determination or legal advice."
-Keep it under 260 words.`;
+const SYSTEM = `You write a short plain-language summary of a zoning screening for the Pittsburgh Land Bank and City Planning staff.
+You are given structured findings produced by a deterministic rules engine. Do not add, remove, or reinterpret any finding, number, or citation. Do not invent code sections. Do not state or imply that the City approved anything, that anyone may build, or that the parcel is owned or available. If a value is "not in record" or "not verified", say so plainly.
+Format: Markdown, under 200 words: "Bottom line" (2 sentences), "What would need review" (cite sections inline), "Before acting" (confirm with the City's Zoning Administrator).
+End with: "This summary is decision support generated from public records and is not a zoning determination or legal advice."`;
 
 export async function POST(request: Request) {
-  const body = (await request.json()) as MemoRequest;
-  const facts = structuredFacts(body);
-  const p = provider();
-  if (!p) {
-    return Response.json({ memo: null, facts, error: "no-llm-credentials" }, { status: 200 });
-  }
+  let req;
   try {
-    const res = await fetch(p.url, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${p.token}` },
-      body: JSON.stringify({
-        model: p.model,
-        max_tokens: 700,
-        temperature: 0.2,
-        messages: [
-          { role: "system", content: SYSTEM },
-          { role: "user", content: `Findings:\n${facts}` },
-        ],
-      }),
-    });
-    if (!res.ok) {
-      return Response.json({ memo: null, facts, error: `gateway-${res.status}` }, { status: 200 });
-    }
-    const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-    const memo = data.choices?.[0]?.message?.content ?? null;
-    return Response.json({ memo, facts, model: p.model });
+    req = await parseLotRequest(request, false);
   } catch (err) {
-    return Response.json({ memo: null, facts, error: String(err) }, { status: 200 });
+    const r = badRequest(err);
+    if (r) return r;
+    throw err;
   }
+  const { lots, comps: compsFile } = await loadData();
+  const lot = lots.get(req.lotId);
+  if (!lot) return Response.json({ error: "unknown lotId" }, { status: 404 });
+
+  const findings = evaluateLot(lot, req.ruleSet);
+  const otherRs: RuleSet = req.ruleSet === "current" ? "bill-2025-1545" : "current";
+  const other = evaluateLot(lot, otherRs);
+  const comps = compsFor(lot, compsFile);
+  const triage = triageLot(lot, findings, comps);
+  const deterministic = buildMemo(lot, req.ruleSet, findings, { ruleSet: otherRs, findings: other }, districtName(lot.zone));
+  const facts = structuredFacts(lot, req.ruleSet, findings, req.ruleSet === "current" ? other : null, triage, comps);
+
+  const out = await complete(SYSTEM, `Findings:\n${facts}`, 500);
+  if (out.text === null) return Response.json({ deterministic, memo: null, facts, error: out.error });
+  return Response.json({ deterministic, memo: out.text, facts, model: out.model });
 }

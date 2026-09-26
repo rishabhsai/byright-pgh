@@ -4,10 +4,11 @@ import { evaluateLot } from "./rules";
 import { compsForLot, DEFAULT_FINANCE, fmtNum, fmtUsd, runProforma, type FinanceAssumptions, type Proforma } from "./proforma";
 
 /*
- * Green / Yellow / Red triage (organizer definition, AI Horizons 2026):
- *   red    = not developable for housing (zoning, or flood zone on steep or undermined ground)
- *   yellow = developable but needs review, a variance, a hazard review, or subsidy
- *   green  = buildable as is: a by-right typology, no hazard flags, and the numbers pencil
+ * Green / Yellow / Red triage (organizer colors; the evidence behind them is narrower):
+ *   red    = major screening obstacle: no small home type is permitted, or flood zone on steep or undermined ground
+ *   yellow = needs more information, review, relief, or a different financial scenario
+ *   green  = passes the preliminary screen under the displayed assumptions: a by-right type, lot area and
+ *            flood screening known, no hazard flags, lot-size checks resolved, and the numbers pencil
  *   gray   = district not encoded, so zoning was not evaluated
  */
 
@@ -17,7 +18,7 @@ const VERDICT_RANK: Record<Verdict, number> = { "by-right": 0, review: 1, varian
 const VERDICT_PHRASE: Record<Verdict, string> = {
   "by-right": "is allowed by right",
   review: "needs administrator or special exception review",
-  variance: "needs a variance",
+  variance: "needs relief (a variance or a § 921.04 exception)",
   prohibited: "is not permitted",
   unknown: "was not evaluated",
 };
@@ -33,6 +34,11 @@ function hazardList(lot: Lot): string[] {
   return h;
 }
 
+/** Unresolved checks that keep a lot out of Green: the lot-size standards need a known area and width. */
+const BLOCKING_UNRESOLVED = new Set(["lot-area", "lot-area-per-unit", "lot-width", "far"]);
+
+export const PARKING_REASON = "Confirm on-site parking on the site plan (§ 914.02.A)";
+
 function result(triage: Triage, reasons: string[], best: Typology | null, pf: Proforma | null): TriageResult {
   return { triage, reasons, bestTypology: best, pencils: pf ? pf.pencils : null, gap: pf ? pf.gap : null, margin: pf ? pf.margin : null };
 }
@@ -42,12 +48,25 @@ export function triageLot(
   findings: Finding[],
   comps: Comps | null,
   assumptions?: Partial<FinanceAssumptions>,
+  typology?: Typology | null,
 ): TriageResult {
   if (findings.length === 0 || findings.every((f) => f.verdict === "unknown")) {
     return result("gray", [findings[0]?.summary ?? "Zoning was not evaluated for this lot."], null, null);
   }
 
-  const buildable = findings.filter((f) => BUILDABLE.includes(f.verdict));
+  const chosen = typology ? findings.find((f) => f.typology === typology) : undefined;
+  if (typology && (!chosen || chosen.verdict === "unknown")) {
+    return result("gray", [`${TYPOLOGY_LABEL[typology]} was not evaluated in ${lot.zone}.`], null, null);
+  }
+  if (chosen && chosen.verdict === "prohibited") {
+    const why =
+      chosen.typology === "single_adu" && chosen.checks.find((c) => c.id === "adu-eligibility")?.passed === false
+        ? `${TYPOLOGY_LABEL[chosen.typology]} is not permitted in ${lot.zone} outside an ADU Overlay District.`
+        : `${TYPOLOGY_LABEL[chosen.typology]} is not listed in ${lot.zone}.`;
+    return result("red", [`Zoning: ${why}`], null, null);
+  }
+
+  const buildable = chosen ? [chosen] : findings.filter((f) => BUILDABLE.includes(f.verdict));
   if (buildable.length === 0) {
     return result("red", [`Zoning: no small home type is permitted in ${lot.zone}.`], null, null);
   }
@@ -76,6 +95,17 @@ export function triageLot(
   const label = TYPOLOGY_LABEL[best.typology];
   reasons.push(`Zoning: ${label.toLowerCase()} ${VERDICT_PHRASE[best.verdict]} in ${lot.zone}.`);
 
+  const unresolved = best.unresolved ?? [];
+  const lotSizeOpen = unresolved.some((id) => BLOCKING_UNRESOLVED.has(id));
+  const areaUnknown = lot.lotAreaSqFt === null;
+  if (areaUnknown) {
+    reasons.push("Site: lot area is not in the City inventory, so the minimum lot size and the screening floor cannot be checked (needs survey).");
+  } else if (lotSizeOpen) {
+    reasons.push("Site: a lot-size standard could not be verified from inventory data (needs survey).");
+  }
+  const floodUnknown = lot.hazards.floodZone === null;
+  if (floodUnknown) reasons.push("Site: FEMA flood screening is missing for this lot; treated as unresolved, not clear.");
+
   const hazards = hazardList(lot);
   if (hazards.length) reasons.push(`Site: flagged for ${hazards.join(" and ")}; needs a site review.`);
   const sliver = lot.lotAreaSqFt !== null && lot.lotAreaSqFt < MIN_PRACTICAL_LOT_SQFT;
@@ -92,11 +122,20 @@ export function triageLot(
     reasons.push(
       pf.pencils
         ? `Finance: pencils, ${pf.marginPct.toFixed(0)}% margin on ${fmtUsd(pf.totalCost)} cost${basis}.`
-        : `Finance: needs about ${fmtUsd(pf.gap)} in subsidy to reach the target margin${basis}.`,
+        : `Finance: modeled shortfall to target return about ${fmtUsd(pf.gap)}${basis}.`,
     );
   }
+  if (unresolved.includes("parking")) reasons.push(PARKING_REASON);
 
-  const green = best.verdict === "by-right" && hazards.length === 0 && !sliver && pf !== null && pf.pencils;
+  const green =
+    best.verdict === "by-right" &&
+    !areaUnknown &&
+    !lotSizeOpen &&
+    !floodUnknown &&
+    hazards.length === 0 &&
+    !sliver &&
+    pf !== null &&
+    pf.pencils;
   return result(green ? "green" : "yellow", reasons, best.typology, pf);
 }
 
@@ -112,10 +151,11 @@ export function triageCounts(
   ruleSet: RuleSet,
   compsFile: CompsFile | null,
   assumptions?: Partial<FinanceAssumptions>,
+  typology?: Typology | null,
 ): TriageCounts {
   const counts: TriageCounts = { green: 0, yellow: 0, red: 0, gray: 0 };
   for (const lot of lots) {
-    const t = triageLot(lot, evaluateLot(lot, ruleSet), compsForLot(lot, compsFile), assumptions).triage;
+    const t = triageLot(lot, evaluateLot(lot, ruleSet), compsForLot(lot, compsFile), assumptions, typology).triage;
     counts[t] += 1;
   }
   return counts;

@@ -1,5 +1,6 @@
-import type { Check, Finding, Lot, RuleSet, Typology, Verdict } from "../types";
+import type { Check, Finding, Lot, ReviewKind, RuleSet, Typology, Verdict } from "../types";
 import { TYPOLOGY_LABEL } from "../types";
+import { buildingSf } from "../proforma";
 import {
   describeUnencoded,
   lookupDistrict,
@@ -16,12 +17,22 @@ const UNITS: Record<Typology, number> = { single: 1, single_adu: 2, duplex: 2, t
 
 const USE_LETTER_LABEL: Record<UseLetter, string> = {
   P: "Permitted by right",
-  A: "Administrator Exception (§ 922.08)",
-  S: "Special Exception (§ 922.07)",
+  A: "Administrator Exception (staff review, § 922.08)",
+  S: "Special Exception (ZBA hearing, § 922.07)",
   N: "Not listed in the use table (prohibited)",
 };
 
 const NEEDS_SURVEY = "needs survey";
+
+export const NONCONFORMING_LOT_URL = "https://ecode360.com/45478977";
+
+/** A failed lot-size standard does not by itself fix the approval path. */
+export const LOT_RELIEF =
+  "Relief required: a dimensional variance, or the nonconforming-lot exception under § 921.04 if the lot qualifies; zoning staff determine the path.";
+
+const LOT_RELIEF_NOTE = `${LOT_RELIEF} (§ 921.04, ${NONCONFORMING_LOT_URL})`;
+
+const REVIEW_KIND: Partial<Record<UseLetter, ReviewKind>> = { A: "administrator", S: "special" };
 
 const NUM = new Intl.NumberFormat("en-US");
 const fmt = (n: number) => NUM.format(n);
@@ -103,14 +114,55 @@ function numericCheck(
       note: `${missingLabel} is not in the City inventory; ${NEEDS_SURVEY}.`,
     };
   }
+  const passed = measured >= required;
   return {
     id,
     label,
-    passed: measured >= required,
+    passed,
     measured: `${fmt(measured)} ${measuredUnit}`,
     required: `${fmt(required)} ${measuredUnit}`,
     citation,
-    note: requiredNote,
+    note: passed ? requiredNote : [requiredNote, LOT_RELIEF_NOTE].filter(Boolean).join(" "),
+  };
+}
+
+function capacityCheck(d: DistrictStandards, typology: Typology, lot: Lot): Check {
+  const far = d.maxFar.value;
+  const proposed = buildingSf(typology);
+  if (far === null) {
+    return {
+      id: "building-fit",
+      label: "Building fit (setbacks, height, coverage): not evaluated",
+      passed: null,
+      measured: `${fmt(proposed)} sq ft proposed`,
+      required: null,
+      citation: d.minLotAreaSqFt.citation,
+      note: "Setbacks, height and lot coverage are not encoded; whether the building fits needs a site plan.",
+    };
+  }
+  if (lot.lotAreaSqFt === null) {
+    return {
+      id: "far",
+      label: `Floor area ratio (${NEEDS_SURVEY})`,
+      passed: null,
+      measured: `${fmt(proposed)} sq ft proposed`,
+      required: `${far}:1 floor area ratio`,
+      citation: d.maxFar.citation,
+      note: `Lot area is not in the City inventory; ${NEEDS_SURVEY}. ${d.maxFar.note ?? ""}`.trim(),
+    };
+  }
+  const max = Math.floor(far * lot.lotAreaSqFt);
+  const passed = proposed <= max;
+  return {
+    id: "far",
+    label: "Floor area ratio",
+    passed,
+    measured: `${fmt(proposed)} sq ft proposed`,
+    required: `at most ${fmt(max)} sq ft (${far}:1 × ${fmt(lot.lotAreaSqFt)} sq ft lot)`,
+    citation: d.maxFar.citation,
+    note: passed
+      ? d.maxFar.note
+      : `${d.maxFar.note ?? ""} Relief required: build no more than ${fmt(max)} sq ft, or seek a dimensional variance; zoning staff determine the path.`.trim(),
   };
 }
 
@@ -165,7 +217,7 @@ function parkingCheck(d: DistrictStandards, typology: Typology): Check {
     measured: null,
     required: `${spaces} space${spaces === 1 ? "" : "s"} (${std.value} per unit)`,
     citation: std.citation,
-    note: (spaces === 0 ? "No minimum parking required." : "Spaces must fit on the lot; not verifiable from inventory data.") + (std.note ? ` ${std.note}` : "") + aduNote,
+    note: (spaces === 0 ? "No minimum parking required." : "On a vacant lot this is a site-plan question: the spaces must fit on the lot, which inventory data cannot show.") + (std.note ? ` ${std.note}` : "") + aduNote,
   };
 }
 
@@ -200,14 +252,19 @@ function summarize(d: DistrictStandards, typology: Typology, verdict: Verdict, l
   switch (verdict) {
     case "prohibited":
       return `${name} is not allowed in ${zone}: ${use?.note ?? "not listed in the § 911.02 use table for this district"}`.replace(/\.?$/, ".");
-    case "variance":
-      return `${name} is ${letter === "P" ? "a permitted use" : `allowed by ${USE_LETTER_LABEL[letter]}`} in ${zone}, but ${failed
+    case "variance": {
+      const lotFailed = failed.some((c) => c.id !== "far");
+      const relief = lotFailed
+        ? LOT_RELIEF
+        : "Relief required: a smaller building, or a dimensional variance; zoning staff determine the path.";
+      return `${name} is ${letter === "P" ? "a permitted use" : `allowed only through ${USE_LETTER_LABEL[letter]}`} in ${zone}, but ${failed
         .map((c) => `${c.label.toLowerCase()} fails (${c.measured} vs ${c.required} required, ${c.citation.section})`)
-        .join("; ")}. A variance from the Zoning Board of Adjustment would be needed.${surveyNote}`;
+        .join("; ")}. ${relief}${surveyNote}`;
+    }
     case "review":
-      return `${name} in ${zone} is allowed only through ${USE_LETTER_LABEL[letter]}; dimensional standards encoded here are met.${use?.note ? ` ${use.note}` : ""}${surveyNote}`;
+      return `${name} in ${zone} is allowed only through ${USE_LETTER_LABEL[letter]}; the lot standards encoded here are met.${use?.note ? ` ${use.note}` : ""}${surveyNote}`;
     case "by-right":
-      return `${name} is permitted by right in ${zone} and meets the encoded lot standards.${surveyNote}`;
+      return `${name} is permitted by right in ${zone} and meets the encoded lot standards; building fit (setbacks, height, coverage) is not established.${surveyNote}`;
     default:
       return `${name}: not evaluated.`;
   }
@@ -215,17 +272,24 @@ function summarize(d: DistrictStandards, typology: Typology, verdict: Verdict, l
 
 function evaluateTypology(d: DistrictStandards, typology: Typology, lot: Lot): Finding {
   const { check: use, letter } = permittedUseCheck(d, typology, lot);
-  const checks: Check[] = [use, ...dimensionalChecks(d, typology, lot), parkingCheck(d, typology)];
+  const checks: Check[] = [use, ...dimensionalChecks(d, typology, lot), capacityCheck(d, typology, lot), parkingCheck(d, typology)];
   if (typology === "single_adu") checks.push(aduCheck(d));
   const verdict = verdictFor(letter, checks);
-  return { typology, verdict, checks, summary: summarize(d, typology, verdict, letter, checks) };
+  return {
+    typology,
+    verdict,
+    checks,
+    summary: summarize(d, typology, verdict, letter, checks),
+    unresolved: checks.filter((c) => c.passed === null).map((c) => c.id),
+    reviewKind: verdict === "review" || verdict === "variance" ? (REVIEW_KIND[letter] ?? null) : null,
+  };
 }
 
 export function evaluateLot(lot: Lot, ruleSet: RuleSet): Finding[] {
   const d = lookupDistrict(ruleSet, lot.zone);
   if (!d) {
     const summary = `District ${describeUnencoded(lot.zone)} is not encoded in this prototype; only R1D, R1A, R2, R3, RM, LNC and H are evaluated.`;
-    return TYPOLOGY_ORDER.map((typology) => ({ typology, verdict: "unknown", checks: [], summary }));
+    return TYPOLOGY_ORDER.map((typology) => ({ typology, verdict: "unknown", checks: [], summary, unresolved: [], reviewKind: null }));
   }
   return TYPOLOGY_ORDER.map((typology) => evaluateTypology(d, typology, lot));
 }

@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import type { Check, Comps, Finding, Lot, RuleSet, TriageResult } from "@/lib/types";
+import type { Check, Comps, Finding, Lot, RuleSet, TriageResult, Typology } from "@/lib/types";
 import { TYPOLOGY_LABEL, VERDICT_LABEL } from "@/lib/types";
 import type { FinanceAssumptions } from "@/lib/finance";
 import {
@@ -26,6 +26,12 @@ interface Props {
   findingsBill: Finding[] | null;
   onClose: () => void;
   triage: TriageResult | null;
+  /** The one proposal for this lot, shared by zoning, finance and the application worksheet. */
+  typology: Typology;
+  onTypology: (t: Typology) => void;
+  /** Acquisition cost the user entered for this lot only; null uses the assessed value. */
+  landOverride: number | null;
+  onLandOverride: (v: number | null) => void;
   comps: Comps | null;
   assumptions: FinanceAssumptions;
   onAssumptions: (a: FinanceAssumptions) => void;
@@ -34,8 +40,8 @@ interface Props {
   /** Reading mode: the panel overlays the map as a wide, centered surface. */
   expanded: boolean;
   onExpanded: (expanded: boolean) => void;
-  /** Hook for an AI-drafted memo. Not implemented here; the lead wires the API route. */
-  onGenerateMemo?: (lot: Lot, findings: Finding[], ruleSet: RuleSet) => Promise<string>;
+  /** Optional override for the plain-language summary; defaults to POST /api/memo. Returns null when no model text. */
+  onGenerateMemo?: (lot: Lot, findings: Finding[], ruleSet: RuleSet) => Promise<string | null>;
 }
 
 export default function DetailPanel(props: Props) {
@@ -73,7 +79,7 @@ export default function DetailPanel(props: Props) {
           </svg>
           <p className="font-serif text-[22px] leading-tight text-ink">Select a lot on the map or in the list</p>
           <p className="mt-2 max-w-[280px] text-[12px] leading-relaxed text-muted">
-            Then flip the toggle above to see what Bill 2025-1545 would change on that parcel.
+            Pick a lot to see what&apos;s allowed, whether it pencils, and what to file.
           </p>
         </div>
       )}
@@ -89,6 +95,10 @@ function LotDetail({
   findingsBill,
   onClose,
   triage,
+  typology,
+  onTypology,
+  landOverride,
+  onLandOverride,
   comps,
   assumptions,
   onAssumptions,
@@ -102,6 +112,8 @@ function LotDetail({
   const [checked, setChecked] = useState<boolean[]>(REVIEW_CHECKLIST.map(() => false));
   const [copied, setCopied] = useState<string | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
+  /** Result of the last summary request: model text, or null when the route returned none. */
+  const [summary, setSummary] = useState<{ text: string | null } | null>(null);
   const dName = districtName(lot.zone);
 
   const otherRs: RuleSet = ruleSet === "current" ? "bill-2025-1545" : "current";
@@ -137,16 +149,17 @@ function LotDetail({
   };
 
   const aiMemo = async () => {
-    if (!onGenerateMemo) return;
     setAiBusy(true);
     try {
-      const text = await onGenerateMemo(lot, findings, ruleSet);
-      await copyText(text);
-      flash("AI memo copied");
+      const text = onGenerateMemo ? await onGenerateMemo(lot, findings, ruleSet) : await fetchSummary(lot.id, ruleSet);
+      setSummary({ text });
+    } catch {
+      setSummary({ text: null });
     } finally {
       setAiBusy(false);
     }
   };
+
 
   const hazards = [
     lot.hazards.steepSlope && "Steep slope 25%+",
@@ -293,7 +306,11 @@ function LotDetail({
           <ProForma
             lot={lot}
             comps={comps}
-            initialTypology={triage?.bestTypology ?? findings.find((f) => f.verdict === "by-right")?.typology ?? null}
+            findings={findings}
+            typology={typology}
+            onTypology={onTypology}
+            landOverride={landOverride}
+            onLandOverride={onLandOverride}
             assumptions={assumptions}
             onAssumptions={onAssumptions}
             onPending={setPfPending}
@@ -332,19 +349,30 @@ function LotDetail({
             >
               Download .md
             </button>
-            {onGenerateMemo && (
-              <button
-                onClick={aiMemo}
-                disabled={aiBusy}
-                className="rounded-md border border-accent/40 bg-accent-soft px-3 py-1.5 text-[12px] font-medium text-accent disabled:opacity-60"
-              >
-                {aiBusy ? "Drafting…" : "Draft plain-language memo"}
-              </button>
-            )}
+            <button
+              onClick={aiMemo}
+              disabled={aiBusy}
+              className="rounded-md border border-accent/40 bg-accent-soft px-3 py-1.5 text-[12px] font-medium text-accent disabled:opacity-60"
+            >
+              {aiBusy ? "Drafting…" : "Show memo with plain-language summary"}
+            </button>
           </div>
           <p className="mt-2 text-[11px] text-faint">
             Built from the rule findings above with every citation. Rules decide; text only explains.
           </p>
+          {summary && (
+            <div className="mt-3 space-y-3">
+              <pre className="scroll-thin max-h-72 overflow-auto rounded-lg border border-hairline bg-white px-3 py-2.5 font-sans text-[11.5px] leading-relaxed whitespace-pre-wrap text-ink">
+                {memo()}
+              </pre>
+              {summary.text && (
+                <section className="rounded-lg border border-dashed border-[#e7c9a0] bg-[#fdf6ec] px-3 py-2.5">
+                  <h4 className="text-[11px] font-semibold text-[#8a4b00]">Plain-language summary (model-generated, unverified)</h4>
+                  <p className="mt-1 text-[12px] leading-relaxed whitespace-pre-wrap text-ink">{summary.text}</p>
+                </section>
+              )}
+            </div>
+          )}
         </Section>
 
         <Section n={7} title="Plan your application">
@@ -639,4 +667,16 @@ async function copyText(text: string) {
     document.execCommand("copy");
     ta.remove();
   }
+}
+
+/** Model summary from /api/memo; the server rebuilds the facts from the parcel ID. Null when no model text. */
+async function fetchSummary(lotId: string, ruleSet: RuleSet): Promise<string | null> {
+  const res = await fetch("/api/memo", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ lotId, ruleSet }),
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as { memo?: string | null };
+  return data.memo ?? null;
 }

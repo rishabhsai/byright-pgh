@@ -59,6 +59,8 @@ export interface DistrictStandards {
   minLotAreaSqFt: Standard<number | null>;
   minLotAreaPerUnitSqFt: Standard<number | null>;
   minLotWidthFt: Standard<number | null>;
+  /** Maximum floor area ratio; null where the prototype does not encode one. */
+  maxFar: Standard<number | null>;
   parkingPerUnit: Record<UseRow, Standard<number>>;
   adu: Standard<AduRule>;
 }
@@ -208,6 +210,7 @@ function residential(ruleSet: RuleSet, family: DistrictFamily, sub: Subdistrict)
       citation: c,
       note: "§903.03 sets no minimum lot width.",
     },
+    maxFar: { value: null, citation: c },
     parkingPerUnit: parkingStandards(ruleSet),
     adu: aduStandard(ruleSet),
   };
@@ -224,6 +227,12 @@ function lnc(ruleSet: RuleSet): DistrictStandards {
     minLotAreaSqFt: { value: 0, citation: c, note: "Minimum Lot Size 0 (unchanged by Bill 2025-1545 § 2)." },
     minLotAreaPerUnitSqFt: { value: null, citation: c, note: "No minimum lot area per unit in §904.02.C." },
     minLotWidthFt: { value: null, citation: c, note: "§904.02.C sets no minimum lot width." },
+    maxFar: {
+      value: 2,
+      citation: c,
+      // Captured text: docs/sources/ecode360-45474257-LNC.txt, "Maximum Floor Area Ratio 2:1".
+      note: "Maximum Floor Area Ratio 2:1 in the §904.02.C LNC site development standards table.",
+    },
     parkingPerUnit: parkingStandards(ruleSet),
     adu: aduStandard(ruleSet),
   };
@@ -240,6 +249,7 @@ function hillside(ruleSet: RuleSet): DistrictStandards {
     minLotAreaSqFt: { value: 3200, citation: c },
     minLotAreaPerUnitSqFt: { value: null, citation: c, note: "No minimum lot area per unit in §905.02.C." },
     minLotWidthFt: { value: null, citation: c, note: "§905.02.C sets no minimum lot width." },
+    maxFar: { value: null, citation: c },
     parkingPerUnit: parkingStandards(ruleSet),
     adu: aduStandard(ruleSet),
   };

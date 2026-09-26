@@ -34,7 +34,7 @@ Coverage over the 11,338 lots:
 
 | Line | Default | Basis |
 | --- | --- | --- |
-| Land | County assessed land value | `FAIRMARKETLAND`, the 2012 base-year assessment. It is not market value and is flagged as such. A user override takes precedence. A lot with no assessment uses $5,000. |
+| Land | County assessed land value | `FAIRMARKETLAND`, the 2012 base-year assessment, used as a proxy for acquisition cost. It is not market value and is flagged as such. A per-lot override entered in the UI takes precedence for that lot only; the shared assumptions never carry one. A lot with no assessment uses $5,000. |
 | Hard cost | $185/sf | An assumption for small wood-frame infill. BLS producer price indexes are national and give no Pittsburgh $/sf, so the number stays editable. |
 | Soft cost | 22% of hard | Sixth Ward Flats (below): professional fees 5% + construction loan fees 4% + holding and lease-up 2% + other 4% = 15% of total cost = 22% of hard cost (67%). |
 | Developer fee + overhead | 13% of hard | Sixth Ward Flats: 9% of total cost = 13% of hard cost. |
@@ -64,18 +64,34 @@ A typical affordable deal is mostly subsidy. In Sixth Ward Flats, tax-credit equ
 ### Revenue
 
 - **Sale (default):** neighborhood ZHVI × size scale × units sold. The size scale is unit sf ÷ 1,400 sf, the assumed size of a typical home, clamped to 0.6–1.3. An ADU is sold with its house, so single + ADU is one 1,800 sf sale.
-- **Rent:** ZIP ZORI × 12 × units gives gross annual rent. The value is gross rent × (1 − 35% operating expenses and vacancy) ÷ 7% cap rate. Gross annual rent is also returned.
+  Duplex and triplex sale mode assumes the units are sold separately (two or three sales); the ownership structure and its transaction costs are not modeled.
+- **Rent:** ZIP ZORI × 12 × units gives gross annual rent. The capitalized value (NOI ÷ cap rate) is gross rent × (1 − 35% operating expenses and vacancy) ÷ 7% cap rate. It is not a debt-service, cash-flow, or financing test. Gross annual rent is also returned.
+
+### Input validation
+
+`runProforma` validates every assumption at the model boundary (`validateFinance`). Out-of-range values are clamped; blanks, non-numbers, and zero on a field whose minimum is positive use the default. The UI keeps the typed text and shows "outside the accepted range, using X".
+
+| Input | Accepted range | Default |
+| --- | --- | --- |
+| Hard cost | $50–$600/sf | $185 |
+| Soft cost | 0–60% of hard | 22% |
+| Developer fee | 0–30% of hard | 13% |
+| Target margin | 0–50% of cost | 10% |
+| Typical home size | 500–4,000 sf | 1,400 sf |
+| Cap rate | 3–15% | 7% |
+| Operating expenses + vacancy | 10–60% of gross rent | 35% |
 
 ### Outputs
 
 - `totalCost` = land + hard + soft + developer fee.
 - `margin` = revenue − total cost. `marginPct` = margin ÷ total cost.
-- `pencils` is true when margin ≥ 15% of total cost.
-- `gap` is the subsidy needed to reach a 15% margin: 1.10 × cost − revenue, or 0 when the deal pencils.
+- `pencils` is true when margin ≥ the target margin (default 10%) of total cost.
+- `gap` is the modeled shortfall to the target return: (1 + target) × cost − revenue, or 0 when the deal pencils. It is not a subsidy award amount or a program-eligibility finding.
+- `breakEvenValue` = (1 + target) × cost: the value at which margin equals the target. The UI prints it under the result, with the result at hard cost + $10/sf ($195/sf at defaults).
 
-Worked example: a single-unit house on a lot assessed at $10,000 costs $10,000 + $222,000 hard + $48,840 soft + $28,860 fee = $309,700. To pencil it needs $356,155 in revenue, which is a neighborhood ZHVI of about $415,000. Only a handful of Pittsburgh neighborhoods are above that (Squirrel Hill, Shadyside, Point Breeze, Highland Park, Strip District, Allegheny West). That is consistent with the Sixth Ward evidence that most infill needs subsidy.
+Worked example: a single-unit house on a lot assessed at $10,000 costs $10,000 + $222,000 hard + $48,840 soft + $28,860 fee = $309,700. At the 10% target it needs $340,670 in value. The 1,200 sf house sells at 0.857 of ZHVI, so that is a neighborhood ZHVI of about $397,000. At a ZHVI of $300,000 the modeled value is $257,143 and the shortfall is $83,527.
 
-The developer fee and the 15% margin both compensate the developer, so the defaults are conservative. A for-profit builder whose margin is the fee can set `devFeePct` to 0.
+The developer fee and the target margin are two compensation layers: the example carries $28,860 of fee plus $30,970 of required return. Whether both belong depends on whose return is being modeled. A for-profit builder whose margin is the fee can set `devFeePct` to 0.
 
 ### Legacy API
 
@@ -83,31 +99,43 @@ The developer fee and the 15% margin both compensate the developer, so the defau
 
 ## Triage (`src/lib/triage.ts`)
 
-`triageLot(lot, findings, comps, assumptions?)` returns a `TriageResult`.
+`triageLot(lot, findings, comps, assumptions?, typology?)` returns a `TriageResult`. With `typology` set (the Home type filter in the UI), the lot is triaged for that one proposal; without it, for the best typology.
 
-| Color | Rule |
-| --- | --- |
-| Gray | Every finding is `unknown`, because the district is not encoded. |
-| Red | No typology is by-right, review, or variance, so every typology is prohibited. Also red when the lot is in a FEMA flood zone and on a steep slope or undermined ground. |
-| Green | At least one typology is by right, there are no hazard flags, and the best by-right typology pencils. If comps are unavailable, the lot is still green and the reason says "comps unavailable; finance not assessed". |
-| Yellow | Everything else: only review or variance is available, a hazard flag is set, or the gap is greater than 0. |
+| Color | Label | Rule |
+| --- | --- | --- |
+| Gray | Not evaluated | Every finding is `unknown`, because the district is not encoded (or the selected typology was not evaluated). |
+| Red | Major screening obstacle; specialist review | No typology is by-right, review, or variance (or the selected typology is not listed in the district). Also red when the lot is in a FEMA flood zone and on a steep slope or undermined ground: a prototype prioritization rule, not a verified prohibition. |
+| Green | Passes the preliminary screen under displayed assumptions | The typology is by right; lot area is known and at least 1,000 sq ft; flood screening is present (null is unresolved, not clear); no hazard flags; no lot-size check is unresolved; and the pro forma pencils. An unverified parking minimum does not block Green: on a vacant lot it is a site-plan question, and the reasons say "Confirm on-site parking on the site plan (§ 914.02.A)". |
+| Yellow | Needs more information, review, or a different financial scenario | Everything else: review or relief is needed, a hazard flag is set or flood data is missing, lot area is unknown or below the floor, comps are unavailable, or there is a modeled shortfall. |
 
 `bestTypology` is the typology with the best verdict and, among those, the highest margin. If the lot lacks the comp for the chosen revenue mode, triage uses the other mode (for example, sale comps for a lot in 15208) and says so in the reasons.
 
-`triageCounts(lots, ruleSet, compsFile, assumptions?)` returns `{green, yellow, red, gray}`.
+`triageCounts(lots, ruleSet, compsFile, assumptions?, typology?)` returns `{green, yellow, red, gray}`.
 
 Counts over the whole inventory, with the default assumptions and the Sept 26, 2026 data:
 
 | Scenario | Green | Yellow | Red | Gray |
 | --- | ---: | ---: | ---: | ---: |
-| Current code, sale | 72 | 8,952 | 6 | 2,308 |
-| Bill 2025-1545, sale | 72 | 8,952 | 6 | 2,308 |
-| Current code, rent | 58 | 8,966 | 6 | 2,308 |
-| Current code, finance ignored (no comps) | 2,033 | 6,991 | 6 | 2,308 |
+| Current code, sale | 28 | 8,996 | 6 | 2,308 |
+| Bill 2025-1545, sale | 28 | 8,996 | 6 | 2,308 |
+| Current code, rent | 0 | 9,024 | 6 | 2,308 |
+| Current code, no comps (finance not assessed) | 0 | 9,024 | 6 | 2,308 |
+| Current code, sale, hard cost $195/sf | 12 | 9,012 | 6 | 2,308 |
+| Current code, sale, 15% target margin | 12 | 9,012 | 6 | 2,308 |
+
+With one home type selected (current code, sale):
+
+| Selected type | Green | Yellow | Red | Gray |
+| --- | ---: | ---: | ---: | ---: |
+| Single-unit detached | 26 | 8,998 | 6 | 2,308 |
+| Single-unit + ADU | 0 | 0 | 9,030 | 2,308 |
+| Duplex | 6 | 2,635 | 6,389 | 2,308 |
+| Triplex | 4 | 1,306 | 7,720 | 2,308 |
+| Townhome | 26 | 8,998 | 6 | 2,308 |
 
 Run `TRIAGE_REPORT=1 pnpm vitest run src/lib/triage.test.ts` to reprint these counts.
 
-Most lots are yellow for two reasons. The steep-slope layer flags about half of the inventory. Of the 2,033 lots that are by right and have no hazard flags, most need subsidy at market prices. The bill leaves the counts unchanged because it adds ADUs and removes parking minimums. It does not change which typology is best on a lot or whether that typology pencils.
+Green is a short list of candidates for verification, not confirmed feasible projects. Most lots are yellow: the steep-slope layer flags about half of the inventory, and most by-right lots show a modeled shortfall at market values. The Green count is sensitive to the assumptions: $10/sf more hard cost, or a 15% target, cuts it from 28 to 12. The bill leaves the counts unchanged because it adds ADUs and removes parking minimums; it does not change which typology is best on a lot or whether that typology pencils.
 
 ## Limits
 

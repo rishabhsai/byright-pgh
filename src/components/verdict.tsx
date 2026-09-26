@@ -21,7 +21,7 @@ export const VERDICT_COLOR: Record<Verdict, string> = {
 export const VERDICT_SHORT: Record<Verdict, string> = {
   "by-right": "By right",
   review: "Review",
-  variance: "Variance",
+  variance: "Relief required",
   prohibited: "Not permitted",
   unknown: "Not evaluated",
 };
@@ -54,7 +54,7 @@ export function VerdictChip({ verdict }: { verdict: Verdict }) {
 
 export function ZoneChip({ zone }: { zone: string }) {
   return (
-    <span className="inline-flex items-center rounded border border-hairline bg-white px-1.5 py-px text-[11px] font-medium text-ink">
+    <span className="inline-flex shrink-0 items-center rounded border border-hairline bg-white px-1.5 py-px text-[11px] font-medium whitespace-nowrap text-ink">
       {zone || "none"}
     </span>
   );
@@ -96,9 +96,9 @@ export const TRIAGE_WORD: Record<Triage, string> = {
 };
 
 export const TRIAGE_SHORT: Record<Triage, string> = {
-  green: "Buildable as is",
-  yellow: "Needs variance or subsidy",
-  red: "Not developable",
+  green: "Passes the preliminary screen",
+  yellow: "Needs info, review, or a different scenario",
+  red: "Major obstacle; specialist review",
   gray: "Not evaluated",
 };
 

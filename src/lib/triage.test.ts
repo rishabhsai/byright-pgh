@@ -36,7 +36,7 @@ const RICH = comps(780_000);
 const POOR = comps(60_000);
 
 const TYPES: Typology[] = ["single", "single_adu", "duplex", "triplex", "townhome"];
-const findingsAll = (v: Verdict): Finding[] => TYPES.map((typology) => ({ typology, verdict: v, checks: [], summary: `${v}` }));
+const findingsAll = (v: Verdict): Finding[] => TYPES.map((typology) => ({ typology, verdict: v, checks: [], summary: `${v}`, unresolved: [], reviewKind: null }));
 
 describe("triageLot", () => {
   it("green: by right, no hazards, pencils", () => {
@@ -46,6 +46,46 @@ describe("triageLot", () => {
     expect(t.pencils).toBe(true);
     expect(t.gap).toBe(0);
     expect(t.bestTypology).not.toBeNull();
+  });
+
+  it("not green when lot area is unknown: the 1,000 sq ft floor and minimum lot size cannot be evaluated", () => {
+    const l = lot({ lotAreaSqFt: null });
+    const t = triageLot(l, evaluateLot(l, "current"), RICH);
+    expect(t.triage).toBe("yellow");
+    expect(t.reasons.join(" ")).toMatch(/lot area/i);
+  });
+
+  it("not green when flood screening is missing: unknown hazard is unresolved, not clear", () => {
+    const l = lot({ hazards: { steepSlope: false, undermined: false, floodZone: null } });
+    const t = triageLot(l, evaluateLot(l, "current"), RICH);
+    expect(t.triage).toBe("yellow");
+    expect(t.reasons.join(" ")).toMatch(/flood/i);
+  });
+
+  it("green with a parking reason when the only open question is on-site parking", () => {
+    // 40 ft wide R1D: attached needs a Special Exception, so the detached house (1 space) is the best type
+    const l = lot({ frontageFt: 40 });
+    const f = evaluateLot(l, "current");
+    const t = triageLot(l, f, RICH);
+    const best = f.find((x) => x.typology === t.bestTypology)!;
+    expect(best.checks.find((c) => c.id === "parking")?.passed).toBeNull();
+    expect(t.triage).toBe("green");
+    expect(t.reasons).toContain("Confirm on-site parking on the site plan (§ 914.02.A)");
+  });
+
+  it("a selected home type drives the color: duplex is red where it is not listed", () => {
+    const l = lot();
+    const t = triageLot(l, evaluateLot(l, "current"), RICH, undefined, "duplex");
+    expect(t.triage).toBe("red");
+    expect(t.reasons[0]).toContain("is not listed in R1D-H");
+    expect(triageLot(l, evaluateLot(l, "current"), RICH).triage).toBe("green");
+  });
+
+  it("a selected home type is priced as that type", () => {
+    const l = lot({ zone: "R2-M" });
+    const t = triageLot(l, evaluateLot(l, "current"), RICH, undefined, "duplex");
+    expect(t.bestTypology).toBe("duplex");
+    expect(t.triage).toBe("green");
   });
 
   it("yellow, not green, when comps are unavailable: finance not assessed", () => {
@@ -107,9 +147,9 @@ describe("triageLot", () => {
 
   it("picks the best-verdict typology with the highest margin", () => {
     const f: Finding[] = [
-      { typology: "single", verdict: "by-right", checks: [], summary: "" },
-      { typology: "single_adu", verdict: "by-right", checks: [], summary: "" },
-      { typology: "triplex", verdict: "variance", checks: [], summary: "" },
+      { typology: "single", verdict: "by-right", checks: [], summary: "", unresolved: [], reviewKind: null },
+      { typology: "single_adu", verdict: "by-right", checks: [], summary: "", unresolved: [], reviewKind: null },
+      { typology: "triplex", verdict: "variance", checks: [], summary: "", unresolved: [], reviewKind: null },
     ];
     // single_adu sells 1,800 sf at a 1.29 scale; its margin beats a 1,200 sf single in a rich market
     expect(triageLot(lot(), f, RICH).bestTypology).toBe("single_adu");
@@ -133,7 +173,10 @@ describe("triageCounts", () => {
       "bill-2025-1545": triageCounts(lots, "bill-2025-1545", file),
       "current (rent)": triageCounts(lots, "current", file, { mode: "rent" }),
       "current (no comps)": triageCounts(lots, "current", null),
+      "current ($195/sf)": triageCounts(lots, "current", file, { hardCostPerSf: 195 }),
+      "current (15% target)": triageCounts(lots, "current", file, { targetMarginPct: 15 }),
+      ...Object.fromEntries(TYPES.map((t) => [`current, ${t} selected`, triageCounts(lots, "current", file, undefined, t)])),
     };
-    process.stdout.write(`\nTRIAGE ${JSON.stringify(out, null, 1)}\n`);
-  });
+    process.stdout.write(`\nTRIAGE ${JSON.stringify(out)}\n`);
+  }, 120_000);
 });

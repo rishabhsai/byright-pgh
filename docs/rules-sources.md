@@ -23,6 +23,7 @@ through `Ord. No. 18-2026, eff. 6-11-2026`.
 | all residential subdistricts | Minimum lot area per unit | none (row removed by Ord. 10-2025) | same | § 903.03 | as above |
 | all residential subdistricts | Minimum lot width | none in § 903.03 | same | § 903.03 | as above |
 | LNC | Minimum lot size | 0 | 0 (bill § 2 restates the table unchanged) | § 904.02.C | https://ecode360.com/45474257#45474277 |
+| LNC | Maximum floor area ratio | 2:1 (proposed floor area vs 2 × lot area) | same | § 904.02.C | https://ecode360.com/45474257#45474277 (capture: `docs/sources/ecode360-45474257-LNC.txt`, line 225) |
 | H | Minimum lot size | 3,200 sq ft | same (bill does not amend § 905.02) | § 905.02.C | https://ecode360.com/45474542#45474559 |
 | R1D | Single-Unit Detached | P | same | § 911.02 | https://ecode360.com/45476524 |
 | R1D | Single-Unit Attached (townhome) | P/S: P if lot width <= 35 ft, else S | same | § 911.02; § 911.04.A.69A | https://ecode360.com/45476524 |
@@ -48,22 +49,38 @@ Bill PDF: https://www.pittsburghpa.gov/files/assets/city/v/1/dcp/documents/plann
 
 ## How the verdict is derived
 
-Use-table letter N -> `prohibited`. Any dimensional check (lot area, lot width, lot area per unit) with
-`passed === false` -> `variance`. Otherwise P -> `by-right`, A or S -> `review`. A check whose input is
-missing from the inventory gets `passed: null`, is labelled "needs survey", is mentioned in the summary,
-and never changes the verdict. `single_adu` = the Single-Unit Detached row plus the ADU rule: under
+Use-table letter N -> `prohibited`. Any dimensional check (lot area, lot width, lot area per unit, LNC
+floor area ratio) with `passed === false` -> `variance`. Otherwise P -> `by-right`, A or S -> `review`.
+
+- `by-right` means the use is permitted and no encoded dimensional check failed. It does not mean the
+  building fits: every finding carries a `building-fit` check ("Building fit (setbacks, height,
+  coverage): not evaluated", `passed: null`), and the summary says building fit is not established.
+- The FAR check compares the pro forma's floor area (single 1,200; single + ADU 1,800; duplex 1,900;
+  triplex 2,550; townhome 1,400 sq ft) with 2 × lot area. The 259 sq ft LNC lot at 0 Forbes Av
+  (0086L00500000000) allows 518 sq ft, so every type there fails.
+- `variance` is displayed as "Relief required (variance or § 921.04 exception)". A failed lot-size check
+  does not fix the approval path: the relief may be a dimensional variance or the nonconforming-lot
+  exception of § 921.04 (https://ecode360.com/45478977) if the lot qualifies, and zoning staff determine
+  which. A failed FAR check needs a smaller building or a dimensional variance.
+- `reviewKind` on each finding separates the Administrator Exception (A, staff review, § 922.08) from
+  the Special Exception (S, ZBA hearing, § 922.07); it is `null` for P and N.
+- `unresolved` lists every check with `passed === null`: missing lot area or frontage ("needs survey"),
+  a positive parking minimum (not verifiable from inventory data), and building fit. Unresolved checks
+  never change the verdict, but an unresolved lot-size check, unknown lot area, or missing flood
+  screening keeps the lot out of Green in triage. `single_adu` = the Single-Unit Detached row plus the ADU rule: under
 `current` the ADU rule is N (no overlay data), under the bill it is P. Districts outside the registry
 (P, EMI, RIV/DR, GT, SP, UI, GI, HC, NDO, NDI, UNC, UC, PUD, GPR, UNKNOWN) return `unknown` for every
 typology.
 
 ## What we did NOT encode
 
-- Setbacks, maximum height, lot coverage, FAR, maximum area of disturbance (H).
+- Setbacks, maximum height, lot coverage, FAR outside LNC, maximum area of disturbance (H).
 - Overlay districts, including any ADU Overlay District, IPOD, riverfront (RIV), Grandview and other
   Public Realm districts, historic districts.
 - Steep-slope / landslide-prone rules of § 915 and the H-district site conditions of § 911.04.A.69(a)
   (topography, soils, vegetation, access, infrastructure), Site Plan Review triggers.
-- Subdivision / consolidation, nonconforming lots of record (§ 921), contextual setbacks (§ 925.06-07).
+- Subdivision / consolidation, eligibility for the nonconforming-lot exception of § 921.04 (historical
+  ownership and other conditions), contextual setbacks (§ 925.06-07).
 - Residential Compatibility Standards (§ 916), parking maximums, bicycle parking, the PRT Frequent
   Service Walkshed used by the bill's maximum parking table.
 - Bill provisions other than ADUs and parking minimums (affordable housing bonus points/height,
@@ -76,7 +93,7 @@ Mirrors the `caveats` export in `src/lib/rules/index.ts`.
 1. Screening only; the Zoning Administrator interprets the code.
 2. Current-code ADU verdicts assume the lot is outside any ADU Overlay District; the prototype has
    no overlay layer. The only overlay we know of was the 2018 interim pilot (Ord. 32-2018).
-3. Missing lot area or frontage -> "needs survey", verdict not downgraded.
+3. Missing lot area or frontage -> "needs survey", verdict not downgraded, lot kept out of Green.
 4. Frontage stands in for Lot Width in the § 911.04.A.69A 35 ft test; the code's Lot Width
    definition (§ 925/926) can differ from street frontage.
 5. Parking minimums are reported, not checked against lot geometry.
@@ -86,3 +103,15 @@ Mirrors the `caveats` export in `src/lib/rules/index.ts`.
 8. The bill text used is the substitute as posted for the Sept 23, 2026 hearing; Council may amend
    it further. pdftotext drops strikethrough, so deletions were confirmed against rendered pages
    (108, 112, 140).
+
+## Counts from the implementation
+
+Best verdict per lot over the 11,338-lot inventory (Sept 26, 2026 data), from `evaluateLot`:
+
+| Rule set | By right (at least one type) | Review | Relief required | Unknown | By-right lot/type pairs |
+|---|---:|---:|---:|---:|---:|
+| `current` | 3,641 | 1,751 | 3,638 | 2,308 | 8,795 |
+| `bill-2025-1545` | 3,641 | 1,751 | 3,638 | 2,308 | 12,414 |
+
+The LNC FAR check fails 142 lot/type pairs on 62 lots; on 7 of those lots no type remains by right.
+Triage counts are in `docs/comps-and-proforma.md`.

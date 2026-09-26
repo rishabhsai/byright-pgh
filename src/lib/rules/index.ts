@@ -27,9 +27,10 @@ export const RULESET_NOTE: Record<RuleSet, string> = {
 
 /** Honest limits of what is encoded. Shown in the UI and in docs/rules-sources.md. */
 export const caveats: string[] = [
-  "Screening only. Verdicts come from encoded tables, not from the Zoning Administrator; overlays, setbacks, height, lot coverage, steep-slope (§ 915) and riverfront/IPOD rules are not evaluated.",
+  "Screening only. Verdicts come from encoded tables, not from the Zoning Administrator; overlays, setbacks, height, lot coverage, FAR outside LNC, steep-slope (§ 915) and riverfront/IPOD rules are not evaluated, so building fit is never established.",
+  "A failed lot-size check needs relief: a dimensional variance, or the § 921.04 nonconforming-lot exception if the lot qualifies; zoning staff determine the path.",
   "Current-code ADU verdicts assume the lot is outside any ADU Overlay District (§ 912.08); the prototype has no overlay layer.",
-  "Lot area and frontage come from the City inventory; when missing, the check is marked 'needs survey' and does not change the verdict.",
+  "Lot area and frontage come from the City inventory; when missing, the check is marked 'needs survey', does not change the verdict, and keeps the lot out of Green.",
   "Frontage is used as lot width for the § 911.04.A.69A 35 ft attached-unit test in R1D; the code measures Lot Width, which can differ from street frontage.",
   "Parking minimums are reported, not checked against lot geometry.",
   "H (Hillside) single-unit uses need Administrator Exception review under § 911.04.A.69(a); those site conditions are not encoded.",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Comps, CompsFile, Lot } from "./types";
-import { compsForLot, computeProforma, DEFAULT_ASSUMPTIONS, DEFAULT_FINANCE, runProforma, saleScale } from "./proforma";
+import { compsForLot, computeProforma, DEFAULT_ASSUMPTIONS, DEFAULT_FINANCE, runProforma, saleScale, validateFinance } from "./proforma";
 
 function lot(overrides: Partial<Lot> = {}): Lot {
   return {
@@ -75,6 +75,34 @@ describe("runProforma", () => {
     const keys = r.inputsUsed.map((i) => i.key);
     expect(keys).toEqual(expect.arrayContaining(["land", "hardCostPerSf", "softCostPct", "devFeePct", "zhvi", "saleScale", "targetMarginPct"]));
     expect(r.inputsUsed.find((i) => i.key === "zhvi")!.url).toContain("zillow.com");
+  });
+
+  it("rejects a zero cap rate instead of producing an infinite value", () => {
+    const r = runProforma(lot(), "duplex", comps(300_000, 1500), { mode: "rent", capRate: 0 })!;
+    expect(Number.isFinite(r.revenue)).toBe(true);
+    expect(Number.isFinite(r.margin)).toBe(true);
+  });
+
+  it("uses the default typical home size when given 0 or a non-number", () => {
+    const base = runProforma(lot(), "single", comps(300_000))!;
+    expect(runProforma(lot(), "single", comps(300_000), { typicalHomeSf: 0 })!.revenue).toBe(base.revenue);
+    expect(runProforma(lot(), "single", comps(300_000), { typicalHomeSf: NaN })!.revenue).toBe(base.revenue);
+  });
+
+  it("clamps finance inputs to their accepted ranges", () => {
+    const r = runProforma(lot(), "single", comps(300_000), { hardCostPerSf: 5, softCostPct: -10, targetMarginPct: 90 })!;
+    expect(r.hard).toBe(1200 * 50);
+    expect(r.soft).toBe(0);
+    expect(validateFinance({ capRate: 40 }).capRate).toBe(15);
+    expect(validateFinance({ opexPct: 1 }).opexPct).toBe(10);
+    expect(validateFinance({ devFeePct: 99 }).devFeePct).toBe(30);
+    expect(validateFinance({ typicalHomeSf: 9000 }).typicalHomeSf).toBe(4000);
+  });
+
+  it("reports the break-even value at which margin equals the target", () => {
+    const r = runProforma(lot(), "single", comps(300_000))!;
+    // $10,000 land + 1,200 sf × $185 × 1.35 = $309,700 cost; 10% target → $340,670
+    expect(r.breakEvenValue).toBeCloseTo(340_670, 0);
   });
 
   it("clamps the sale size scale", () => {

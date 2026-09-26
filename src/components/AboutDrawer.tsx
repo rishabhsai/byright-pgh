@@ -90,8 +90,10 @@ export default function AboutDrawer({
             </blockquote>
             <p className="mt-1.5 text-[11px] text-muted">Hackathon housing mentors, Sept 26, 2026</p>
             <p className="mt-2 text-[12px] leading-relaxed text-muted">
-              ByRight applies it per lot: zoning verdicts decide whether a home type can be built, and Zillow comps decide
-              whether it pays for itself. Gray means the district is not encoded, so the lot was not evaluated.
+              ByRight keeps the colors but claims less: Green passes the preliminary screen under the displayed
+              assumptions; Yellow needs more information, review, or a different financial scenario; Red is a major
+              screening obstacle for specialist review; Gray means the district is not encoded, so the lot was not
+              evaluated. None of them confirms a project is feasible.
             </p>
           </Block>
 
@@ -111,8 +113,8 @@ export default function AboutDrawer({
             </ul>
             <p className="mt-3 text-[12px] leading-relaxed text-ink">
               Calibration: a typical Pittsburgh affordable deal is about 70% tax-credit equity and public subsidy (Action
-              Housing, Sixth Ward Flats). A yellow lot that needs a subsidy gap closed is normal for affordable housing,
-              not a dead end.
+              Housing, Sixth Ward Flats). A yellow lot with a modeled shortfall to the target return is normal for
+              affordable housing, not a dead end; the shortfall is not a subsidy award or eligibility finding.
             </p>
             <p className="mt-3 text-[12px] text-muted">
               Further reading:{" "}
