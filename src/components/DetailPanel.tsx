@@ -156,7 +156,7 @@ function LotDetail({
 
   return (
     <div className="fade-in scroll-thin flex-1 overflow-y-auto">
-      <div className={`sticky top-0 z-10 border-b border-hairline bg-panel/95 pt-4 pb-3 backdrop-blur ${expanded ? "px-10" : "px-5"}`}>
+      <div className={`sticky top-0 z-10 border-b border-hairline bg-panel pt-4 pb-3 ${expanded ? "px-10" : "px-5"}`}>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 className="font-serif text-[28px] leading-[1.05] text-ink">{lot.address || "Unaddressed lot"}</h2>
@@ -240,50 +240,7 @@ function LotDetail({
         </Section>
 
         <Section n={2} title={ruleSet === "current" ? "Verdicts under today's code" : "Verdicts if Bill 2025-1545 passes"}>
-          <ul
-            className={`overflow-hidden rounded-lg border border-hairline ${
-              expanded ? "grid grid-cols-2 items-start gap-px bg-hairline" : "bg-white"
-            }`}
-          >
-            {findings.map((f, i) => {
-              const isOpen = open === f.typology;
-              const spanLast = expanded && i === findings.length - 1 && findings.length % 2 === 1;
-              return (
-                <li
-                  key={f.typology}
-                  className={
-                    expanded
-                      ? `h-full bg-white ${spanLast ? "col-span-2" : ""}`
-                      : "border-b border-hairline last:border-b-0"
-                  }
-                >
-                  <button
-                    onClick={() => setOpen(isOpen ? null : f.typology)}
-                    aria-expanded={isOpen}
-                    className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-[#fafaf8]"
-                  >
-                    <span className="w-1 self-stretch rounded-full" style={{ background: VERDICT_COLOR[f.verdict] }} />
-                    <span className="flex-1 text-[13px] text-ink">{TYPOLOGY_LABEL[f.typology]}</span>
-                    <VerdictChip verdict={f.verdict} />
-                    <Chevron open={isOpen} />
-                  </button>
-                  {isOpen && (
-                    <div className="fade-in border-t border-hairline bg-[#fafaf8] px-3 py-3">
-                      {f.summary && <p className="mb-2 text-[12px] leading-snug text-muted">{f.summary}</p>}
-                      {f.checks.length === 0 && (
-                        <p className="text-[12px] text-muted">No checks run. {VERDICT_LABEL[f.verdict]}.</p>
-                      )}
-                      <ul className="space-y-2.5">
-                        {f.checks.map((c) => (
-                          <CheckRow key={c.id} c={c} />
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
+          <VerdictList findings={findings} open={open} onOpen={setOpen} columns={expanded ? 2 : 1} />
         </Section>
 
         <Section n={3} title={ruleSet === "current" ? "What changes under Bill 2025-1545" : "What the bill changed here"}>
@@ -465,6 +422,71 @@ function Section({
       </div>
       {children}
     </section>
+  );
+}
+
+/**
+ * One row per home type, or pairs of rows in expanded mode. An opened row's checks render beneath
+ * its row (full width), so neighbors never stretch or reflow.
+ */
+function VerdictList({
+  findings,
+  open,
+  onOpen,
+  columns,
+}: {
+  findings: Finding[];
+  open: string | null;
+  onOpen: (t: string | null) => void;
+  columns: 1 | 2;
+}) {
+  const rows: Finding[][] = [];
+  for (let i = 0; i < findings.length; i += columns) rows.push(findings.slice(i, i + columns));
+  return (
+    <ul className="overflow-hidden rounded-lg border border-hairline bg-white">
+      {rows.map((row) => {
+        const opened = row.find((f) => f.typology === open);
+        return (
+          <li key={row[0].typology} className="border-b border-hairline last:border-b-0">
+            <div className={columns === 2 ? "grid grid-cols-2 divide-x divide-hairline" : ""}>
+              {row.map((f) => {
+                const isOpen = f === opened;
+                return (
+                  <button
+                    key={f.typology}
+                    onClick={() => onOpen(isOpen ? null : f.typology)}
+                    aria-expanded={isOpen}
+                    className={`flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-[#fafaf8] ${
+                      isOpen && columns === 2 ? "bg-[#fafaf8]" : ""
+                    } ${row.length < columns ? "col-span-2" : ""}`}
+                  >
+                    <span className="w-1 self-stretch rounded-full" style={{ background: VERDICT_COLOR[f.verdict] }} />
+                    <span className="flex-1 text-[13px] text-ink">{TYPOLOGY_LABEL[f.typology]}</span>
+                    <VerdictChip verdict={f.verdict} />
+                    <Chevron open={isOpen} />
+                  </button>
+                );
+              })}
+            </div>
+            {opened && (
+              <div className="fade-in border-t border-hairline bg-[#fafaf8] px-3 py-3">
+                {opened.summary && (
+                  <p className="mb-2 max-w-[70ch] text-[12px] leading-snug text-muted">{opened.summary}</p>
+                )}
+                {opened.checks.length === 0 && (
+                  <p className="text-[12px] text-muted">No checks run. {VERDICT_LABEL[opened.verdict]}.</p>
+                )}
+                <ul className={columns === 2 ? "grid grid-cols-2 gap-x-6 gap-y-3" : "space-y-2.5"}>
+                  {opened.checks.map((c) => (
+                    <CheckRow key={c.id} c={c} />
+                  ))}
+                </ul>
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
