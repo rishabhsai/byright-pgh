@@ -90,7 +90,7 @@ export default function AnswerCard({
         <div className="mt-4 flex items-center justify-between gap-3">
           <button
             onClick={onPlan}
-            className="rounded-lg bg-ink px-3.5 py-2 text-[13px] font-medium text-white transition-[background-color,transform] hover:bg-accent active:scale-[0.98]"
+            className="shrink-0 rounded-lg bg-ink px-3.5 py-2 text-[13px] font-medium whitespace-nowrap text-white transition-[background-color,transform] hover:bg-accent active:scale-[0.98]"
           >
             Plan the application
           </button>

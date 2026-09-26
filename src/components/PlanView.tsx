@@ -132,7 +132,7 @@ export default function PlanView({
   const types = TYPOLOGY_ORDER.filter((t) => plan.ready.byType[t]);
 
   return (
-    <div className="scroll-thin min-h-0 flex-1 space-y-3 overflow-y-auto px-4 pt-3 pb-4">
+    <div className="space-y-3 px-4 pt-3 pb-4">
       <section aria-label="Funnel">
         <div className="flex items-baseline justify-between gap-2">
           <h3 className="font-serif text-[20px] leading-6">{plan.scopeLabel}</h3>

@@ -47,7 +47,14 @@ export function FunnelSentence({ s, className = "" }: { s: FunnelStats | null; c
 
 /** Compact text funnel for the header: 11,338 → 9,030 evaluated → 3,641 allowed → 28 pay */
 export function FunnelLine({ s }: { s: FunnelStats | null }) {
-  if (!s) return <span className="text-[12px] text-faint">Evaluating lots…</span>;
+  if (!s)
+    return (
+      <span className="flex h-[16px] items-center gap-2" aria-label="Evaluating lots">
+        {[44, 70, 58, 36].map((w) => (
+          <span key={w} className="inline-block h-2.5 animate-pulse rounded-sm bg-surface" style={{ width: w }} />
+        ))}
+      </span>
+    );
   const steps = funnelSteps(s);
   const short = ["", "evaluated", "allowed", "pay"];
   return (

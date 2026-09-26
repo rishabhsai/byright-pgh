@@ -34,7 +34,7 @@ export default function EvidenceRow({ evidence }: { evidence: Evidence }) {
       <p className="mb-2 text-[12px] text-muted">
         <span className="font-medium text-ink">{evidenceSummary(evidence)}</span>
       </p>
-      <ul className="grid grid-cols-6 gap-1" aria-label="Screening checks">
+      <ul className="grid grid-cols-6 gap-0.5 min-[1440px]:gap-1" aria-label="Screening checks">
         {evidence.checks.map((c) => {
           const on = pinned === c.id;
           return (
@@ -54,7 +54,7 @@ export default function EvidenceRow({ evidence }: { evidence: Evidence }) {
                   onClick={() => setPinned(on ? null : c.id)}
                   aria-expanded={on}
                   aria-label={`${c.label}: ${EVIDENCE_WORD[c.state]}`}
-                  className={`group block w-full rounded-md px-0.5 pt-1 pb-1.5 text-left transition-colors hover:bg-surface ${on ? "bg-surface" : ""}`}
+                  className={`group block w-full rounded-md px-px pt-1 pb-1.5 min-[1440px]:px-0.5 text-left transition-colors hover:bg-surface ${on ? "bg-surface" : ""}`}
                 >
                   <span
                     aria-hidden
@@ -64,7 +64,7 @@ export default function EvidenceRow({ evidence }: { evidence: Evidence }) {
                       boxShadow: c.state === "notChecked" ? "inset 0 0 0 1px #b9c0bb" : undefined,
                     }}
                   />
-                  <span className="mt-1.5 block truncate text-[12px] leading-tight text-ink">{c.label}</span>
+                  <span className="mt-1.5 block truncate text-[12px] leading-tight tracking-[-0.015em] text-ink">{c.label}</span>
                   <span className={`block text-[11px] leading-tight ${c.state === "fail" ? "text-[#c2410c]" : "text-muted"}`}>
                     {EVIDENCE_WORD[c.state]}
                   </span>

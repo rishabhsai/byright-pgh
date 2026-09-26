@@ -1,4 +1,5 @@
 "use client";
+import { useEffect, useRef } from "react";
 import type { CompsFile, LotsFile } from "@/lib/types";
 import { caveats, RULESET_LABEL, RULESET_NOTE } from "@/lib/engine";
 import { encodedDistricts } from "./district";
@@ -28,6 +29,17 @@ export default function AboutDrawer({
   usingFixtures: boolean;
 }) {
   const districts = encodedDistricts();
+  // Focus moves into the drawer on open (the close button's ref) and back to the opener on close.
+  const opener = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (open) {
+      opener.current = document.activeElement as HTMLElement | null;
+      return;
+    }
+    const el = opener.current;
+    opener.current = null;
+    if (el && document.contains(el)) el.focus({ preventScroll: true });
+  }, [open]);
   return (
     <div className={`fixed inset-0 z-40 ${open ? "" : "pointer-events-none"}`} aria-hidden={!open} inert={!open}>
       <div

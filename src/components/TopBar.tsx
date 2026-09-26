@@ -51,7 +51,7 @@ export default function TopBar({ ruleSet, onRuleSet, stats, onAbout, usingFixtur
 
       <div className="flex h-[56px] items-center gap-6 border-t border-hairline/70 px-5">
         <div className="min-w-0 flex-1">
-          <FunnelSentence s={s} className="truncate text-[14px] leading-tight" />
+          <FunnelSentence s={s} className="truncate text-[13px] leading-tight whitespace-nowrap min-[1440px]:text-[14px]" />
           <div className="mt-1">
             <FunnelLine s={s} />
           </div>
@@ -65,7 +65,11 @@ export default function TopBar({ ruleSet, onRuleSet, stats, onAbout, usingFixtur
               >
                 <TriageDot triage={t} size={7} />
                 <span className="sr-only">{TRIAGE_SHORT[t]}: </span>
-                {s ? <CountUp value={s.triage[t]} /> : <span className="text-faint">—</span>}
+                {s ? (
+                  <CountUp value={s.triage[t]} />
+                ) : (
+                  <span aria-label="loading" className="inline-block h-2.5 w-7 animate-pulse rounded-sm bg-surface" />
+                )}
               </span>
             </Tooltip>
           ))}

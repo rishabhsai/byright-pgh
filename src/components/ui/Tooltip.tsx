@@ -30,7 +30,7 @@ export default function Tooltip({ content, children, side = "top", asChild = fal
     if (!el) return;
     const r = el.getBoundingClientRect();
     const below = side === "bottom" ? window.innerHeight - r.bottom > 90 : r.top < 90;
-    setPos({ x: Math.min(Math.max(r.left + r.width / 2, 140), window.innerWidth - 140), y: below ? r.bottom + 8 : r.top - 8, below });
+    setPos({ x: Math.min(Math.max(r.left + r.width / 2, 148), window.innerWidth - 148), y: below ? r.bottom + 8 : r.top - 8, below });
   };
   const show = (e: { currentTarget: EventTarget }) => {
     const t = e.currentTarget as HTMLElement;

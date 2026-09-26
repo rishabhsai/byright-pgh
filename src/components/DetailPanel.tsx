@@ -12,7 +12,7 @@ import Tooltip from "./ui/Tooltip";
 import Section from "./ui/Section";
 import AnswerCard from "./ui/AnswerCard";
 import { evidenceSummary } from "./ui/EvidenceRow";
-import { deriveEvidence } from "@/lib/evidence";
+import { evidenceForLot } from "@/lib/evidence";
 import { answerHeadline, cityStatus, financeLine, typologyPhrase, whatWouldChange } from "./ui/answer";
 import { FunnelBars, FunnelSentence, type FunnelStats } from "./ui/Funnel";
 
@@ -55,7 +55,7 @@ export default function DetailPanel(props: Props) {
   // The aside keeps its width in both modes so the map never resizes; expanded mode lifts the
   // same LotDetail (same tree position, so no state is lost) into an overlay over the map area.
   return (
-    <aside className="flex w-[412px] shrink-0 flex-col border-l border-hairline bg-panel">
+    <aside className="flex w-[360px] shrink-0 flex-col border-l border-hairline bg-panel min-[1440px]:w-[412px]">
       {lot && findings ? (
         <div className={expanded ? "absolute inset-0 z-30 flex justify-center" : "contents"}>
           <div
@@ -191,7 +191,8 @@ function LotDetail({
   const head = answerHeadline(triage, best, pfBest);
   const fin = financeLine(pf);
   const status = cityStatus(lot);
-  const evidence = useMemo(() => deriveEvidence(lot, chosen, triage, pf, comps), [lot, chosen, triage, pf, comps]);
+  // Same function the list's N/6 pill uses, for the same proposal and assumptions.
+  const evidence = useMemo(() => evidenceForLot(lot, findings, triage, comps, withLand, typology), [lot, findings, triage, comps, withLand, typology]);
   const changes = whatWouldChange(lot, findings, chosen, pf);
   const typeLine = typologyPhrase(typology, chosen);
 
@@ -258,7 +259,7 @@ function LotDetail({
 
   return (
     <div ref={scroller} onScroll={onScroll} className="fade-in scroll-thin flex-1 overflow-y-auto">
-      <div ref={header} className={`sticky top-0 z-10 border-b border-hairline bg-panel/95 backdrop-blur-sm ${pad}`}>
+      <div ref={header} className={`sticky top-0 z-10 border-b border-hairline bg-panel ${pad}`}>
         <div className={`flex items-center justify-between gap-3 transition-[height] duration-200 ${scrolled ? "h-[48px]" : "pt-4 pb-2"}`}>
           <div className="min-w-0">
             {scrolled ? (

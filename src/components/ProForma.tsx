@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Segmented from "./ui/Segmented";
 import type { Comps, Finding, Lot, Typology } from "@/lib/types";
 import { TYPOLOGY_LABEL, VERDICT_LABEL } from "@/lib/types";
 import {
@@ -229,26 +230,16 @@ export default function ProForma({
         </summary>
         <div className="space-y-3 border-t border-hairline px-3 pt-3 pb-3">
           <div>
-            <div role="radiogroup" aria-label="Revenue" className="flex rounded-md border border-hairline bg-surface p-0.5 text-[12px]">
-              {(["sale", "rent"] as RevenueMode[]).map((m) => {
-                const available = m === "sale" ? hasSale : hasRent;
-                const on = (r?.mode ?? mode) === m;
-                return (
-                  <button
-                    key={m}
-                    role="radio"
-                    aria-checked={on}
-                    disabled={!available}
-                    onClick={() => update({ ...a, mode: m }, true)}
-                    className={`flex-1 rounded px-2 py-1 transition-colors disabled:cursor-not-allowed disabled:text-faint ${
-                      on ? "bg-white font-medium text-ink shadow-sm" : "text-muted"
-                    }`}
-                  >
-                    {m === "sale" ? "Sell at today's prices" : "Rent it out"}
-                  </button>
-                );
-              })}
-            </div>
+            <Segmented<RevenueMode>
+              label="Revenue"
+              equal
+              value={r?.mode ?? mode}
+              onChange={(m) => update({ ...a, mode: m }, true)}
+              options={[
+                { value: "sale", label: "Sell at today's prices", disabled: !hasSale },
+                { value: "rent", label: "Rent it out", disabled: !hasRent },
+              ]}
+            />
             {(!hasSale || !hasRent) && (
               <p className="mt-1 text-[12px] text-muted">
                 {!hasSale
