@@ -57,13 +57,13 @@ export default function AboutDrawer({
                 The full lot file did not load, so the app is showing a small sample.
               </p>
             )}
-            <ul className="space-y-2">
+            <ul className="space-y-3">
               {(file?.sources ?? []).map((s) => (
-                <li key={s.name} className="flex items-baseline justify-between gap-4">
+                <li key={s.name}>
                   <a href={s.url} target="_blank" rel="noreferrer" className="text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent">
                     {s.name}
                   </a>
-                  <span className="shrink-0 text-[11px] text-muted">{s.vintage}</span>
+                  <p className="mt-0.5 text-[11px] leading-snug break-words text-muted [overflow-wrap:anywhere]">{s.vintage}</p>
                 </li>
               ))}
             </ul>

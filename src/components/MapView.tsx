@@ -113,9 +113,9 @@ function MapView({ lots, verdicts, matches, changed, selectedIdx, onSelect, flyT
             12,
             ["case", ["==", ["get", "c"], 1], 1, 0.3],
             14,
-            ["case", ["==", ["get", "c"], 1], 2, 1],
+            ["case", ["==", ["get", "c"], 1], 1.6, 1],
             17,
-            ["case", ["==", ["get", "c"], 1], 3, 1.5],
+            ["case", ["==", ["get", "c"], 1], 2.2, 1.5],
           ],
           "circle-stroke-opacity": ["case", ["==", ["get", "m"], 1], 0.95, 0.1],
         },
@@ -203,13 +203,13 @@ function MapView({ lots, verdicts, matches, changed, selectedIdx, onSelect, flyT
           <div className="mt-1.5 flex items-center gap-1.5 text-[12px]" style={{ color: VERDICT_COLOR[hv] }}>
             <span className="h-2 w-2 rounded-full" style={{ background: VERDICT_COLOR[hv] }} />
             <span className="font-medium">{VERDICT_SHORT[hv]}</span>
-            <span className="text-muted">{colorBy ? `for ${TYPOLOGY_LABEL[colorBy].toLowerCase()}` : "best case"}</span>
+            <span className="text-muted">{colorBy ? `for ${TYPOLOGY_LABEL[colorBy]}` : "best of five home types"}</span>
           </div>
         </div>
       )}
       <div className="pointer-events-none absolute top-3 left-3 z-10 rounded-lg border border-hairline bg-panel/95 px-3 py-2 shadow-sm backdrop-blur">
         <div className="mb-1 text-[11px] text-muted">
-          {colorBy ? `Colored by ${TYPOLOGY_LABEL[colorBy].toLowerCase()}` : "Colored by best verdict across five home types"}
+          {colorBy ? `Colored by ${TYPOLOGY_LABEL[colorBy]} verdict` : "Colored by best verdict across five home types"}
           <span className={ruleSet === "current" ? "" : "font-medium text-[#7a5a00]"}>
             {ruleSet === "current" ? ", today's code" : ", with Bill 2025-1545"}
           </span>

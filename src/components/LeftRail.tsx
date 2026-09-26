@@ -127,7 +127,7 @@ function LeftRail({ lots, evals, ruleSet, filters, onFilters, matches, selectedI
       <div className="border-b border-hairline px-4 py-3">
         <h3 className="text-[12px] font-medium text-ink">
           Top neighborhoods by by-right lots
-          {filters.typology && <span className="text-muted"> for {TYPOLOGY_SHORT[filters.typology].toLowerCase()}</span>}
+          {filters.typology && <span className="text-muted">, {TYPOLOGY_SHORT[filters.typology]}</span>}
         </h3>
         <ol className="mt-2 space-y-1">
           {topHoods.length === 0 && <li className="text-[12px] text-muted">No by-right lots under this rule set.</li>}

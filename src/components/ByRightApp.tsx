@@ -47,6 +47,33 @@ function evaluateAll(lots: Lot[]): Evaluations {
   return out;
 }
 
+function computeStats(evals: Evaluations): Record<RuleSet, RuleSetStats> {
+  const s = {} as Record<RuleSet, RuleSetStats>;
+  const base = evals["current"].findings.map(countByRight);
+  for (const rs of RULE_SETS) {
+    let byRightAny = 0,
+      byRightPairs = 0,
+      variance = 0,
+      unknown = 0,
+      lotsGaining = 0;
+    evals[rs].best.forEach((v, i) => {
+      if (v === "by-right") byRightAny++;
+      else if (v === "variance") variance++;
+      else if (v === "unknown") unknown++;
+      const n = countByRight(evals[rs].findings[i]);
+      byRightPairs += n;
+      if (n > base[i]) lotsGaining++;
+    });
+    s[rs] = { byRightAny, byRightPairs, variance, unknown, lotsGaining };
+  }
+  return s;
+}
+
+function computeChanged(evals: Evaluations): boolean[] {
+  const bill = evals["bill-2025-1545"].findings;
+  return evals["current"].findings.map((f, i) => f.some((x, j) => x.verdict !== bill[i][j]?.verdict));
+}
+
 export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
   const [file, setFile] = useState<LotsFile | null>(null);
   const [usingFixtures, setUsingFixtures] = useState(false);
@@ -92,34 +119,8 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
 
   const evals = useMemo<Evaluations | null>(() => (lots.length ? evaluateAll(lots) : null), [lots]);
 
-  const stats = useMemo(() => {
-    if (!evals) return null;
-    const s = {} as Record<RuleSet, RuleSetStats>;
-    const base = evals.current.findings.map(countByRight);
-    for (const rs of RULE_SETS) {
-      let byRightAny = 0,
-        byRightPairs = 0,
-        variance = 0,
-        unknown = 0,
-        lotsGaining = 0;
-      evals[rs].best.forEach((v, i) => {
-        if (v === "by-right") byRightAny++;
-        else if (v === "variance") variance++;
-        else if (v === "unknown") unknown++;
-        const n = countByRight(evals[rs].findings[i]);
-        byRightPairs += n;
-        if (n > base[i]) lotsGaining++;
-      });
-      s[rs] = { byRightAny, byRightPairs, variance, unknown, lotsGaining };
-    }
-    return s;
-  }, [evals]);
-
-  const changed = useMemo<boolean[]>(() => {
-    if (!evals) return [];
-    const bill = evals["bill-2025-1545"].findings;
-    return evals.current.findings.map((f, i) => f.some((x, j) => x.verdict !== bill[i][j]?.verdict));
-  }, [evals]);
+  const stats = useMemo(() => (evals ? computeStats(evals) : null), [evals]);
+  const changed = useMemo(() => (evals ? computeChanged(evals) : []), [evals]);
 
   const typIdx = filters.typology ? TYPOLOGIES.indexOf(filters.typology) : -1;
 
@@ -186,7 +187,7 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
             lots={lots}
             verdicts={mapVerdicts}
             matches={matches}
-            changed={ruleSet === "bill-2025-1545" ? changed : null}
+            changed={ruleSet === "bill-2025-1545" && !filters.typology ? changed : null}
             selectedIdx={selectedIdx}
             onSelect={selectFromMap}
             flyTo={flyTo}
