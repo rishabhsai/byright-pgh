@@ -19,7 +19,8 @@ For every City-owned vacant lot (11,338 parcels from WPRDC):
 3. **Green / Yellow / Red triage.** The vocabulary the hackathon's housing mentors suggested: *Red* is not developable (zoning, finance, topography), *Yellow* could be developable but needs a variance, review, or subsidy, *Green* is easily developable as is. Every color comes with its reasons.
 4. **Fast-track finder.** A ranked list of lots, green first, then by how many housing types fit by right, penalized for steep slope, undermined ground, and flood zone, with neighborhood totals.
 5. **Does it pencil?** A screening pro forma using public comps: Zillow ZHVI (typical home value) for the lot's neighborhood and Zillow ZORI (typical rent) for its ZIP, against land, hard cost, soft cost, and developer fee. Cost shares are calibrated to a real Pittsburgh affordable deal (Action Housing's Sixth Ward Flats budget). Every assumption is editable. It is a screen, not underwriting.
-6. **Memo.** A plain-language memo built from the structured findings, with citations and a human-review checklist. An LLM writes the prose only from the rules engine's output; it never decides anything.
+6. **Application planner.** For the lot and home type you pick, it assembles the filings this lot actually needs, in order: the City's *Request to Purchase Application* (Dept. of Finance Real Estate Division), the Building and Development Application on OneStopPGH, and, when a check fails, a Zoning Board of Adjustment hearing. It pre-fills the purchase form's page 2 from public records (address, ward, block/lot, proposed end use, whether a variance is needed and under which section), drafts the five variance findings the Board must make from the lot's facts, and lists every attachment (site plan, notice-poster photo, abutters list, fees). **You review, sign, and file it. ByRight never submits anything.** Built from the City's form (V. 1/2018) and the Department of City Planning's ZBA process guide (Dec 2024), both saved in `docs/sources/`.
+7. **Memo.** A plain-language memo built from the structured findings, with citations and a human-review checklist. An LLM writes the prose only from the rules engine's output; it never decides anything.
 
 ## What the data says (Sept 26, 2026)
 
@@ -29,7 +30,7 @@ For every City-owned vacant lot (11,338 parcels from WPRDC):
 
 ## How the AI is used
 
-Rules decide, the model explains. The zoning determination is a deterministic table lookup in [`src/lib/rules`](src/lib/rules) with a citation on every check. The language model (`/api/memo`) receives only the structured findings and is instructed not to add, remove, or reinterpret any finding or citation. If no model credentials are configured the app produces the same memo from a template.
+Rules decide, the model explains. The zoning determination, the triage, the pro forma, and the application packet are all deterministic; the model only rewrites the variance justification and the proposed-use description into applicant prose without adding facts. The zoning determination is a deterministic table lookup in [`src/lib/rules`](src/lib/rules) with a citation on every check. The language model (`/api/memo`) receives only the structured findings and is instructed not to add, remove, or reinterpret any finding or citation. If no model credentials are configured the app produces the same memo from a template.
 
 AI tools used to build it: Claude Code (Opus and Fable models) for research, pipeline, rules encoding, and UI; Cursor credits offered by the event. All code was written during the build window; commit history starts Sept 26, 2026.
 
