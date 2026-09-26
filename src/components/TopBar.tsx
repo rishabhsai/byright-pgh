@@ -78,12 +78,12 @@ export default function TopBar({ ruleSet, onRuleSet, stats, onAbout, usingFixtur
           ))}
         </div>
 
-        <dl className="flex min-w-0 items-center gap-6">
+        <div className="flex min-w-0 items-center gap-6">
           <Stat label="lots by right for at least one home type" value={s?.byRightAny} tone="var(--v-byright)" />
           <Stat label="by-right home options across all lots" value={s?.byRightPairs} tone="var(--v-byright)" ring />
           <Stat label="lots need a variance" value={s?.variance} tone="var(--v-variance)" />
           <Stat label="lots in districts not encoded" value={s?.unknown} tone="var(--v-unknown)" />
-        </dl>
+        </div>
         {bill && delta > 0 && (
           <span
             key={delta}
@@ -104,10 +104,10 @@ function Stat({ label, value, tone, ring }: { label: string; value?: number; ton
         className="inline-block h-2 w-2 shrink-0 rounded-full"
         style={ring ? { boxShadow: `inset 0 0 0 1.5px ${tone}` } : { background: tone }}
       />
-      <dd className="font-serif text-[28px] leading-none text-ink">
+      <span className="font-serif text-[28px] leading-none text-ink">
         {value == null ? <span className="text-faint">—</span> : <CountUp value={value} />}
-      </dd>
-      <dt className="w-[104px] text-[11px] leading-[1.25] text-muted">{label}</dt>
+      </span>
+      <span className="w-[104px] text-[11px] leading-[1.25] text-muted">{label}</span>
     </div>
   );
 }
