@@ -16,9 +16,10 @@ For every City-owned vacant lot (11,338 parcels from WPRDC):
 
 1. **Verdict per housing type.** Single-unit, single-unit + ADU, duplex, three-unit, attached townhome. Each is *by right*, *needs administrative or special-exception review*, *needs a variance*, *not permitted*, or *not evaluated*. Every check shows the measured value, the required value, and the Zoning Code section it comes from.
 2. **The reform toggle.** Flip "If Bill 2025-1545 passes" and the whole map recomputes under the amended code. The stat strip shows how many lots become buildable without a variance.
-3. **Fast-track finder.** A ranked list of lots by how many housing types fit by right, penalized for steep slope, undermined ground, and flood zone, with neighborhood totals.
-4. **Screening pro forma.** Land, hard cost, soft cost, and an affordability-anchored revenue estimate. Every assumption is editable. It is a screen, not underwriting.
-5. **Memo.** A plain-language memo built from the structured findings, with citations and a human-review checklist. An LLM writes the prose only from the rules engine's output; it never decides anything.
+3. **Green / Yellow / Red triage.** The vocabulary the hackathon's housing mentors suggested: *Red* is not developable (zoning, finance, topography), *Yellow* could be developable but needs a variance, review, or subsidy, *Green* is easily developable as is. Every color comes with its reasons.
+4. **Fast-track finder.** A ranked list of lots, green first, then by how many housing types fit by right, penalized for steep slope, undermined ground, and flood zone, with neighborhood totals.
+5. **Does it pencil?** A screening pro forma using public comps: Zillow ZHVI (typical home value) for the lot's neighborhood and Zillow ZORI (typical rent) for its ZIP, against land, hard cost, soft cost, and developer fee. Cost shares are calibrated to a real Pittsburgh affordable deal (Action Housing's Sixth Ward Flats budget). Every assumption is editable. It is a screen, not underwriting.
+6. **Memo.** A plain-language memo built from the structured findings, with citations and a human-review checklist. An LLM writes the prose only from the rules engine's output; it never decides anything.
 
 ## How the AI is used
 
@@ -35,6 +36,8 @@ AI tools used to build it: Claude Code (Opus and Fable models) for research, pip
 | [25% or Greater Slope](https://data.wprdc.org/dataset/25-or-greater-slope) | City of Pittsburgh / WPRDC | | Steep-slope screening flag |
 | [Undermined Areas](https://data.wprdc.org/dataset/undermined-areas) | City / County / WPRDC | | Mine-subsidence screening flag |
 | [FEMA National Flood Hazard Layer](https://www.fema.gov/flood-maps/national-flood-hazard-layer) | FEMA | | Special Flood Hazard Area flag |
+| [Zillow Research: ZHVI by neighborhood, ZORI by ZIP](https://www.zillow.com/research/data/) | Zillow | latest month in file | Sale-value and rent comps for the pro forma |
+| Action Housing, "Building Affordable Housing" presentation to Pro-Housing Pittsburgh ([video](https://youtu.be/vJ0ReB26gVA)) | Action Housing | 2024 | Cost-share calibration for the pro forma |
 | [Pittsburgh Zoning Code, Title Nine](https://ecode360.com/45474225) | City of Pittsburgh | as read Sept 26, 2026 | Use table, dimensional standards, accessory uses, parking |
 | [Council Bill 2025-1545, substitute (June 2, 2026; corrected July 24, 2026)](https://www.pittsburghpa.gov/files/assets/city/v/1/dcp/documents/planning-commission/council-hearings-or-other/2025-1545-to-be-amended-by-substitute-from-june-2-2026-corrected-july-24-2026_final.pdf) | City of Pittsburgh | | The "if it passes" rule set |
 
@@ -46,6 +49,7 @@ Full list of encoded standards, with section numbers and access dates: [`docs/ru
 - **Only residential districts, LNC, and Hillside are encoded.** Lots in other districts (Parks, industrial, downtown, planned developments) show *not evaluated*.
 - **Not all standards are encoded.** Setbacks, height, lot coverage, overlay districts (riverfront, IPOD, historic), steep-slope overlay rules, and subdivision requirements are out of scope. A by-right verdict here means the use is permitted and the lot-size, lot-width, and parking checks pass. It is not a zoning determination.
 - **Assessed land value is not market value.** The pro forma is a screen with editable assumptions.
+- **Comps are neighborhood and ZIP aggregates,** not parcel-level sales. Zillow's public research files are used under their attribution terms; where a neighborhood has no Zillow series, finance is marked "not assessed" and the lot can't be Green.
 - **Frontage is parsed from the legal description** when present and is approximate. A survey governs.
 - **Hazard flags are screening layers,** not site engineering. Undermined-area maps in particular are historic and incomplete.
 - **Bill 2025-1545 is pending.** The "if it passes" rule set encodes the substitute text heard on Sept 23, 2026; Council may amend it.
