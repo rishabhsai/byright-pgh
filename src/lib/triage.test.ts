@@ -47,10 +47,10 @@ describe("triageLot", () => {
     expect(t.bestTypology).not.toBeNull();
   });
 
-  it("green with an honest note when comps are unavailable", () => {
+  it("yellow, not green, when comps are unavailable: finance not assessed", () => {
     const l = lot();
     const t = triageLot(l, evaluateLot(l, "current"), null);
-    expect(t.triage).toBe("green");
+    expect(t.triage).toBe("yellow");
     expect(t.pencils).toBeNull();
     expect(t.reasons.join(" ")).toContain("comps unavailable; finance not assessed");
   });

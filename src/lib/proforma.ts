@@ -40,7 +40,7 @@ export const DEFAULT_FINANCE: FinanceAssumptions = {
   typicalHomeSf: 1400,
   capRate: 7,
   opexPct: 35,
-  targetMarginPct: 15,
+  targetMarginPct: 10,
 };
 
 export const SALE_SCALE_MIN = 0.6;

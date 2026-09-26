@@ -21,6 +21,12 @@ For every City-owned vacant lot (11,338 parcels from WPRDC):
 5. **Does it pencil?** A screening pro forma using public comps: Zillow ZHVI (typical home value) for the lot's neighborhood and Zillow ZORI (typical rent) for its ZIP, against land, hard cost, soft cost, and developer fee. Cost shares are calibrated to a real Pittsburgh affordable deal (Action Housing's Sixth Ward Flats budget). Every assumption is editable. It is a screen, not underwriting.
 6. **Memo.** A plain-language memo built from the structured findings, with citations and a human-review checklist. An LLM writes the prose only from the rules engine's output; it never decides anything.
 
+## What the data says (Sept 26, 2026)
+
+- 11,338 City-owned vacant lots. 3,648 can take at least one small home **by right** today; 3,631 need a lot-size variance; 1,751 sit in the Hillside district and need an administrator exception; 2,308 are in districts we did not encode (mostly Parks).
+- If Council adopts **Bill 2025-1545**, single-unit + ADU flips from *not permitted* to *by right* on all 3,648 by-right lots: 3,648 more homes without a hearing.
+- At market prices, with Zillow neighborhood values and a 10% cushion over cost (including a 13% developer fee), only **about 35 lots pencil**. The rest of the buildable lots are *Yellow* because they need subsidy, a variance, or sit on a steep slope. That gap is the number the URA, PHFA, and the Land Bank need, and the tool reports it per lot.
+
 ## How the AI is used
 
 Rules decide, the model explains. The zoning determination is a deterministic table lookup in [`src/lib/rules`](src/lib/rules) with a citation on every check. The language model (`/api/memo`) receives only the structured findings and is instructed not to add, remove, or reinterpret any finding or citation. If no model credentials are configured the app produces the same memo from a template.

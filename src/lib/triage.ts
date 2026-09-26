@@ -87,7 +87,7 @@ export function triageLot(
     );
   }
 
-  const green = best.verdict === "by-right" && hazards.length === 0 && (pf === null || pf.pencils);
+  const green = best.verdict === "by-right" && hazards.length === 0 && pf !== null && pf.pencils;
   return result(green ? "green" : "yellow", reasons, best.typology, pf);
 }
 

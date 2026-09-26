@@ -47,7 +47,7 @@ describe("runProforma", () => {
     const r = runProforma(lot({ neighborhood: "Homewood North" }), "single", comps(54_000))!;
     expect(r.pencils).toBe(false);
     expect(r.gap).toBeGreaterThan(0);
-    expect(r.revenue + r.gap).toBeCloseTo(r.totalCost * 1.15, 0);
+    expect(r.revenue + r.gap).toBeCloseTo(r.totalCost * 1.1, 0);
   });
 
   it("returns null when comps are missing", () => {
