@@ -4,7 +4,7 @@
 
 Built during the AI for Housing Hackathon (AI Horizons 2026, Pittsburgh), Sept 26–27, 2026. Track 1: Development Feasibility & Pro Forma Navigator.
 
-Live demo: _(link added at submission)_ · Demo video: _(link added at submission)_
+Live demo: https://byright-pgh.vercel.app · Demo video: _(link added at submission)_
 
 ## The problem
 

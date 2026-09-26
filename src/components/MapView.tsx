@@ -198,7 +198,7 @@ function MapView({ lots, verdicts, matches, changed, selectedIdx, onSelect, flyT
         >
           <div className="text-[13px] font-medium text-ink">{hl.address || hl.id}</div>
           <div className="mt-0.5 text-[11px] text-muted">
-            {hl.neighborhood} <span className="text-faint">in</span> {hl.zone || "no zone"}
+            {hl.neighborhood}, zoned {hl.zone || "none"}
           </div>
           <div className="mt-1.5 flex items-center gap-1.5 text-[12px]" style={{ color: VERDICT_COLOR[hv] }}>
             <span className="h-2 w-2 rounded-full" style={{ background: VERDICT_COLOR[hv] }} />
