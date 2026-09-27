@@ -22,7 +22,7 @@ import { defaultWidth, getLayout, getServerLayout, layoutStyle, setPaneWidth, su
 import { TYPOLOGIES } from "./verdict";
 import { DEFAULT_PROJECTS, financeDiffers, parseUrlState, serializeUrlState, type UrlState } from "./urlState";
 import type { HoverInfo, FitBounds, ReformPaint } from "./MapView";
-import ReformView from "./reform/ReformView";
+import ReformView, { LeverList } from "./reform/ReformView";
 import ReformPanel from "./reform/ReformPanel";
 import { useReform } from "./reform/useReform";
 import { CUSTOM_ID, TODAY_ID, TODAY_PARAMS, compareLot, leverLabel, matchPreset, presetById, type ChangedCheck, type LotShift, type RuleParams } from "./reform/engine";
@@ -33,7 +33,8 @@ import { compsFor, countTriage, DEFAULT_FINANCE, FALLBACK_COMPS, type FinanceAss
 import { applyAll, compactAskState, scenarioOf, undoApplied, type AskState } from "@/lib/ask/apply";
 import { explainText, type AnswerInput } from "@/lib/ask/answer";
 import type { ToolCall } from "@/lib/ask/tools";
-import AskTranscript, { ASK_TIMEOUT_MS, askTopicsOf, useAskAnswer, type AskEntry } from "./ask/AskBox";
+import AskTranscript, { ASK_TIMEOUT_MS, AskChipRow, AskSheet, askTopicsOf, useAskAnswer, type AskEntry } from "./ask/AskBox";
+import SearchBox from "./SearchBox";
 
 const MapView = dynamic(() => import("./MapView"), {
   ssr: false,
@@ -206,6 +207,8 @@ export default function ByRightApp() {
   // Ask ByRight: the latest question, its applied actions, and the last question for ↑.
   const [askEntry, setAskEntry] = useState<AskEntry | null>(null);
   const [lastQuestion, setLastQuestion] = useState<string | null>(null);
+  // The transcript's sheet under the toolbar field; closing it keeps the entry (the rail's chip row reopens it).
+  const [askSheetOpen, setAskSheetOpen] = useState(false);
   // Parcel ID from the URL, selected once the lots arrive.
   const pendingLot = useRef<string | null>(null);
   const [urlRead, setUrlRead] = useState(false);
@@ -233,6 +236,7 @@ export default function ByRightApp() {
     if (u.ask) {
       setAskEntry({ id: 0, q: u.ask, phase: "restored", applied: [], topics: u.askTopics });
       setLastQuestion(u.ask);
+      setAskSheetOpen(true);
     }
     if (u.projects !== DEFAULT_PROJECTS) setProjects(u.projects);
     // Assumptions and land figures go straight to the committed pass, so the first city-wide run uses them.
@@ -536,17 +540,17 @@ export default function ByRightApp() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        // Peel one layer per press: About drawer, then expanded reading mode, then the selection.
+        // Peel one layer per press: About drawer, then expanded reading mode, then the selection. The Ask sheet
+        // takes its own Esc first (AskSheet).
         if (aboutOpen) setAboutOpen(false);
         else if (planReading) setPlanReading(false);
         else if (expanded) setExpanded(false);
-        else if (selectedIdx == null && askEntry) setAskEntry(null);
         else clearSelection();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [aboutOpen, planReading, expanded, clearSelection, selectedIdx, askEntry]);
+  }, [aboutOpen, planReading, expanded, clearSelection]);
 
   // City-wide findings arrive slimmed from the worker; the panel gets the full text for its one lot.
   const selectedFull = useMemo<Record<RuleSet, Finding[]> | null>(
@@ -827,6 +831,7 @@ export default function ByRightApp() {
     const timer = window.setTimeout(() => ctrl.abort(), ASK_TIMEOUT_MS);
     setAskEntry({ id, q, phase: "asking", applied: [] });
     setLastQuestion(q);
+    setAskSheetOpen(true);
     const started = performance.now();
     try {
       const res = await fetch("/api/ask", {
@@ -859,6 +864,25 @@ export default function ByRightApp() {
     },
     [askEntry],
   );
+
+  // "undo" on the chip row: every live change, last first, in one write.
+  const onAskUndoAll = useCallback(() => {
+    if (!askEntry) return;
+    const from = askLatest.current.state;
+    let to = from;
+    for (let k = askEntry.applied.length - 1; k >= 0; k--) {
+      const a = askEntry.applied[k];
+      if (a.changed.length && !a.undone) to = undoApplied(to, a);
+    }
+    askLatest.current.write(from, to);
+    setAskEntry((e) => (e && e.id === askEntry.id ? { ...e, applied: e.applied.map((x) => (x.changed.length ? { ...x, undone: true } : x)) } : e));
+  }, [askEntry]);
+  const closeAskSheet = useCallback(() => setAskSheetOpen(false), []);
+  const closeAsk = useCallback(() => {
+    setAskSheetOpen(false);
+    setAskEntry(null);
+  }, []);
+  const onScope = useCallback((h: string) => onFilters({ ...filters, neighborhoods: [h] }), [onFilters, filters]);
 
   const askScenario = useMemo(() => scenarioOf(askState), [askState]);
   const askShowsAnswer = !!askEntry && (askEntry.phase === "done" || askEntry.phase === "restored");
@@ -897,7 +921,33 @@ export default function ByRightApp() {
 
   return (
     <div className="relative flex h-dvh flex-col overflow-clip">
-      <TopBar ruleSet={ruleSet} onRuleSet={setRuleSet} stats={stats} onAbout={() => setAboutOpen(true)} reform={reformHeader} />
+      <TopBar
+        ruleSet={ruleSet}
+        onRuleSet={setRuleSet}
+        stats={stats}
+        onAbout={() => setAboutOpen(true)}
+        reform={reformHeader}
+        search={
+          <div className="relative">
+            <SearchBox
+              lots={lots}
+              onPick={selectFromList}
+              onScope={onScope}
+              triage={mapTriage}
+              matches={matches}
+              selectedIdx={selectedIdx}
+              onAsk={onAsk}
+              lastQuestion={lastQuestion}
+              onActivate={closeAskSheet}
+            />
+            {askEntry && askSheetOpen && (
+              <AskSheet onClose={closeAskSheet}>
+                <AskTranscript entry={askEntry} answer={askAnswer} explanations={askExplanations} onUndo={onAskUndo} onClose={closeAskSheet} />
+              </AskSheet>
+            )}
+          </div>
+        }
+      />
       <div ref={shellRef} className="flex min-h-0 flex-1" style={layoutStyle(layout)}>
         <LeftRail
           lots={lots}
@@ -918,16 +968,17 @@ export default function ByRightApp() {
             setExpanded(false);
             setPlanReading(true);
           }}
-          onAsk={onAsk}
-          lastQuestion={lastQuestion}
-          ask={
-            askEntry ? (
-              <AskTranscript entry={askEntry} answer={askAnswer} explanations={askExplanations} onUndo={onAskUndo} onClose={() => setAskEntry(null)} />
+          projects={projects}
+          onProjects={setProjects}
+          askChips={
+            askEntry && (askEntry.phase === "done" || askEntry.phase === "restored") ? (
+              <AskChipRow entry={askEntry} onUndo={onAskUndo} onUndoAll={onAskUndoAll} onOpen={() => setAskSheetOpen(true)} onClose={closeAsk} />
             ) : null
           }
           reform={
             <ReformView presetId={reform.presetId} params={reform.params} onPreset={onReformPreset} onParams={onReformParams} lotCount={lots.length} />
           }
+          reformResults={<LeverList levers={rf.levers} today={rf.today} activeId={reformId} pending={rf.leversPending} onPreset={onReformPreset} />}
           plan={
             plan ? (
               <PlanView

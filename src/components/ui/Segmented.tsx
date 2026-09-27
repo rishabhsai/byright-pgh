@@ -17,6 +17,8 @@ interface Props<T extends string> {
   kind?: "radio" | "tabs";
   /** Options share the width equally instead of sizing to their labels. */
   equal?: boolean;
+  /** "sm": 28 px tall with 12 px labels, for the rail's filter rows. */
+  size?: "md" | "sm";
   className?: string;
 }
 
@@ -24,7 +26,7 @@ interface Props<T extends string> {
  * The one segmented control: 32 px tall, a sliding white thumb, 13 px text. One Tab stop; arrow keys, Home
  * and End move and select (roving tabindex), skipping disabled options.
  */
-export default function Segmented<T extends string>({ options, value, onChange, label, kind = "radio", equal = false, className = "" }: Props<T>) {
+export default function Segmented<T extends string>({ options, value, onChange, label, kind = "radio", equal = false, size = "md", className = "" }: Props<T>) {
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
   const track = useRef<HTMLDivElement>(null);
   const current = Math.max(
@@ -76,7 +78,7 @@ export default function Segmented<T extends string>({ options, value, onChange, 
       role={tabs ? "tablist" : "radiogroup"}
       aria-label={label}
       onKeyDown={onKeyDown}
-      className={`segmented ${className}`}
+      className={`segmented ${size === "sm" ? "segmented-sm" : ""} ${className}`}
     >
       {options.map((o, i) => {
         const on = i === current;

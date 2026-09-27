@@ -56,10 +56,9 @@ function fileBase(plan: Plan): string {
   return `byright-plan-${slug(plan.scopeLabel)}-${plan.generatedAt.slice(0, 10)}`;
 }
 
-const card = "surface-card p-card";
 const kicker = "text-headline text-ink";
 
-function FunnelRow({ plan }: { plan: Plan }) {
+function FunnelRow({ plan, compact = false }: { plan: Plan; compact?: boolean }) {
   const f = plan.funnel;
   const steps = [
     { n: f.records, label: ["lots"], title: "Vacant-land records in the City inventory" },
@@ -79,7 +78,7 @@ function FunnelRow({ plan }: { plan: Plan }) {
             </span>
           )}
           <span className="min-w-0 flex-1 text-center">
-            <span className={`block text-display tabular-nums ${i === 4 ? "text-accent" : "text-ink"}`}>
+            <span className={`block tabular-nums ${compact ? "text-title" : "text-display"} ${i === 4 ? "text-accent" : "text-ink"}`}>
               {fmtNum(s.n)}
             </span>
             {s.label.map((t) => (
@@ -96,7 +95,7 @@ function FunnelRow({ plan }: { plan: Plan }) {
 
 function SplitRow({ label, n, total }: { label: string; n: number; total: number }) {
   return (
-    <li className="relative flex items-center justify-between rounded-tooltip px-2 py-2 text-callout">
+    <li className="relative flex items-center justify-between rounded-tooltip px-2 py-1.5">
       <span
         aria-hidden
         className="absolute inset-y-0.5 left-0 rounded-tooltip bg-control"
@@ -145,30 +144,44 @@ function hurdleLead(screened: number, shortlisted: number): string {
   return `Mean of the ${screened === 1 ? "one" : fmtNum(screened)} with screened finance among the ${fmtNum(shortlisted)} lowest-shortfall candidates`;
 }
 
-export default function PlanView({ plan, projects, onProjects, ruleSet, stale = false, onSelect, layout = "rail", mapAgreement = null }: Props) {
-  // The typed text stays as typed (it may be blank mid-edit); the count lives in the app.
+/** The project count the modeled shortfall is sized for. The typed text stays as typed (it may be blank mid-edit). */
+export function ProjectsInput({ projects, onProjects, className = "input-field w-16 text-right tabular-nums" }: { projects: number; onProjects: (n: number) => void; className?: string }) {
   const [homesText, setHomesText] = useState(String(projects));
   const [seen, setSeen] = useState(projects);
   if (projects !== seen) {
     setSeen(projects);
     setHomesText(String(projects));
   }
-
   const onHomes = (v: string) => {
     const digits = v.replace(/[^\d]/g, "").slice(0, 4);
     setHomesText(digits);
     const n = Number(digits);
     if (n >= 1) onProjects(n);
   };
+  return (
+    <input
+      aria-label="Projects to plan for"
+      inputMode="numeric"
+      value={homesText}
+      onChange={(e) => onHomes(e.target.value)}
+      onBlur={() => setHomesText(String(projects))}
+      className={className}
+    />
+  );
+}
 
+export default function PlanView({ plan, projects, onProjects, ruleSet, stale = false, onSelect, layout = "rail", mapAgreement = null }: Props) {
   const g = plan.gap;
   const types = TYPOLOGY_ORDER.filter((t) => plan.candidates.byType[t]);
   const premium = premiumOf(g);
   const reading = layout === "reading";
+  // The rail sets its cards in 12px caption text; the reading view keeps 13px.
+  const text = reading ? "text-callout" : "text-caption";
+  const card = reading ? "surface-card p-card" : "surface-card p-4";
 
   const heading = (
     <div className="flex flex-wrap items-baseline justify-between gap-2">
-      <h3 className="text-title">{plan.scopeLabel}</h3>
+      <h3 className={reading ? "text-title" : "text-headline"}>{plan.scopeLabel}</h3>
       <span className="text-caption text-muted" title={RULESET_LABEL[ruleSet]}>
         {ruleSet === "current" ? "Current code" : "If Bill 2025-1545 passes"}
       </span>
@@ -186,7 +199,7 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
       </div>
       {h ? (
         <>
-          <p className="mt-3 text-title text-ink">
+          <p className={`mt-3 text-ink ${reading ? "text-title" : "text-headline"}`}>
             Target value {fmtUsdShort(h.target)} vs modeled value {fmtUsdShort(h.value)}
           </p>
           {g?.valueBasis.length === 1 && g.valueBasis[0].mode === "sale" && (
@@ -209,7 +222,7 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
           </p>
         </>
       ) : (
-        <p className="mt-1 text-callout text-muted">
+        <p className={`mt-1 text-muted ${text}`}>
           {plan.shortlist.length
             ? `Not screened: finance was not screened on any of the ${plan.shortlist.length === 1 ? "one lowest-shortfall candidate" : `${fmtNum(plan.shortlist.length)} lowest-shortfall candidates`} (district or permission unresolved, or no comps), so no hurdle is shown.`
             : "Not screened: no candidate in this scope has a screened financial result."}
@@ -221,7 +234,7 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
   const funnel = (
     <section aria-label="Funnel">
       <div className={card}>
-        <FunnelRow plan={plan} />
+        <FunnelRow plan={plan} compact={!reading} />
         <p className="mt-2.5 border-t border-hairline pt-2 text-caption text-muted">
           <span className="tabular-nums text-ink">{fmtNum(plan.needsRelief)}</span> need relief (lot size) ·{" "}
           <span className="tabular-nums text-ink">{fmtNum(plan.hillsideReview)}</span> Hillside exception ·{" "}
@@ -234,12 +247,12 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
   const candidates = (
     <section aria-label="Candidates for staff review" className={card}>
       <h4 className={kicker}>Candidates for staff review</h4>
-      <p className="mt-1 text-callout">
+      <p className={`mt-1 ${text}`}>
         <span className="font-medium tabular-nums">{fmtNum(plan.candidates.total)}</span> lots pass the use-table and lot-size screen
         under the inventory district{mapAgreement ? ` (${agreementPct(mapAgreement)} agree with the City map)` : ""}, are recorded for sale,
         unflagged and 1,000+ sf. A review queue: each has open items.
       </p>
-      <p className="mt-1 text-callout">
+      <p className={`mt-1 ${text}`}>
         <span className={`font-medium tabular-nums ${plan.candidates.districtUnconfirmed ? "text-warning-ink" : ""}`}>
           {fmtNum(plan.candidates.districtUnconfirmed)}
         </span>{" "}
@@ -247,13 +260,13 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
         {plan.candidates.districtUnconfirmed ? "; permission stays unresolved until staff confirm it." : "."}
       </p>
       {plan.candidates.clearAtPremium != null && (
-        <p className="mt-1 text-callout">
+        <p className={`mt-1 ${text}`}>
           <span className="font-medium tabular-nums">{fmtNum(plan.funnel.pencil)}</span> {plan.funnel.pencil === 1 ? "clears" : "clear"} the screen at $
           {fmtNum(plan.assumptions.hardCostPerSf)}/sf; <span className="font-medium tabular-nums">{fmtNum(plan.candidates.clearAtPremium)}</span> at the{" "}
           {NEW_CONSTRUCTION_PREMIUM}× premium.
         </p>
       )}
-      <div className="plan-splits mt-4">
+      <div className={`plan-splits mt-4 ${text}`}>
         <div>
           <span className="text-caption text-faint">By recorded channel</span>
           <ul className="mt-0.5 space-y-0.5">
@@ -265,7 +278,7 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
         <div>
           <span className="text-caption text-faint">By screened type</span>
           <ul className="mt-0.5 space-y-0.5">
-            {types.length === 0 && <li className="px-1.5 text-callout text-muted">None</li>}
+            {types.length === 0 && <li className="px-1.5 text-muted">None</li>}
             {types.map((t) => (
               <SplitRow
                 key={t}
@@ -283,23 +296,24 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
   const gap = (
     <section aria-label="Modeled shortfall for N projects" className={card}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h4 className={kicker}>Modeled shortfall for</h4>
-        <label className="flex items-center gap-1.5 text-callout text-muted">
-          <input
-            aria-label="Projects to plan for"
-            inputMode="numeric"
-            value={homesText}
-            onChange={(e) => onHomes(e.target.value)}
-            onBlur={() => setHomesText(String(projects))}
-            className="input-field w-16 text-right tabular-nums"
-          />
-          projects
-        </label>
+        {reading ? (
+          <>
+            <h4 className={kicker}>Modeled shortfall for</h4>
+            <label className="flex items-center gap-1.5 text-callout text-muted">
+              <ProjectsInput projects={projects} onProjects={onProjects} />
+              projects
+            </label>
+          </>
+        ) : (
+          <h4 className={kicker}>
+            Modeled shortfall for <span className="tabular-nums">{fmtNum(projects)}</span> projects
+          </h4>
+        )}
       </div>
-      <p className="mt-1.5 text-callout">{nb(gapSentence(plan))}</p>
+      <p className={`mt-1.5 ${text}`}>{nb(gapSentence(plan))}</p>
       {g && (
         <div className="plan-table mt-4">
-          <table className="w-full table-fixed text-callout tabular-nums">
+          <table className={`w-full table-fixed tabular-nums ${text}`}>
             <colgroup>
               <col />
               <col className="w-[86px]" />
@@ -354,7 +368,7 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
   );
 
   const relief = (
-    <section aria-label="Needs relief, Hillside and the bill" className={`${card} space-y-2 text-callout`}>
+    <section aria-label="Needs relief, Hillside and the bill" className={`${card} space-y-2 ${text}`}>
       <p>
         {reliefSentence(plan)} Relief addresses the size standard only; adjacent
         City lots are not computed.
@@ -382,16 +396,16 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
         <span className="text-caption text-faint">lowest shortfall first</span>
       </div>
       {plan.shortlist.length === 0 ? (
-        <p className="mt-1.5 text-callout text-muted">No candidates in this scope.</p>
+        <p className={`mt-1.5 text-muted ${text}`}>No candidates in this scope.</p>
       ) : (
-        <ol className="mt-1.5 border-t border-hairline text-callout">
+        <ol className={`mt-1.5 border-t border-hairline ${text}`}>
           {plan.shortlist.map((r) => (
             <li key={r.parcel_id} className="border-b border-hairline/60">
               <button
                 type="button"
                 onClick={() => onSelect(r.lotIndex)}
                 title={String(r.next_action)}
-                className="group block w-full rounded-tooltip py-4 text-left hover:bg-surface focus-visible:bg-surface"
+                className={`group block w-full rounded-tooltip text-left hover:bg-surface focus-visible:bg-surface ${reading ? "py-4" : "px-1 py-2"}`}
               >
                 <span className="flex items-baseline gap-2">
                   <span className="min-w-0 flex-1 truncate font-medium text-ink group-hover:underline">
@@ -481,7 +495,7 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
     );
 
   return (
-    <div className="plan-view space-y-section px-panel py-panel">
+    <div className="plan-view space-y-4 px-4 pt-3 pb-4">
       {heading}
       {hurdle}
       {funnel}

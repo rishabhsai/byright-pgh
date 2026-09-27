@@ -138,7 +138,7 @@ export function ZoneChip({ zone, tip = false }: { zone: string; tip?: boolean })
 
 export function VerdictLegend() {
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-muted">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-caption text-muted">
       {VERDICT_ORDER.map((v) => (
         <span key={v} className="inline-flex items-center gap-1.5">
           <VerdictDot verdict={v} size={7} />
@@ -201,7 +201,7 @@ export function TriageChip({ triage }: { triage: Triage }) {
 
 export function TriageLegend() {
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-muted">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-caption text-muted">
       {TRIAGE_ORDER.map((t) => (
         <span key={t} className="inline-flex items-center gap-1.5">
           <TriageDot triage={t} size={7} />

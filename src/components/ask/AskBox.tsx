@@ -1,6 +1,6 @@
 "use client";
 // Ask ByRight's transcript: the question, one undoable chip per applied action, and the app's own answer.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { chipLabel, type Applied } from "@/lib/ask/apply";
 import { composeAnswer, type AnswerInput } from "@/lib/ask/answer";
 import type { ExplainTopic } from "@/lib/ask/tools";
@@ -65,7 +65,7 @@ function Chip({ a, onUndo }: { a: AskEntry["applied"][number]; onUndo: () => voi
     );
   return (
     <li className="inline-flex max-w-full items-center gap-1 rounded-full bg-accent-soft py-[3px] pr-1 pl-2.5 text-caption text-review-ink">
-      <span className="min-w-0">
+      <span title={label} className="min-w-0 truncate whitespace-nowrap">
         <span className="text-review-ink/80">{key}</span> <span className="font-semibold tabular-nums">{value}</span>
       </span>
       <button
@@ -100,7 +100,7 @@ export default function AskTranscript({
 }) {
   const live = entry.applied.some((a) => a.changed.length && !a.undone);
   return (
-    <section aria-label="Ask ByRight" aria-live="polite" className="fade-in scroll-thin max-h-[42vh] overflow-y-auto rounded-card bg-surface px-4 pt-3 pb-4">
+    <section aria-label="Ask ByRight" aria-live="polite" className="scroll-thin max-h-[40vh] overflow-y-auto px-4 pt-3 pb-4">
       <div className="flex items-start gap-3">
         <p className="min-w-0 flex-1 text-caption text-muted">{ASK_LABEL}</p>
         <button type="button" onClick={onClose} aria-label="Close Ask ByRight" title="Close (the filters stay)" className="-mt-0.5 -mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-faint hover:bg-control hover:text-ink">
@@ -147,5 +147,95 @@ export default function AskTranscript({
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * The transcript as a sheet under the toolbar's search field: fades in, and closes on Esc, on a click outside
+ * it, or with its ✕. Closing keeps the entry; the rail's chip row reopens it.
+ */
+export function AskSheet({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (!root.current?.contains(e.target as Node)) onClose();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey, true);
+    };
+  }, [onClose]);
+  return (
+    <div ref={root} className="sheet-in surface-card absolute top-[calc(100%+6px)] right-0 left-0 z-40 overflow-hidden shadow-overlay">
+      {children}
+    </div>
+  );
+}
+
+/**
+ * After an answer: one compact row at the top of the rail's controls pane. "3 changes applied" reopens the
+ * answer, "undo" reverts every change, each chip's ✕ reverts one, and the last ✕ closes Ask ByRight.
+ */
+export function AskChipRow({
+  entry,
+  onUndo,
+  onUndoAll,
+  onOpen,
+  onClose,
+}: {
+  entry: AskEntry;
+  onUndo: (k: number) => void;
+  onUndoAll: () => void;
+  onOpen: () => void;
+  onClose: () => void;
+}) {
+  const live = entry.applied.filter((a) => a.changed.length && !a.undone).length;
+  const label = live
+    ? `${live} ${live === 1 ? "change" : "changes"} applied`
+    : entry.phase === "restored"
+      ? "Ask ByRight, opened from a link"
+      : entry.applied.length
+        ? "Changes undone"
+        : "Ask ByRight";
+  return (
+    <div aria-label="Ask ByRight changes" className="fade-in border-b border-hairline bg-accent-soft/40 px-4 pt-1 pb-2">
+      <div className="flex h-6 items-center gap-1.5 text-caption">
+        <button type="button" onClick={onOpen} title="Show the question and the answer" className="min-w-0 truncate font-medium text-ink hover:text-accent">
+          {label}
+        </button>
+        {live > 0 && (
+          <>
+            <span aria-hidden className="text-faint">·</span>
+            <button type="button" onClick={onUndoAll} className="shrink-0 font-medium text-accent hover:underline">
+              undo
+            </button>
+          </>
+        )}
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close Ask ByRight"
+          title="Close (the filters stay)"
+          className="-mr-1.5 ml-auto flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-faint hover:bg-control hover:text-ink"
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden>
+            <path d="M2 2l6 6M8 2L2 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+          </svg>
+        </button>
+      </div>
+      {live > 0 && (
+        <ul aria-label="Changes applied" className="mt-0.5 flex flex-wrap gap-1">
+          {entry.applied.map((a, k) => (a.changed.length && !a.undone ? <Chip key={k} a={a} onUndo={() => onUndo(k)} /> : null))}
+        </ul>
+      )}
+    </div>
   );
 }

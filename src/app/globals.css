@@ -158,9 +158,6 @@
     .evidence-meter > li:nth-child(n + 4) { border-top: 1px solid var(--color-hairline); }
   }
   .evidence-cell > [aria-hidden] { margin-bottom: 8px; }
-  .hero-sentence { font-size: var(--text-caption); line-height: 24px; }
-  .hero-sentence .funnel-number { font-size: var(--text-display); line-height: var(--text-display--line-height); font-weight: 600; letter-spacing: -.02em; vertical-align: baseline; }
-  .hero-sentence .funnel-second { display: block; font-size: var(--text-callout); line-height: var(--text-callout--line-height); }
   .plan-view { container-type: inline-size; }
   .plan-funnel { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 8px; }
   .plan-funnel > li { position: relative; }
@@ -175,11 +172,35 @@
   .pane-rail { width: var(--rail-w, var(--spacing-rail)); }
   .pane-detail { width: var(--panel-w, var(--spacing-detail)); }
   @media (min-width: 1440px) { .pane-detail { width: var(--panel-w, var(--spacing-detail-wide)); } }
+  /* The rail: tabs, then a controls pane over a results pane. The controls pane takes its content's height up
+     to its share of the split (--split, per tab, set by the handle); the results pane takes the rest. */
+  .rail-pane { container: rail / inline-size; }
+  .rail-controls { flex: 0 1 auto; max-height: calc(var(--split, .44) * 100%); min-height: 40px; }
+  .rail-results { flex: 1 1 0; min-height: 140px; }
+  .filter-row { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; gap: 8px; }
+  .filter-row > .filter-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .segmented-sm { height: 28px; font-size: var(--text-caption); line-height: var(--text-caption--line-height); }
+  .segmented-sm::before { border-radius: 6px; }
+  .collapse-body { display: grid; grid-template-rows: 1fr; transition: grid-template-rows var(--duration-press) var(--ease-physical), margin var(--duration-press) var(--ease-physical); }
+  .collapse-body[data-open="false"] { grid-template-rows: 0fr; }
+  .knob-slider { appearance: none; -webkit-appearance: none; height: 16px; min-width: 0; background: transparent; cursor: pointer; }
+  .knob-slider::-webkit-slider-runnable-track { height: 3px; border-radius: 2px; background: var(--color-track); }
+  .knob-slider::-moz-range-track { height: 3px; border-radius: 2px; background: var(--color-track); }
+  .knob-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; margin-top: -4.5px; border-radius: 50%; background: var(--color-panel); box-shadow: var(--shadow-thumb), inset 0 0 0 1px var(--color-control-edge); }
+  .knob-slider::-moz-range-thumb { width: 12px; height: 12px; border: 0; border-radius: 50%; background: var(--color-panel); box-shadow: var(--shadow-thumb), inset 0 0 0 1px var(--color-control-edge); }
+  .knob-slider:focus-visible { outline-offset: 1px; }
+  .knob-slider:disabled { cursor: not-allowed; opacity: .3; }
   .map-overlays { position: absolute; inset: 0; pointer-events: none; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end; gap: 8px; padding: 16px 48px 16px 16px; }
   .map-overlays > :first-child { position: absolute; inset: 0; pointer-events: auto; }
   .map-legend, .map-scenario { position: relative; max-width: 100%; pointer-events: auto; flex: 0 0 auto; }
   .map-legend { border-radius: var(--radius-pill); background: var(--color-panel); box-shadow: var(--shadow-card); }
   .map-scenario { border-radius: var(--radius-card); background: var(--color-warning-soft); box-shadow: var(--shadow-card); }
+}
+
+/* A rail wide enough for inline labels: "Triage" and "Home type" sit left of their segmented rows. */
+@container rail (min-width: 420px) {
+  .filter-row { grid-template-columns: 64px minmax(0, 1fr); }
+  .filter-row > .filter-label { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
 }
 
 @container (min-width: 400px) {
@@ -192,6 +213,7 @@
 /* While a pane handle is dragged: no text selection, and the resize cursor wherever the pointer goes. */
 .pane-resizing body { user-select: none; -webkit-user-select: none; }
 .pane-resizing, .pane-resizing * { cursor: col-resize !important; }
+.pane-resizing-row, .pane-resizing-row * { cursor: row-resize !important; }
 
 .scroll-thin { scrollbar-width: thin; scrollbar-color: var(--color-control-edge) transparent; }
 @keyframes fade-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
@@ -199,6 +221,8 @@
 @keyframes expand-in { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: none; } }
 .expand-in, .pop { animation: expand-in var(--duration-ui) var(--ease-physical) both; }
 @keyframes backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sheet-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.sheet-in { animation: sheet-in var(--duration-press) var(--ease-physical) both; }
 .backdrop-in, .tip-in { animation: backdrop-in var(--duration-press) var(--ease-physical) both; }
 @keyframes funnel-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 .funnel-grow { transform-origin: left center; animation: funnel-grow var(--duration-reveal) var(--ease-physical) both; }

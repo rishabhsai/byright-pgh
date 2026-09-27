@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampWidth, fitWidths, layoutStyle, parseWidths } from "./paneLayout";
+import { clampSplit, clampWidth, fitWidths, layoutStyle, parsePrefs, parseWidths, SPLIT_LIMITS } from "./paneLayout";
 
 describe("pane layout", () => {
   it("parses stored widths and drops malformed or out-of-range values", () => {
@@ -31,5 +31,20 @@ describe("pane layout", () => {
   it("only sets variables for user-set widths", () => {
     expect(layoutStyle({ rail: null, panel: null })).toEqual({});
     expect(layoutStyle({ rail: 400, panel: null })).toEqual({ "--rail-w": "400px" });
+  });
+
+  it("parses the rail split and collapsed sections next to the widths, dropping bad entries", () => {
+    expect(parsePrefs(null)).toEqual({ split: {}, collapsed: {} });
+    expect(parsePrefs("not json")).toEqual({ split: {}, collapsed: {} });
+    const raw = '{"rail":400,"split":{"lots":0.3,"plan":2,"reform":"x","other":0.5},"collapsed":{"lots.filters":true,"x":"yes"}}';
+    expect(parsePrefs(raw)).toEqual({ split: { lots: 0.3 }, collapsed: { "lots.filters": true } });
+    // Widths read from the same key ignore the new fields.
+    expect(parseWidths(raw)).toEqual({ rail: 400, panel: null });
+  });
+
+  it("clamps the split share", () => {
+    expect(clampSplit(0)).toBe(SPLIT_LIMITS.min);
+    expect(clampSplit(1)).toBe(SPLIT_LIMITS.max);
+    expect(clampSplit(0.4444)).toBe(0.444);
   });
 });

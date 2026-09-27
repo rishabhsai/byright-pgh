@@ -115,11 +115,119 @@ export function getServerLayout(): Layout {
 /** Set one pane's width (null restores its default) and persist it. */
 export function setPaneWidth(pane: Pane, px: number | null) {
   stored = { ...(stored ?? readStored()), [pane]: px == null ? null : clampWidth(pane, px) };
-  try {
-    if (stored.rail == null && stored.panel == null) window.localStorage.removeItem(STORAGE_KEY);
-    else window.localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
-  } catch {
-    // Private mode or a full quota: the width still applies for this session.
-  }
+  persist();
   if (recompute()) listeners.forEach((l) => l());
+}
+
+// ---- Rail split and collapsed sections --------------------------------------------------------------------
+// The rail stacks a controls pane over a results pane; the share the controls pane may take is per tab.
+// Both live in the same storage key as the widths.
+
+export type SplitTab = "lots" | "plan" | "reform";
+
+export interface Prefs {
+  /** Fraction of the rail's split area the controls pane may take, per tab; absent keeps the default. */
+  split: Partial<Record<SplitTab, number>>;
+  /** Section id to collapsed (true) or expanded (false); absent keeps the section's default. */
+  collapsed: Record<string, boolean>;
+}
+
+export const SPLIT_DEFAULT: Record<SplitTab, number> = { lots: 0.44, plan: 0.4, reform: 0.55 };
+export const SPLIT_LIMITS = { min: 0.08, max: 0.9 };
+/** The controls pane keeps one section row; the results pane keeps a header and two list rows. */
+export const SPLIT_MIN_PX = { controls: 40, results: 140 };
+
+const NO_PREFS: Prefs = { split: {}, collapsed: {} };
+const SPLIT_TABS: SplitTab[] = ["lots", "plan", "reform"];
+
+export function clampSplit(f: number): number {
+  return Math.min(SPLIT_LIMITS.max, Math.max(SPLIT_LIMITS.min, Math.round(f * 1000) / 1000));
+}
+
+/** Stored JSON to prefs; malformed or out-of-range entries are dropped. */
+export function parsePrefs(raw: string | null): Prefs {
+  if (!raw) return NO_PREFS;
+  try {
+    const v = JSON.parse(raw) as { split?: unknown; collapsed?: unknown } | null;
+    if (!v || typeof v !== "object") return NO_PREFS;
+    const split: Prefs["split"] = {};
+    if (v.split && typeof v.split === "object") {
+      for (const t of SPLIT_TABS) {
+        const f = (v.split as Record<string, unknown>)[t];
+        if (typeof f === "number" && Number.isFinite(f) && f >= SPLIT_LIMITS.min && f <= SPLIT_LIMITS.max) split[t] = f;
+      }
+    }
+    const collapsed: Prefs["collapsed"] = {};
+    if (v.collapsed && typeof v.collapsed === "object") {
+      for (const [k, b] of Object.entries(v.collapsed as Record<string, unknown>)) if (typeof b === "boolean") collapsed[k] = b;
+    }
+    return { split, collapsed };
+  } catch {
+    return NO_PREFS;
+  }
+}
+
+let prefs: Prefs | null = null;
+const prefListeners = new Set<() => void>();
+
+function readPrefs(): Prefs {
+  try {
+    return parsePrefs(window.localStorage.getItem(STORAGE_KEY));
+  } catch {
+    return NO_PREFS;
+  }
+}
+
+function persist() {
+  const w = stored ?? readStored();
+  const p = prefs ?? readPrefs();
+  const out: Record<string, unknown> = {};
+  if (w.rail != null) out.rail = w.rail;
+  if (w.panel != null) out.panel = w.panel;
+  if (Object.keys(p.split).length) out.split = p.split;
+  if (Object.keys(p.collapsed).length) out.collapsed = p.collapsed;
+  try {
+    if (!Object.keys(out).length) window.localStorage.removeItem(STORAGE_KEY);
+    else window.localStorage.setItem(STORAGE_KEY, JSON.stringify(out));
+  } catch {
+    // Private mode or a full quota: the layout still applies for this session.
+  }
+}
+
+export function subscribePrefs(listener: () => void): () => void {
+  prefListeners.add(listener);
+  return () => {
+    prefListeners.delete(listener);
+  };
+}
+
+export function getPrefs(): Prefs {
+  prefs ??= readPrefs();
+  return prefs;
+}
+
+export function getServerPrefs(): Prefs {
+  return NO_PREFS;
+}
+
+function setPrefs(next: Prefs) {
+  prefs = next;
+  persist();
+  prefListeners.forEach((l) => l());
+}
+
+/** Set the controls pane's share for one tab (null restores the default) and persist it. */
+export function setSplit(tab: SplitTab, f: number | null) {
+  const p = getPrefs();
+  const split = { ...p.split };
+  if (f == null) delete split[tab];
+  else split[tab] = clampSplit(f);
+  setPrefs({ ...p, split });
+}
+
+/** Remember whether a rail section is collapsed. */
+export function setCollapsed(id: string, collapsed: boolean) {
+  const p = getPrefs();
+  if (p.collapsed[id] === collapsed) return;
+  setPrefs({ ...p, collapsed: { ...p.collapsed, [id]: collapsed } });
 }

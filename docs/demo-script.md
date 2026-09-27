@@ -8,7 +8,7 @@ _Numbers from the Sept 27, 2026 build: current code, Any home type, sale mode, $
 
 Now the financial hurdle. At two hundred twenty-five dollars per square foot, plus a thirty-five-thousand-dollar site-work allowance per project, the ten selected prototypes need roughly four hundred forty thousand dollars of value each, including the target return. Their size-adjusted neighborhood reference value is about seventy-one thousand. Staff verify bids and new-home sales before approvals. A screen, not a subsidy award.
 
-**Clear the neighborhood. ⌘K, "126 Carrington".** A different case: a Public Sale townhouse in Central Northside. At the reference value it falls short of the target return. A hypothetical thirty-percent value premium clears that target by only about twelve hundred dollars. **Pays: open Adjust assumptions, select the construction field, type 250, wait; point at the hero's premium count.** Raise construction to two hundred fifty and the premium case falls short again. **Back to 225.**
+**Clear the neighborhood. ⌘K, "126 Carrington".** A different case: a Public Sale townhouse in Central Northside. At the reference value it falls short of the target return. A hypothetical thirty-percent value premium clears that target by only about twelve hundred dollars. **Pays: open Adjust assumptions, select the construction field, type 250, wait; point at the status line's premium count.** Raise construction to two hundred fifty and the premium case falls short again. **Back to 225.**
 
 **⌘K, paste 0086L00500000000.** It also catches hard stops. This Forbes parcel is two hundred fifty-nine square feet; its floor-area limit is five hundred eighteen, so the triplex prototype fails and finance is withheld. **⌘K, 5724 Murray Hill.** Here the inventory and the zoning map disagree. Staff resolve the district first.
 
@@ -20,7 +20,7 @@ Now the financial hurdle. At two hundred twenty-five dollars per square foot, pl
 
 ## Recording notes
 
-- 1920×1080, browser zoom 110%, pre-warm the page once. Double-click both resize handles first so the layout is 360 / 440. Record beats as separate clips.
+- 1920×1080, browser zoom 110%, pre-warm the page once. Double-click the rail/panel handles and the rail's split handle first so the layout is at defaults. Record beats as separate clips.
 - After picking Hazelwood in the combobox, press Escape before "Open in reading view".
 - In the construction field, select all (⌘A) and type "250" in one motion; wait about 2.5 s. Clicking and typing appends.
 - Use the full parcel ID for 0 Forbes Av. 259 sq ft is on the Fits tab; 518 is on Allowed.

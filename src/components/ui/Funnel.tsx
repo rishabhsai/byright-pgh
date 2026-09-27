@@ -129,36 +129,6 @@ export function StatBlocks({ blocks, className = "" }: { blocks: { key: string; 
   );
 }
 
-/** Compact text funnel for the header: 11,338 → 9,030 evaluated → 3,641 pass use table → 0 clear cost screen · 7 at premium */
-export function FunnelLine({ s }: { s: FunnelStats | null }) {
-  if (!s)
-    return (
-      <span className="flex h-[16px] items-center gap-2" aria-label="Evaluating lots">
-        {[44, 70, 58, 36].map((w) => (
-          <span key={w} className="inline-block h-2.5 animate-pulse rounded-sm bg-surface" style={{ width: w }} />
-        ))}
-      </span>
-    );
-  const steps = funnelSteps(s);
-  const short = ["", "evaluated", "pass use table", GREEN_NEEDS_SALE && s.clearAtPremium == null ? "clear cost screen, for sale" : "clear cost screen"];
-  return (
-    <ol aria-label="Lot funnel" className="flex flex-wrap items-center gap-1.5 text-caption text-muted">
-      {steps.map((st, i) => (
-        <li key={st.key} className="flex items-center gap-1.5">
-          {i > 0 && <Arrow />}
-          <span className="tabular-nums text-ink">{st.n.toLocaleString("en-US")}</span>
-          {short[i] && <span>{short[i]}</span>}
-          {st.key === "pays" && s.clearAtPremium != null && (
-            <span>
-              · <span className="tabular-nums text-ink">{s.clearAtPremium.toLocaleString("en-US")}</span> at premium
-            </span>
-          )}
-        </li>
-      ))}
-    </ol>
-  );
-}
-
 /** Large funnel for the empty panel: one bar per step, width proportional to the count. */
 export function FunnelBars({
   s,
@@ -197,13 +167,5 @@ export function FunnelBars({
         );
       })}
     </ol>
-  );
-}
-
-function Arrow() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 12 8" aria-hidden className="text-faint">
-      <path d="M0 4h10M7.5 1.5L10 4 7.5 6.5" stroke="currentColor" fill="none" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
   );
 }

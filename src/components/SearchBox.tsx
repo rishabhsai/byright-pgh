@@ -20,6 +20,7 @@ function SearchBox({
   selectedIdx = null,
   onAsk,
   lastQuestion = null,
+  onActivate,
 }: {
   lots: Lot[];
   onPick: (i: number) => void;
@@ -35,6 +36,8 @@ function SearchBox({
   onAsk?: (q: string) => void;
   /** The last question asked; ↑ in an empty box recalls it. */
   lastQuestion?: string | null;
+  /** The field took focus (click, Tab or ⌘K): the Ask sheet under it closes. */
+  onActivate?: () => void;
 }) {
   const [q, setQ] = useState("");
   const [picked, setPicked] = useState<number | null>(null);
@@ -83,11 +86,12 @@ function SearchBox({
         input.current?.focus({ preventScroll: true });
         input.current?.select();
         setOpen(true);
+        onActivate?.();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [onActivate]);
 
   useEffect(() => {
     if (!open) return;
@@ -128,7 +132,7 @@ function SearchBox({
 
   return (
     <div ref={root} className="relative">
-      <div className="input-shell flex h-9 items-center gap-2 px-3">
+      <div className="input-shell flex h-8 min-h-8 items-center gap-2 px-3">
         <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden className="shrink-0 text-faint">
           <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.5" fill="none" />
           <path d="M11 11l3.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -151,7 +155,10 @@ function SearchBox({
             setCursor(0);
             setOpen(true);
           }}
-          onFocus={() => setOpen(true)}
+          onFocus={() => {
+            setOpen(true);
+            onActivate?.();
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && onAsk) {
               e.preventDefault();

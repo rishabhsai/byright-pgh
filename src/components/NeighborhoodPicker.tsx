@@ -1,5 +1,5 @@
 "use client";
-import { useId, useMemo, useRef, useState } from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { revealInScroller } from "./ui/revealInScroller";
 
 export interface NeighborhoodOption {
@@ -12,6 +12,8 @@ interface Props {
   options: NeighborhoodOption[];
   selected: string[];
   onChange: (next: string[]) => void;
+  /** One row: the label is for screen readers, and "Clear all" sits inside the field. */
+  compact?: boolean;
 }
 
 /**
@@ -30,12 +32,31 @@ export function matchRank(name: string, query: string): number {
   return j === q.length ? 3 : -1;
 }
 
-export default function NeighborhoodPicker({ options, selected, onChange }: Props) {
+export default function NeighborhoodPicker({ options, selected, onChange, compact = false }: Props) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const shellRef = useRef<HTMLDivElement>(null);
+  // The list is fixed to the viewport so a scrolling rail pane never clips it.
+  const [pos, setPos] = useState<{ top: number; left: number; width: number; maxHeight: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const r = shellRef.current?.getBoundingClientRect();
+      if (!r) return;
+      const width = Math.min(Math.max(r.width, 300), window.innerWidth - r.left - 8);
+      setPos({ top: r.bottom + 4, left: r.left, width, maxHeight: Math.max(120, Math.min(272, window.innerHeight - r.bottom - 12)) });
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [open, selected.length]);
   const id = useId();
   const listId = `${id}-list`;
   const selectedSet = useMemo(() => new Set(selected), [selected]);
@@ -115,17 +136,18 @@ export default function NeighborhoodPicker({ options, selected, onChange }: Prop
 
   return (
     <div className="relative">
-      <div className="mb-1 flex items-baseline justify-between">
+      <div className={compact ? "sr-only" : "mb-1 flex items-baseline justify-between"}>
         <label htmlFor={`${id}-input`} className="text-caption text-muted">
           Neighborhoods
         </label>
-        {selected.length > 0 && (
+        {!compact && selected.length > 0 && (
           <button onClick={() => onChange([])} className="text-caption text-accent hover:underline">
             Clear all
           </button>
         )}
       </div>
       <div
+        ref={shellRef}
         onMouseDown={(e) => {
           // Clicking the padding around the chips focuses the text box instead of blurring it.
           if (e.target === e.currentTarget) {
@@ -134,7 +156,7 @@ export default function NeighborhoodPicker({ options, selected, onChange }: Prop
             setOpen(true);
           }
         }}
-        className="input-shell flex cursor-text flex-wrap items-center gap-1 px-3 py-1"
+        className={`input-shell flex cursor-text flex-wrap items-center gap-1 ${compact ? "min-h-8 px-2 py-0.5" : "px-3 py-1"}`}
       >
         {selected.map((name) => (
           <span
@@ -179,9 +201,19 @@ export default function NeighborhoodPicker({ options, selected, onChange }: Prop
             setQuery("");
           }}
           onKeyDown={onKeyDown}
-          className="min-w-[90px] flex-1 bg-transparent px-0.5 py-1 text-callout text-ink placeholder:text-faint"
+          className={`min-w-[90px] flex-1 bg-transparent px-0.5 text-ink placeholder:text-faint ${compact ? "py-0.5 text-caption" : "py-1 text-callout"}`}
           style={{ outline: "none" }}
         />
+        {compact && selected.length > 1 && (
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => onChange([])}
+            className="shrink-0 px-0.5 text-caption text-accent hover:underline"
+          >
+            Clear all
+          </button>
+        )}
       </div>
 
       {open && (
@@ -193,7 +225,8 @@ export default function NeighborhoodPicker({ options, selected, onChange }: Prop
           aria-label="Neighborhoods"
           onMouseDown={(e) => e.preventDefault()}
           data-scroll
-          className="scroll-thin absolute inset-x-0 top-full z-30 mt-1 max-h-[272px] surface-card overflow-y-auto py-2 shadow-overlay"
+          style={pos ?? { visibility: "hidden" }}
+          className="scroll-thin fixed z-50 surface-card overflow-y-auto py-2 shadow-overlay"
         >
           {results.length === 0 && (
             <li className="px-2.5 py-2 text-caption text-muted">No neighborhood matches &ldquo;{query.trim()}&rdquo;.</li>

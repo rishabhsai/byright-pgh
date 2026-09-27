@@ -1,5 +1,5 @@
 "use client";
-import { memo, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { memo, useId, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import type { Lot, RuleSet, Triage, Typology } from "@/lib/types";
 import { TYPOLOGY_LABEL } from "@/lib/types";
 import { scoreLot, compareTriageRanked, isAvailable, STATUS_GROUPS, type StatusGroup, type TriageRanked } from "@/lib/ranking";
@@ -9,7 +9,10 @@ import { isReadyLot } from "@/lib/plan";
 import type { Evaluations, Triages } from "./ByRightApp";
 import NeighborhoodPicker, { type NeighborhoodOption } from "./NeighborhoodPicker";
 import { reasonText } from "./ui/answer";
-import SearchBox from "./SearchBox";
+import Collapsible from "./ui/Collapsible";
+import SplitHandle from "./ui/SplitHandle";
+import { ProjectsInput } from "./PlanView";
+import { getPrefs, getServerPrefs, setSplit, SPLIT_DEFAULT, subscribePrefs } from "./paneLayout";
 import { revealInScroller } from "./ui/revealInScroller";
 import Segmented from "./ui/Segmented";
 import {
@@ -64,11 +67,11 @@ const STATUS_LABEL: Record<StatusGroup, string> = {
 
 function Switch({ checked, onChange, children }: { checked: boolean; onChange: (v: boolean) => void; children: ReactNode }) {
   return (
-    <label className="flex cursor-pointer items-center gap-2 py-1 text-callout text-ink select-none">
+    <label className="flex cursor-pointer items-center gap-2 text-caption text-ink select-none">
       <input type="checkbox" role="switch" checked={checked} onChange={(e) => onChange(e.target.checked)} className="peer sr-only" />
       <span
         aria-hidden
-        className="relative inline-flex h-6 w-10 shrink-0 items-center rounded-full bg-control-edge transition-colors peer-checked:bg-v-byright peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent after:absolute after:left-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow-thumb after:transition-transform peer-checked:after:translate-x-4"
+        className="relative inline-flex h-[18px] w-[30px] shrink-0 items-center rounded-full bg-control-edge transition-colors peer-checked:bg-v-byright peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent after:absolute after:left-[2px] after:h-[14px] after:w-[14px] after:rounded-full after:bg-white after:shadow-thumb after:transition-transform peer-checked:after:translate-x-3"
       />
       {children}
     </label>
@@ -127,20 +130,21 @@ interface Props {
   onReadPlan?: () => void;
   /** The plan, derived by the app; null while the city-wide pass is running. */
   plan: ReactNode;
-  /** The Reform tab's rail content (scenario presets and knobs). */
+  /** Projects the plan is sized for: the Plan tab's controls set it. */
+  projects: number;
+  onProjects: (n: number) => void;
+  /** The Reform tab's controls pane (scenario and knobs) and results pane (levers). */
   reform?: ReactNode;
-  /** Ask ByRight: sends a question from the search box. */
-  onAsk?: (q: string) => void;
-  lastQuestion?: string | null;
-  /** The Ask ByRight transcript, shown under the search box. */
-  ask?: ReactNode;
+  reformResults?: ReactNode;
+  /** Ask ByRight's applied changes, as a chip row at the top of the controls pane. */
+  askChips?: ReactNode;
 }
 
 export type Tab = "lots" | "plan" | "reform";
 
 const LIST_LIMIT = 200;
 
-/** One-line summary of the active filters for the collapsed disclosure. */
+/** One-line summary of the active filters for the collapsed section: "Hazelwood · Duplex". */
 function filterSummary(f: Filters): string {
   const parts: string[] = [];
   if (f.triage) parts.push(TRIAGE_WORD[f.triage]);
@@ -150,25 +154,21 @@ function filterSummary(f: Filters): string {
   if (f.onlyByRight) parts.push("only by-right");
   if (f.minArea) parts.push(`${f.minArea.toLocaleString()}+ sf`);
   if (f.includeParks) parts.push("with parks");
-  return parts.length ? parts.join(", ") : "None; parks and greenways hidden";
+  return parts.length ? parts.join(" · ") : "None; parks and greenways hidden";
 }
 
 /** A list row's footprint, for skeletons: same padding, two text lines, dot column. */
 function SkeletonRow() {
   return (
-    <li aria-hidden className="flex items-start gap-2 rounded-control px-2 py-2">
-      <span className="mt-px h-4 w-[18px] animate-pulse rounded-[4px] bg-surface" />
-      <span className="min-w-0 flex-1">
-        <span className="block h-[18px] py-[3px]">
-          <span className="block h-full w-2/3 animate-pulse rounded-sm bg-surface" />
-        </span>
-        <span className="mt-0.5 block h-4 py-[2px]">
-          <span className="block h-full w-[85%] animate-pulse rounded-sm bg-surface" />
-        </span>
+    <li aria-hidden className="flex h-12 items-center gap-2 rounded-control px-2">
+      <span className="h-4 w-[18px] animate-pulse rounded-[4px] bg-surface" />
+      <span className="min-w-0 flex-1 space-y-1.5">
+        <span className="block h-3 w-2/3 animate-pulse rounded-sm bg-surface" />
+        <span className="block h-3 w-[85%] animate-pulse rounded-sm bg-surface" />
       </span>
-      <span className="flex shrink-0 flex-col items-end gap-1">
+      <span className="flex shrink-0 flex-col items-end gap-2">
         <span className="h-[9px] w-[76px] animate-pulse rounded-sm bg-surface" />
-        <span className="h-3 w-12 animate-pulse rounded-sm bg-surface" />
+        <span className="h-2.5 w-12 animate-pulse rounded-sm bg-surface" />
       </span>
     </li>
   );
@@ -191,22 +191,20 @@ function LeftRail({
   loading,
   onReadPlan,
   plan,
+  projects,
+  onProjects,
   reform,
-  onAsk,
-  lastQuestion,
-  ask,
+  reformResults,
+  askChips,
 }: Props) {
-  const [filtersOpen, setFiltersOpen] = useState(true);
-  const filtersId = useId();
   const listId = useId();
+  const advId = useId();
   const listRef = useRef<HTMLUListElement>(null);
+  const splitRef = useRef<HTMLDivElement>(null);
+  const controlsRef = useRef<HTMLDivElement>(null);
   const [cursor, setCursor] = useState<number | null>(null);
-
-  // Short screens (laptops at 800 px) start with the filters folded so the list gets the height.
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- viewport is only known after hydration
-    if (window.innerHeight < 900) setFiltersOpen(false);
-  }, []);
+  const prefs = useSyncExternalStore(subscribePrefs, getPrefs, getServerPrefs);
+  const split = prefs.split[tab] ?? SPLIT_DEFAULT[tab];
 
   const hoodOptions = useMemo<NeighborhoodOption[]>(() => {
     const m = new Map<string, NeighborhoodOption>();
@@ -220,8 +218,6 @@ function LeftRail({
     });
     return Array.from(m.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [lots, triages, ruleSet]);
-
-  const searchTriage = useMemo(() => triages?.[ruleSet].results.map((t) => t.triage), [triages, ruleSet]);
 
   const matchCount = useMemo(() => matches.reduce((n, m) => (m ? n + 1 : n), 0), [matches]);
 
@@ -276,6 +272,7 @@ function LeftRail({
     );
 
   const advancedOn = filters.minArea > 0 || filters.includeParks;
+  const [advOpen, setAdvOpen] = useState(advancedOn);
   const active = filtersActive(filters);
 
   // Keyboard cursor in the list: a row position, clamped to the rows on screen.
@@ -308,20 +305,359 @@ function LeftRail({
     moveCursor(next);
   };
 
+  const scopeLabel = filters.neighborhoods.length ? filters.neighborhoods.join(", ") : "Citywide";
+
+  const lotsControls = (
+    <>
+      <Collapsible
+        id="lots.filters"
+        title="Filters"
+        summary={filterSummary(filters)}
+        action={
+          active ? (
+            <button onClick={() => onFilters(DEFAULT_FILTERS)} className="shrink-0 text-caption font-medium text-accent hover:underline">
+              Reset
+            </button>
+          ) : null
+        }
+      >
+        <div className="space-y-2">
+          <div className="filter-row">
+            <span className="filter-label text-caption text-muted">Triage</span>
+            <Segmented<Filters["triage"]>
+              label="Triage filter"
+              size="sm"
+              value={filters.triage}
+              onChange={(t) => set("triage", t)}
+              options={TRIAGE_FILTERS.map((t) => ({
+                value: t,
+                title: t ? TRIAGE_SHORT[t] : "Every triage color",
+                label: (
+                  <>
+                    {t && <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: TRIAGE_COLOR[t] }} />}
+                    {t ? TRIAGE_WORD[t] : "Any"}
+                  </>
+                ),
+              }))}
+            />
+          </div>
+          <div className="filter-row">
+            <span className="filter-label text-caption text-muted">Home type</span>
+            <Segmented<Filters["typology"]>
+              label="Home type"
+              size="sm"
+              value={filters.typology}
+              onChange={(t) => set("typology", t)}
+              options={(["", ...TYPOLOGIES] as Filters["typology"][]).map((t) => ({
+                value: t,
+                title: t ? `${TYPOLOGY_LABEL[t]}: map and dots show this type's verdict` : "Best verdict across all types",
+                label: t ? TYPE_CHIP[t] : "Any",
+              }))}
+            />
+          </div>
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,128px)] items-start gap-2">
+            <NeighborhoodPicker compact options={hoodOptions} selected={filters.neighborhoods} onChange={(v) => set("neighborhoods", v)} />
+            <label className="input-shell flex h-8 min-h-8 min-w-0 items-center">
+              <span className="shrink-0 pl-2.5 text-caption text-faint">Status</span>
+              <select
+                id="status-filter"
+                value={filters.status}
+                onChange={(e) => set("status", e.target.value as Filters["status"])}
+                className="h-full min-w-0 flex-1 bg-transparent pr-1 pl-1.5 text-caption text-ink outline-none"
+              >
+                <option value="">Any</option>
+                {STATUS_GROUPS.map((g) => (
+                  <option key={g} value={g}>
+                    {STATUS_LABEL[g]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="flex h-7 items-center justify-between gap-2">
+            <Switch checked={filters.onlyByRight} onChange={(v) => set("onlyByRight", v)}>
+              Only by-right
+            </Switch>
+            <button
+              type="button"
+              aria-expanded={advOpen}
+              aria-controls={advId}
+              onClick={() => setAdvOpen((o) => !o)}
+              className={`flex h-7 items-center gap-1 text-caption hover:text-ink ${advancedOn ? "font-medium text-accent" : "text-muted"}`}
+            >
+              Advanced
+              <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden className={`transition-transform duration-(--duration-press) ${advOpen ? "" : "-rotate-90"}`}>
+                <path d="M3 4.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
+          <div className="collapse-body data-[open=false]:-mt-2" data-open={advOpen}>
+            <div id={advId} inert={!advOpen} className="min-h-0 overflow-hidden">
+              <div className="space-y-1.5 rounded-control bg-surface px-2.5 py-2">
+                <div className="flex items-center gap-2">
+                  <label htmlFor="min-lot-area" className="shrink-0 text-caption text-muted">
+                    Min lot area
+                  </label>
+                  <div className="input-shell flex h-7 min-h-7 w-[72px] shrink-0 items-center bg-panel">
+                    <input
+                      id="min-lot-area"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      value={filters.minArea ? filters.minArea.toLocaleString() : ""}
+                      placeholder="Any"
+                      onChange={(e) => set("minArea", Number(e.target.value.replace(/[^\d]/g, "").slice(0, 7)) || 0)}
+                      className="w-full min-w-0 bg-transparent py-0.5 pl-2 text-caption tabular-nums placeholder:text-faint"
+                      style={{ outline: "none" }}
+                    />
+                    <span className="pr-2 pl-0.5 text-caption text-faint select-none">sf</span>
+                  </div>
+                  <div className="flex min-w-0 gap-1" role="group" aria-label="Lot area presets">
+                    {AREA_PRESETS.map((p) => {
+                      const on = filters.minArea === p.sf;
+                      return (
+                        <button
+                          key={p.sf}
+                          title={p.title}
+                          aria-pressed={on}
+                          onClick={() => set("minArea", p.sf)}
+                          className={`rounded-full px-1.5 py-0.5 text-caption tabular-nums transition-colors ${
+                            on ? "bg-accent-soft font-medium text-accent" : "bg-panel text-muted hover:bg-track hover:text-ink"
+                          }`}
+                        >
+                          {p.sf ? p.sf.toLocaleString() : "Any"}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <Switch checked={filters.includeParks} onChange={(v) => set("includeParks", v)}>
+                  Include parks and greenways
+                </Switch>
+              </div>
+            </div>
+          </div>
+          <p className="text-caption text-faint">
+            Ranked: available for sale first, then by right, no hazard flag, at least 1,000 sf, lowest modeled shortfall.
+            {!filters.includeParks && (
+              <>
+                {" "}Parks and greenways hidden ·{" "}
+                <button onClick={() => set("includeParks", true)} className="text-accent hover:underline">
+                  show
+                </button>
+              </>
+            )}
+          </p>
+        </div>
+      </Collapsible>
+
+      <Collapsible
+        id="lots.hoods"
+        title={
+          <>
+            Neighborhoods with the most review candidates
+            {typology && <span className="font-normal text-muted">, {TYPOLOGY_SHORT[typology]}</span>}
+          </>
+        }
+        summary={readyHoods[0] ? `${readyHoods[0].name} ${readyHoods[0].n.toLocaleString()}` : undefined}
+      >
+        <p className="text-caption text-faint">Pass the use table, for sale, no hazard flag, at least 1,000 sf</p>
+        <ol className="mt-1.5 space-y-0.5">
+          {loading &&
+            [92, 80, 70, 64, 58].map((w) => (
+              <li key={w} aria-hidden className="h-5 px-1.5 py-[3px]">
+                <span className="block h-full animate-pulse rounded-sm bg-surface" style={{ width: `${w}%` }} />
+              </li>
+            ))}
+          {!loading && readyHoods.length === 0 && <li className="text-caption text-muted">No review candidates under this rule set.</li>}
+          {readyHoods.map((h) => (
+            <li key={h.name}>
+              <button
+                onClick={() => toggleHood(h.name)}
+                aria-pressed={filters.neighborhoods.includes(h.name)}
+                title={filters.neighborhoods.includes(h.name) ? `Remove ${h.name} from the filter` : `Add ${h.name} to the filter`}
+                className={`group relative flex w-full items-center gap-2 rounded px-1.5 py-0.5 text-left text-caption ${
+                  filters.neighborhoods.includes(h.name) ? "bg-accent-soft font-medium" : "hover:bg-surface"
+                }`}
+              >
+                <span
+                  aria-hidden
+                  className="absolute inset-y-0.5 left-0 rounded-sm bg-control transition-[width] duration-200"
+                  style={{ width: `${(h.n / maxHood) * 100}%` }}
+                />
+                <span className="relative flex-1 truncate">{h.name}</span>
+                <span className="relative w-12 text-right font-medium tabular-nums">{h.n.toLocaleString()}</span>
+              </button>
+            </li>
+          ))}
+        </ol>
+      </Collapsible>
+    </>
+  );
+
+  const lotsResults = (
+    <>
+      <div className="flex h-8 shrink-0 items-center justify-between gap-2 px-4">
+        <span className="min-w-0 truncate text-caption text-muted" aria-live="polite">
+          {loading ? (
+            "Evaluating lots…"
+          ) : (
+            <>
+              Showing <span className="font-medium text-ink tabular-nums">{matchCount.toLocaleString()}</span> of{" "}
+              <span className="tabular-nums">{lots.length.toLocaleString()}</span>
+              {ranked.total > LIST_LIMIT && <span className="text-faint">, top {LIST_LIMIT} listed</span>}
+            </>
+          )}
+        </span>
+        <span
+          className="flex shrink-0 cursor-help items-center gap-1 pr-1 text-caption text-faint"
+          title={TYPOLOGIES.map((t) => `${TYPE_LETTER[t]} ${TYPOLOGY_LABEL[t]}`).join(" · ")}
+          aria-hidden
+        >
+          {TYPOLOGIES.map((t) => (
+            <span key={t} title={TYPOLOGY_LABEL[t]} className="w-3 text-center">
+              {TYPE_LETTER[t]}
+            </span>
+          ))}
+        </span>
+      </div>
+
+      <ul
+        ref={listRef}
+        id={listId}
+        role="listbox"
+        aria-label="Lots, best first. Arrow keys move, Enter opens."
+        aria-busy={loading || undefined}
+        tabIndex={rows.length ? 0 : -1}
+        aria-activedescendant={cur >= 0 ? rowId(cur) : undefined}
+        onKeyDown={onListKey}
+        data-scroll
+        className="scroll-thin group/list relative min-h-0 flex-1 overflow-y-auto px-2 pb-2 focus-visible:outline-offset-[-2px]"
+      >
+        {loading && Array.from({ length: 8 }, (_, k) => <SkeletonRow key={k} />)}
+        {!loading &&
+          rows.map(({ i, lot, triage }, pos) => {
+            const f = evals![ruleSet].findings[i];
+            const selected = i === selectedIdx;
+            const ev = evidence?.[i];
+            const reason = ev ? reasonText(yellowReason(triages![ruleSet].results[i], ev, lot)) : null;
+            return (
+              <li
+                key={lot.id}
+                id={rowId(pos)}
+                role="option"
+                aria-selected={selected}
+                onClick={() => {
+                  setCursor(pos);
+                  onSelect(i);
+                }}
+                className={`group grid h-12 cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] content-center items-center gap-x-2 gap-y-0.5 rounded-control px-2 text-left transition-colors ${
+                  selected ? "bg-accent-soft" : "hover:bg-surface"
+                } ${pos === cur ? "group-focus-visible/list:ring-2 group-focus-visible/list:ring-accent" : ""}`}
+              >
+                <span className="row-span-2 self-start pt-2">
+                  <TriageChip triage={triage} />
+                </span>
+                <div className="flex min-w-0 items-baseline gap-1.5">
+                  <span className="min-w-0 shrink truncate text-callout font-semibold text-ink">{lot.address || lot.id}</span>
+                  <span className="min-w-[40px] flex-1 truncate text-caption text-muted" title={lot.neighborhood}>
+                    {lot.neighborhood}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1 justify-self-end">
+                  {f.map((x) => (
+                    <span key={x.typology} className="flex w-3 justify-center">
+                      <VerdictDot verdict={x.verdict} size={8} title={`${TYPOLOGY_LABEL[x.typology]}: ${VERDICT_SHORT[x.verdict]}`} />
+                    </span>
+                  ))}
+                </div>
+                {/* One line: the reason wraps out of sight when fewer than ~10 characters of it would fit. */}
+                <div className="flex h-5 min-w-0 flex-wrap items-center gap-x-1.5 overflow-hidden text-caption text-muted">
+                  <ZoneChip zone={lot.zone} />
+                  <span
+                    title={`City inventory status: ${lot.status || "not recorded"}; type: ${lot.inventoryType || "not recorded"}`}
+                    className={`status-chip shrink-0 ${isAvailable(lot) ? "bg-control text-muted" : "bg-surface text-muted"}`}
+                  >
+                    {statusChip(lot.status)}
+                  </span>
+                  {ev && <EvidenceGlyphs evidence={ev} extra={reason ? [`Yellow: ${reason}`] : undefined} />}
+                  {reason && (
+                    <span className="min-w-16 flex-1 basis-0 truncate text-faint" title={`${lot.neighborhood}: ${reason}`}>
+                      {reason}
+                    </span>
+                  )}
+                </div>
+                <span className="justify-self-end text-caption text-muted tabular-nums">
+                  {lot.lotAreaSqFt != null ? `${lot.lotAreaSqFt.toLocaleString()} sf` : "area n/a"}
+                </span>
+              </li>
+            );
+          })}
+        {!loading && rows.length === 0 && (
+          <li className="px-2 py-6 text-center text-caption text-muted">No lots match these filters. Clear a filter or switch the rule set.</li>
+        )}
+      </ul>
+
+      <div className="shrink-0 border-t border-hairline px-4 py-1">
+        <VerdictLegend />
+      </div>
+    </>
+  );
+
+  const planControls = (
+    <Collapsible
+      id="plan.scope"
+      title="Disposition plan"
+      summary={`${scopeLabel} · ${projects.toLocaleString("en-US")} projects`}
+      action={
+        onReadPlan && evals && triages && evidence ? (
+          <button onClick={onReadPlan} className="flex h-6 shrink-0 items-center gap-1 rounded-full bg-control px-2 text-caption font-medium text-ink hover:bg-track">
+            <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden>
+              <path d="M7.5 1H11v3.5M4.5 11H1V7.5M11 1L7 5M1 11l4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Open in reading view
+          </button>
+        ) : null
+      }
+    >
+      <p className="text-caption text-muted">
+        Which City lots pass the use-table and lot-size screen, through which channel, and the modeled shortfall per project. Scope follows the
+        neighborhood filter.
+      </p>
+      <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
+        <NeighborhoodPicker compact options={hoodOptions} selected={filters.neighborhoods} onChange={(v) => set("neighborhoods", v)} />
+        <label className="input-shell flex h-8 min-h-8 items-center">
+          <ProjectsInput
+            projects={projects}
+            onProjects={onProjects}
+            className="h-full w-11 min-w-0 bg-transparent pl-2 text-right text-caption text-ink tabular-nums outline-none"
+          />
+          <span className="pr-2.5 pl-1 text-caption text-faint select-none">projects</span>
+        </label>
+      </div>
+    </Collapsible>
+  );
+
+  const planResults = (
+    <div data-scroll className="scroll-thin relative min-h-0 flex-1 overflow-y-auto">
+      {plan ? (
+        plan
+      ) : (
+        <div aria-hidden className="space-y-3 px-4 pt-3">
+          {[72, 120, 150].map((h) => (
+            <div key={h} className="animate-pulse rounded-card bg-surface" style={{ height: h }} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  const controls = tab === "reform" ? reform : tab === "plan" ? planControls : lotsControls;
+  const results = tab === "reform" ? reformResults : tab === "plan" ? planResults : lotsResults;
+  const tabLabel = tab === "reform" ? "Reform" : tab === "plan" ? "Plan" : "Lots";
+
   return (
-    <aside className="pane-rail flex shrink-0 flex-col border-r border-hairline bg-panel">
-      <div className="shrink-0 space-y-4 px-panel pt-panel pb-4">
-        <SearchBox
-          lots={lots}
-          onPick={onSelect}
-          onScope={(h) => set("neighborhoods", [h])}
-          triage={searchTriage}
-          matches={matches}
-          selectedIdx={selectedIdx}
-          onAsk={onAsk}
-          lastQuestion={lastQuestion}
-        />
-        {ask}
+    <aside className="pane-rail rail-pane flex shrink-0 flex-col border-r border-hairline bg-panel">
+      <div className="shrink-0 px-4 py-1.5">
         <Segmented<Tab>
           kind="tabs"
           label="Rail view"
@@ -335,360 +671,26 @@ function LeftRail({
           ]}
         />
       </div>
-
-      {tab === "reform" ? (
-        reform
-      ) : tab === "plan" ? (
-        <div role="tabpanel" aria-label="Plan" data-scroll className="scroll-thin relative min-h-0 flex-1 overflow-y-auto">
-          <div className="border-b border-hairline px-panel pt-2 pb-panel">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-title">Disposition plan</h2>
-              {onReadPlan && evals && triages && evidence && (
-                <button
-                  onClick={onReadPlan}
-                  className="button-secondary shrink-0 gap-1.5 text-caption"
-                >
-                  <svg width="16" height="16" viewBox="0 0 12 12" aria-hidden>
-                    <path d="M7.5 1H11v3.5M4.5 11H1V7.5M11 1L7 5M1 11l4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                  Open in reading view
-                </button>
-              )}
-            </div>
-            <p className="mt-1.5 text-callout text-muted">
-              Which City lots pass the use-table and lot-size screen, through which channel, and the modeled shortfall per project.
-              Scope follows the neighborhood filter.
-            </p>
-            <div className="mt-3">
-              <NeighborhoodPicker options={hoodOptions} selected={filters.neighborhoods} onChange={(v) => set("neighborhoods", v)} />
-            </div>
-          </div>
-          {plan ? (
-            plan
-          ) : (
-            <div aria-hidden className="space-y-4 px-panel pt-4">
-              {[72, 120, 150].map((h) => (
-                <div key={h} className="animate-pulse rounded-card bg-surface" style={{ height: h }} />
-              ))}
-            </div>
-          )}
+      <div
+        ref={splitRef}
+        role="tabpanel"
+        aria-label={tabLabel}
+        className="flex min-h-0 flex-1 flex-col border-t border-hairline"
+        style={{ "--split": String(split) } as CSSProperties}
+      >
+        <div ref={controlsRef} data-scroll className="rail-controls scroll-thin overflow-y-auto">
+          {askChips}
+          {controls}
         </div>
-      ) : (
-        <>
-          <div className="scroll-thin min-h-0 shrink overflow-y-auto border-b border-hairline px-panel pb-4">
-            <button
-              type="button"
-              aria-expanded={filtersOpen}
-              aria-controls={filtersId}
-              onClick={() => setFiltersOpen((o) => !o)}
-              className="flex h-8 w-full items-center gap-2 text-left"
-            >
-              <svg width="16" height="16" viewBox="0 0 12 12" aria-hidden className={`shrink-0 text-muted transition-transform ${filtersOpen ? "" : "-rotate-90"}`}>
-                <path d="M3 4.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />
-              </svg>
-              <span className="text-callout font-medium text-ink">Filters</span>
-              {!filtersOpen && <span className="min-w-0 flex-1 truncate text-caption text-muted">{filterSummary(filters)}</span>}
-            </button>
-
-            <div id={filtersId} hidden={!filtersOpen} className="pb-1">
-              <p className="text-caption text-muted">
-                Ranked: available for sale first, then by right, no hazard flag, at least 1,000 sf, lowest modeled shortfall.
-              </p>
-
-              <div className="mt-4">
-                <span className="mb-1 block text-caption text-muted">Triage</span>
-                <Segmented<Filters["triage"]>
-                  label="Triage filter"
-                  value={filters.triage}
-                  onChange={(t) => set("triage", t)}
-                  options={TRIAGE_FILTERS.map((t) => ({
-                    value: t,
-                    title: t ? TRIAGE_SHORT[t] : "Every triage color",
-                    label: (
-                      <>
-                        {t && <span aria-hidden className="h-2 w-2 shrink-0 rounded-full" style={{ background: TRIAGE_COLOR[t] }} />}
-                        {t ? TRIAGE_WORD[t] : "Any"}
-                      </>
-                    ),
-                  }))}
-                />
-              </div>
-
-              <div className="mt-4">
-                <NeighborhoodPicker options={hoodOptions} selected={filters.neighborhoods} onChange={(v) => set("neighborhoods", v)} />
-              </div>
-
-              <div className="mt-4">
-                <span className="mb-1 block text-caption text-muted">Home type</span>
-                <Segmented<Filters["typology"]>
-                  label="Home type"
-                  value={filters.typology}
-                  onChange={(t) => set("typology", t)}
-                  options={(["", ...TYPOLOGIES] as Filters["typology"][]).map((t) => ({
-                    value: t,
-                    title: t ? `${TYPOLOGY_LABEL[t]}: map and dots show this type's verdict` : "Best verdict across all types",
-                    label: t ? TYPE_CHIP[t] : "Any",
-                  }))}
-                />
-              </div>
-
-              <div className="mt-4 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-x-3">
-                <div>
-                  <label htmlFor="status-filter" className="mb-1 block text-caption text-muted">
-                    Status
-                  </label>
-                  <select
-                    id="status-filter"
-                    value={filters.status}
-                    onChange={(e) => set("status", e.target.value as Filters["status"])}
-                    className="input-field w-full"
-                  >
-                    <option value="">Any</option>
-                    {STATUS_GROUPS.map((g) => (
-                      <option key={g} value={g}>
-                        {STATUS_LABEL[g]}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <Switch checked={filters.onlyByRight} onChange={(v) => set("onlyByRight", v)}>
-                  Only by-right
-                </Switch>
-              </div>
-
-              <details className="group mt-1.5" open={advancedOn || undefined}>
-                <summary className="cursor-pointer py-1 text-caption text-muted select-none hover:text-ink">Advanced</summary>
-                <div className="mt-1.5 space-y-2">
-                  <div>
-                    <label htmlFor="min-lot-area" className="mb-1 block text-caption text-muted">
-                      Min lot area
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <div className="input-shell flex w-24 shrink-0 items-center">
-                        <input
-                          id="min-lot-area"
-                          inputMode="numeric"
-                          autoComplete="off"
-                          value={filters.minArea ? filters.minArea.toLocaleString() : ""}
-                          placeholder="Any"
-                          onChange={(e) => set("minArea", Number(e.target.value.replace(/[^\d]/g, "").slice(0, 7)) || 0)}
-                          className="w-full min-w-0 bg-transparent py-1 pl-2 text-caption tabular-nums placeholder:text-faint"
-                          style={{ outline: "none" }}
-                        />
-                        <span className="pr-2 pl-1 text-caption text-faint select-none">sf</span>
-                      </div>
-                      <div className="flex gap-1" role="group" aria-label="Lot area presets">
-                        {AREA_PRESETS.map((p) => {
-                          const on = filters.minArea === p.sf;
-                          return (
-                            <button
-                              key={p.sf}
-                              title={p.title}
-                              aria-pressed={on}
-                              onClick={() => set("minArea", p.sf)}
-                              className={`rounded-full px-2 py-1 text-caption tabular-nums transition-colors ${
-                                on
-                                  ? "bg-accent-soft font-medium text-accent"
-                                  : "bg-control text-muted hover:bg-track hover:text-ink"
-                              }`}
-                            >
-                              {p.sf ? p.sf.toLocaleString() : "Any"}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                  <Switch checked={filters.includeParks} onChange={(v) => set("includeParks", v)}>
-                    Include parks and greenways
-                  </Switch>
-                </div>
-              </details>
-
-              <div className="mt-2 border-t border-hairline pt-2">
-                <h3 className="text-caption font-medium text-ink">
-                  Neighborhoods with the most review candidates
-                  {typology && <span className="text-muted">, {TYPOLOGY_SHORT[typology]}</span>}
-                </h3>
-                <p className="mt-0.5 text-caption text-faint">Pass the use table, for sale, no hazard flag, at least 1,000 sf</p>
-                <ol className="mt-1.5 space-y-1">
-                  {loading &&
-                    [92, 80, 70, 64, 58].map((w) => (
-                      <li key={w} aria-hidden className="h-5 px-1.5 py-[3px]">
-                        <span className="block h-full animate-pulse rounded-sm bg-surface" style={{ width: `${w}%` }} />
-                      </li>
-                    ))}
-                  {!loading && readyHoods.length === 0 && <li className="text-caption text-muted">No review candidates under this rule set.</li>}
-                  {readyHoods.map((h) => (
-                    <li key={h.name}>
-                      <button
-                        onClick={() => toggleHood(h.name)}
-                        aria-pressed={filters.neighborhoods.includes(h.name)}
-                        title={filters.neighborhoods.includes(h.name) ? `Remove ${h.name} from the filter` : `Add ${h.name} to the filter`}
-                        className={`group relative flex w-full items-center gap-2 rounded px-1.5 py-0.5 text-left text-caption ${
-                          filters.neighborhoods.includes(h.name) ? "bg-accent-soft font-medium" : "hover:bg-surface"
-                        }`}
-                      >
-                        <span
-                          aria-hidden
-                          className="absolute inset-y-0.5 left-0 rounded-sm bg-control transition-[width] duration-200"
-                          style={{ width: `${(h.n / maxHood) * 100}%` }}
-                        />
-                        <span className="relative flex-1 truncate">{h.name}</span>
-                        <span className="relative w-12 text-right font-medium tabular-nums">{h.n.toLocaleString()}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex min-h-12 shrink-0 items-center justify-between gap-2 px-panel py-3">
-            <span
-              className="min-w-0 text-caption text-muted"
-              aria-live="polite"
-            >
-              {loading ? (
-                "Evaluating lots…"
-              ) : (
-                <>
-                  Showing{" "}
-                  <span className="font-medium text-ink tabular-nums">
-                    {matchCount.toLocaleString()}
-                  </span>{" "}
-                  of{" "}
-                  <span className="tabular-nums">
-                    {lots.length.toLocaleString()}
-                  </span>
-                  {ranked.total > LIST_LIMIT && (
-                    <span className="text-faint">
-                      , top {LIST_LIMIT} listed
-                    </span>
-                  )}
-                  {filtersOpen && !filters.includeParks && (
-                    <span className="text-faint">
-                      {" · "}parks and greenways hidden ·{" "}
-                      <button
-                        onClick={() => set("includeParks", true)}
-                        className="text-accent hover:underline"
-                      >
-                        show
-                      </button>
-                    </span>
-                  )}
-                </>
-              )}
-            </span>
-            {active ? (
-              <button onClick={() => onFilters(DEFAULT_FILTERS)} className="shrink-0 text-caption font-medium text-accent hover:underline">
-                Reset
-              </button>
-            ) : (
-              <span
-                className="flex shrink-0 cursor-help items-center gap-1 text-caption text-faint"
-                title={TYPOLOGIES.map(
-                  (t) => `${TYPE_LETTER[t]} ${TYPOLOGY_LABEL[t]}`,
-                ).join(" · ")}
-                aria-hidden
-              >
-                {TYPOLOGIES.map((t) => (
-                  <span
-                    key={t}
-                    title={TYPOLOGY_LABEL[t]}
-                    className="w-3 text-center"
-                  >
-                    {TYPE_LETTER[t]}
-                  </span>
-                ))}
-              </span>
-            )}
-          </div>
-
-          <ul
-            ref={listRef}
-            id={listId}
-            role="listbox"
-            aria-label="Lots, best first. Arrow keys move, Enter opens."
-            aria-busy={loading || undefined}
-            tabIndex={rows.length ? 0 : -1}
-            aria-activedescendant={cur >= 0 ? rowId(cur) : undefined}
-            onKeyDown={onListKey}
-            data-scroll
-            className="scroll-thin group/list relative min-h-32 flex-1 overflow-y-auto px-4 pb-4 focus-visible:outline-offset-[-2px]"
-          >
-            {loading && Array.from({ length: 8 }, (_, k) => <SkeletonRow key={k} />)}
-            {!loading &&
-              rows.map(({ i, lot, triage }, pos) => {
-                const f = evals![ruleSet].findings[i];
-                const selected = i === selectedIdx;
-                const ev = evidence?.[i];
-                const reason = ev
-                  ? reasonText(
-                      yellowReason(triages![ruleSet].results[i], ev, lot),
-                    )
-                  : null;
-                return (
-                  <li
-                    key={lot.id}
-                    id={rowId(pos)}
-                    role="option"
-                    aria-selected={selected}
-                    onClick={() => {
-                      setCursor(pos);
-                      onSelect(i);
-                    }}
-                    className={`group flex cursor-pointer items-start gap-2 rounded-control px-2 py-4 text-left transition-colors ${
-                      selected ? "bg-accent-soft" : "hover:bg-surface"
-                    } ${pos === cur ? "group-focus-visible/list:ring-2 group-focus-visible/list:ring-accent" : ""}`}
-                  >
-                    <span className="mt-px">
-                      <TriageChip triage={triage} />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-body font-semibold text-ink">{lot.address || lot.id}</div>
-                      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-caption text-muted">
-                        <ZoneChip zone={lot.zone} />
-                        <span
-                          title={`City inventory status: ${lot.status || "not recorded"}; type: ${lot.inventoryType || "not recorded"}`}
-                          className={`status-chip max-w-full ${
-                            isAvailable(lot) ? "bg-control text-muted" : "bg-surface text-muted"
-                          }`}
-                        >
-                          {statusChip(lot.status)}
-                        </span>
-                        {ev && <EvidenceGlyphs evidence={ev} extra={reason ? [`Yellow: ${reason}`] : undefined} />}
-                        <span className="min-w-0 basis-full" title={reason ? `${lot.neighborhood}: ${reason}` : lot.neighborhood}>
-                          {lot.neighborhood}
-                          {reason && <span className="text-faint">, {reason}</span>}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 flex-col items-end gap-1">
-                      <div className="flex items-center gap-1">
-                        {f.map((x) => (
-                          <span key={x.typology} className="flex w-3 justify-center">
-                            <VerdictDot verdict={x.verdict} size={9} title={`${TYPOLOGY_LABEL[x.typology]}: ${VERDICT_SHORT[x.verdict]}`} />
-                          </span>
-                        ))}
-                      </div>
-                      <span className="text-caption text-muted tabular-nums">
-                        {lot.lotAreaSqFt != null ? `${lot.lotAreaSqFt.toLocaleString()} sf` : "area n/a"}
-                      </span>
-                    </div>
-                  </li>
-                );
-              })}
-            {!loading && rows.length === 0 && (
-              <li className="px-2 py-6 text-center text-caption text-muted">No lots match these filters. Clear a filter or switch the rule set.</li>
-            )}
-          </ul>
-
-          <div className="shrink-0 border-t border-hairline px-panel py-4">
-            <VerdictLegend />
-          </div>
-        </>
-      )}
+        <SplitHandle
+          label={`Resize the ${tabLabel} controls`}
+          host={splitRef}
+          pane={controlsRef}
+          value={split}
+          onCommit={(f) => setSplit(tab, f)}
+        />
+        <div className="rail-results flex flex-col">{results}</div>
+      </div>
     </aside>
   );
 }
