@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Finding, Lot } from "./types";
 import { evaluateLot } from "./rules";
 import { triageLot } from "./triage";
+import { DEFAULT_FINANCE, proformaWithFallback } from "./finance";
 import {
   buildApplicationPlan,
   formatBlockLot,
@@ -59,6 +60,10 @@ describe("buildApplicationPlan: worksheet states only what the record shows", ()
     ["hillside", plan(lot({ zone: "H", lotAreaSqFt: 20000, frontageFt: 80 }), "single")],
   ];
 
+  it.each(cases)("%s: no no-hearing, readiness, subsidy-need or pays-for-itself wording", (_, p) => {
+    for (const s of sentences(p)) expect(s).not.toMatch(/no hearing expected|\bready\b|releas|needs subsidy|pays? for (it|them)sel|Allowed, no hearing/i);
+  });
+
   it.each(cases)("%s: no invented hardship, vacancy, or lot-of-record claims", (_, p) => {
     for (const s of sentences(p)) {
       expect(s).not.toMatch(/not (been )?created by the (applicant|appellant)/i);
@@ -88,6 +93,27 @@ describe("buildApplicationPlan: worksheet states only what the record shows", ()
     expect(ask).toMatch(/Has the lot been subdivided or consolidated since the standard was adopted\?/);
     expect(ask).toMatch(/What conforming development did you consider, and why is none feasible\? Attach a site sketch\./);
     expect(ask).toMatch(/How does the proposal fit adjacent lot sizes and heights\? Attach photos and a block survey\./);
+  });
+
+  it("lot-size failure: asks the § 921.04 eligibility questions (separate ownership from abutting land, vacancy history), never assures eligibility", () => {
+    const z = plan(SMALL_R2, "single").zba!;
+    const ask = z.findings[0].establish.join("\n");
+    expect(ask).toMatch(/separate ownership from all abutting land on the date/);
+    expect(ask).toMatch(/how long has it been vacant\?/);
+    expect(ask).toMatch(/chain of title for this lot and each abutting parcel, including any publicly held neighbor/);
+    expect(z.note).toMatch(/eligibility investigation, not an assurance/);
+    expect(z.note).not.toMatch(/bring the same deed and plat evidence/);
+  });
+
+  it("never assumes who buys: a sale-mode description does not promise owner-occupants", () => {
+    const comps = { neighborhood: "Esplen", zip: "15204", zhvi: 90_000, zhviDate: "2026-08-31", zori: 1200, zoriDate: "2026-08-31" };
+    const l = lot();
+    const findings = evaluateLot(l, "current");
+    const pf = proformaWithFallback(l, "single", comps, DEFAULT_FINANCE);
+    expect(pf?.mode).toBe("sale");
+    const p = buildApplicationPlan(l, findings, "current", null, pf, comps, "single");
+    expect(p.description).not.toMatch(/owner-occupant/i);
+    expect(p.description).toMatch(/buyer terms/i);
   });
 
   it("dimensional failure: staff decide between a § 922.09 variance and a § 921.04 nonconforming-lot exception", () => {
@@ -139,7 +165,9 @@ describe("buildApplicationPlan: purchase form", () => {
     const when = field(p, "When will you apply")?.value ?? "";
     expect(when).toBe("You estimate; typically after closing");
     expect(when).not.toMatch(/month/);
-    expect(p.steps.find((s) => s.id === "zoning")?.body[0]).toContain("no hearing expected");
+    const zoning = p.steps.find((s) => s.id === "zoning")?.body[0] ?? "";
+    expect(zoning).toContain("allowed by the use table and lot-size standards; other standards not checked");
+    expect(zoning).not.toMatch(/no hearing/);
   });
 
   it("never fabricates applicant fields", () => {

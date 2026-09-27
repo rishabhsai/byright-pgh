@@ -1,14 +1,16 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import Segmented from "./ui/Segmented";
 import type { Comps, Finding, Lot, Typology } from "@/lib/types";
-import { TYPOLOGY_LABEL, verdictLabel } from "@/lib/types";
+import { TYPOLOGY_LABEL } from "@/lib/types";
+import { verdictLabel } from "./ui/answer";
 import {
   fmtUsd,
   proformaWithFallback,
   UNIT_PLAN,
   ZILLOW_DATA_URL,
   type FinanceAssumptions,
+  type Proforma,
   type RevenueMode,
 } from "@/lib/finance";
 import { acceptedValue, FINANCE_RANGES } from "@/lib/proforma";
@@ -24,19 +26,39 @@ interface Props {
   /** The selected proposal, owned by the app so zoning, finance and the worksheet agree. */
   typology: Typology;
   onTypology: (t: Typology) => void;
-  /** This lot's acquisition cost override; null uses the assessed value. */
-  landOverride: number | null;
-  onLandOverride: (v: number | null) => void;
+  /** The selected case's pro forma: the same numbers as the answer card and the exports. */
+  proforma: Proforma | null;
+  /** The selected case's assumptions, with this lot's land figure as `landOverride`. */
   assumptions: FinanceAssumptions;
+  /** Shared assumptions changed (never carries the land figure). Applied to this lot at once. */
   onAssumptions: (a: FinanceAssumptions) => void;
-  /** Reports whether an edit is waiting to be committed to the city-wide triage. */
-  onPending?: (pending: boolean) => void;
+  /** This lot's acquisition cost; null uses the assessed value. */
+  onLandOverride: (v: number | null) => void;
+  /** Send pending edits to the city-wide pass now (on blur). */
+  onCommit?: () => void;
+  /** Set when the finance data file failed to load; distinct from a neighborhood with no series. */
+  compsError?: string | null;
+  onRetryComps?: () => void;
+  /** Why the answer card carries no finance line (use or fit fails, not for sale); the numbers below are then hypothetical. */
+  blocked?: string | null;
 }
 
-/** Edits reach the city-wide triage this long after the last keystroke (or on blur). */
-const COMMIT_DELAY_MS = 500;
+const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 
 export const NO_COMPS = "No Zillow comps for this neighborhood; finance not assessed";
+
+function CompsFailed({ onRetry }: { onRetry?: () => void }) {
+  return (
+    <p role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-[#e7c98a] bg-[#fff8e6] px-3 py-3 text-[13px] text-[#6b4a00]">
+      <span>Finance data didn&apos;t load, so this lot is not assessed.</span>
+      {onRetry && (
+        <button onClick={onRetry} className="shrink-0 font-medium text-accent underline decoration-accent/30 underline-offset-[3px] hover:decoration-accent">
+          Retry
+        </button>
+      )}
+    </p>
+  );
+}
 
 export default function ProForma({
   lot,
@@ -44,47 +66,25 @@ export default function ProForma({
   findings,
   typology,
   onTypology,
-  landOverride,
-  onLandOverride,
+  proforma,
   assumptions,
   onAssumptions,
-  onPending,
+  onLandOverride,
+  onCommit,
+  compsError,
+  onRetryComps,
+  blocked = null,
 }: Props) {
-  // The inputs and this lot's numbers run off a local draft so typing never waits on the
-  // city-wide recompute; the draft is committed to the app after a pause or on blur.
-  // The land override rides in the draft but is committed to this lot only, never to the shared assumptions.
-  const [draft, setDraft] = useState<FinanceAssumptions>({ ...assumptions, landOverride });
-  const [seen, setSeen] = useState(assumptions);
-  if (assumptions !== seen) {
-    setSeen(assumptions);
-    setDraft((d) => ({ ...assumptions, landOverride: d.landOverride }));
-  }
-  const latest = useRef(draft);
-  const timer = useRef<number | null>(null);
-
-  const commit = useCallback(() => {
-    if (timer.current == null) return;
-    window.clearTimeout(timer.current);
-    timer.current = null;
-    onPending?.(false);
-    const { landOverride: land, ...shared } = latest.current;
-    onAssumptions(shared);
-    onLandOverride(land ?? null);
-  }, [onAssumptions, onLandOverride, onPending]);
-
-  useEffect(() => commit, [commit]);
-
-  const update = (next: FinanceAssumptions, immediate = false) => {
-    latest.current = next;
-    setDraft(next);
-    if (timer.current != null) window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(commit, COMMIT_DELAY_MS);
-    onPending?.(true);
-    if (immediate) commit();
+  // Controlled by the selected case: every edit rebuilds the case synchronously, so the headline,
+  // the evidence row and these numbers always come from the same inputs. The app batches edits
+  // for the city-wide pass on its own.
+  const a = assumptions;
+  const r = proforma;
+  const update = (next: FinanceAssumptions) => {
+    const { landOverride: land, ...shared } = next;
+    if ((land ?? null) !== (a.landOverride ?? null)) onLandOverride(land ?? null);
+    else onAssumptions(shared);
   };
-
-  const a = draft;
-  const r = useMemo(() => proformaWithFallback(lot, typology, comps, a), [lot, typology, comps, a]);
   const altHard = a.hardCostPerSf + 10;
   const rAlt = useMemo(
     () => proformaWithFallback(lot, typology, comps, { ...a, hardCostPerSf: altHard }),
@@ -97,6 +97,7 @@ export default function ProForma({
   const selectedFinding = findings.find((f) => f.typology === typology) ?? null;
 
   if (!comps) {
+    if (compsError) return <CompsFailed onRetry={onRetryComps} />;
     return <p className="rounded-lg border border-dashed border-hairline px-3 py-3 text-[13px] text-muted">{NO_COMPS}.</p>;
   }
 
@@ -105,20 +106,28 @@ export default function ProForma({
   const plan = UNIT_PLAN[typology];
   const target = a.targetMarginPct;
   const scale = r ? Math.max(r.totalCost, r.revenue) : 1;
+  const mainLine = r
+    ? r.pencils
+      ? `Clears the cost-and-return screen: ${fmtUsd(r.margin - (r.totalCost * target) / 100)} above a ${target}% return`
+      : `Modeled shortfall: ${fmtUsd(r.gap)} below a ${target}% return`
+    : "";
 
   return (
     <div className="space-y-4">
       {r ? (
         <div>
-          <p className={`font-serif text-[22px] leading-tight ${r.pencils ? "text-accent" : "text-[#9a3412]"}`}>
-            {r.pencils
-              ? `Pays for itself: ${fmtUsd(r.margin - (r.totalCost * target) / 100)} left after costs and a ${target}% return`
-              : `Short by ${fmtUsd(r.gap)} at today's prices`}
+          {blocked && (
+            <p className="mb-1.5 text-[13px] leading-snug font-medium text-[#7a5400]">
+              Finance not assessed: {TYPOLOGY_LABEL[typology].toLowerCase()} {blocked.replace(/^[^:]+:\s*/, "")}. The numbers below are hypothetical.
+            </p>
+          )}
+          <p className={`font-serif text-[22px] leading-tight ${blocked ? "text-muted" : r.pencils ? "text-accent" : "text-[#9a3412]"}`}>
+            {blocked ? `Hypothetically, ${lowerFirst(mainLine)}` : mainLine}
           </p>
           <p className="mt-1 text-[13px] leading-snug text-muted">
             {r.pencils
-              ? `Against the ${r.mode === "rent" ? "ZIP rent index" : "neighborhood home-value index"}, a modeled ${TYPOLOGY_LABEL[typology].toLowerCase()} covers its costs and a ${target}% return. An index, not an appraisal.`
-              : `Against the ${r.mode === "rent" ? "ZIP rent index" : "neighborhood home-value index"}, a modeled ${TYPOLOGY_LABEL[typology].toLowerCase()} costs more than it would be worth after a ${target}% return.`}{" "}
+              ? `Against the ${r.mode === "rent" ? "ZIP rent index" : "neighborhood home-value index"}, a modeled ${TYPOLOGY_LABEL[typology].toLowerCase()} covers its costs and a ${target}% return. A reference index, not an appraisal or an achievable price.`
+              : `Against the ${r.mode === "rent" ? "ZIP rent index" : "neighborhood home-value index"}, a modeled ${TYPOLOGY_LABEL[typology].toLowerCase()} falls short of a ${target}% return. A reference index, not an appraisal or a subsidy need.`}{" "}
             <span className="tabular-nums">
               Value needed for the target return {fmtUsd(r.breakEvenValue)}; at ${altHard}/sq ft{" "}
               {rAlt ? (rAlt.pencils ? `${Math.round(rAlt.marginPct)}% margin` : `short by ${fmtUsd(rAlt.gap)}`) : "n/a"}.
@@ -222,7 +231,7 @@ export default function ProForma({
         </div>
       )}
 
-      <details className="group rounded-lg border border-hairline bg-white" onBlur={commit}>
+      <details className="group rounded-lg border border-hairline bg-white" onBlur={onCommit}>
         <summary className="flex cursor-pointer items-center justify-between px-3 py-2 text-[13px] font-medium text-ink select-none">
           Adjust assumptions
           <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden className="text-muted transition-transform group-open:rotate-180">
@@ -235,7 +244,7 @@ export default function ProForma({
               label="Revenue"
               equal
               value={r?.mode ?? mode}
-              onChange={(m) => update({ ...a, mode: m }, true)}
+              onChange={(m) => update({ ...a, mode: m })}
               options={[
                 { value: "sale", label: "Sell at today's prices", disabled: !hasSale },
                 { value: "rent", label: "Rent it out", disabled: !hasRent },

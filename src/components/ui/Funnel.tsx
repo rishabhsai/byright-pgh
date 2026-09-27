@@ -21,8 +21,8 @@ export function funnelSteps(s: FunnelStats) {
   return [
     { key: "total", n: total, label: "vacant City lots" },
     { key: "evaluated", n: total - s.unknown, label: "evaluated" },
-    { key: "allowed", n: s.byRightAny, label: "allowed, no hearing" },
-    { key: "pays", n: s.triage.green, label: GREEN_NEEDS_SALE ? "pay for themselves, for sale" : "pay for themselves" },
+    { key: "allowed", n: s.byRightAny, label: "pass the use-table and lot-size screen" },
+    { key: "pays", n: s.triage.green, label: GREEN_NEEDS_SALE ? "also clear the cost-and-return screen, for sale" : "also clear the cost-and-return screen" },
   ] as const;
 }
 
@@ -32,7 +32,7 @@ const N = ({ v }: { v: number }) => (
   </span>
 );
 
-/** One-line hero: "3,641 of 11,338 vacant City lots allow a small home with no hearing. 28 of those pay…" */
+/** One-line hero: "3,641 of 11,338 vacant City lots pass the use-table and lot-size screen. 9 also clear…" */
 export function FunnelSentence({ s, className = "" }: { s: FunnelStats | null; className?: string }) {
   if (!s)
     return (
@@ -43,14 +43,14 @@ export function FunnelSentence({ s, className = "" }: { s: FunnelStats | null; c
   const [total, , allowed, pays] = funnelSteps(s);
   return (
     <p className={`text-muted ${className}`}>
-      <N v={allowed.n} /> of <N v={total.n} /> vacant City lots allow a small home with{" "}
-      <Tooltip content={TIP.byRight}>no hearing</Tooltip>. <N v={pays.n} /> of those{" "}
-      {GREEN_NEEDS_SALE ? "pay for themselves and are for sale." : "pay for themselves at today\u2019s prices."}
+      <N v={allowed.n} /> of <N v={total.n} /> vacant City lots pass the{" "}
+      <Tooltip content={TIP.byRight}>use-table and lot-size screen</Tooltip>. <N v={pays.n} /> also clear the cost-and-return screen
+      {GREEN_NEEDS_SALE ? " and are for sale." : "."}
     </p>
   );
 }
 
-/** Compact text funnel for the header: 11,338 → 9,030 evaluated → 3,641 allowed → 28 pay */
+/** Compact text funnel for the header: 11,338 → 9,030 evaluated → 3,641 pass use table → 9 clear screen */
 export function FunnelLine({ s }: { s: FunnelStats | null }) {
   if (!s)
     return (
@@ -61,7 +61,7 @@ export function FunnelLine({ s }: { s: FunnelStats | null }) {
       </span>
     );
   const steps = funnelSteps(s);
-  const short = ["", "evaluated", "allowed", GREEN_NEEDS_SALE ? "pay, for sale" : "pay"];
+  const short = ["", "evaluated", "pass use table", GREEN_NEEDS_SALE ? "clear cost screen, for sale" : "clear cost screen"];
   return (
     <ol aria-label="Lot funnel" className="flex items-center gap-1.5 text-[12px] whitespace-nowrap text-muted">
       {steps.map((st, i) => (

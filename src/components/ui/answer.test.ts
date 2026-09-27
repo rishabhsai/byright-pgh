@@ -44,7 +44,7 @@ describe("verdictLabel", () => {
   });
 
   it("labels the plain verdicts", () => {
-    expect(verdictLabel(findingOf(lot(), "single"))).toBe("Allowed, no hearing");
+    expect(verdictLabel(findingOf(lot(), "single"))).toBe("Allowed by use table");
     expect(verdictLabel(findingOf(lot({ zone: "R1D-H" }), "duplex"))).toBe("Not allowed here");
     expect(verdictLabel({ verdict: "unknown", reviewKind: null })).toBe("Not checked yet");
     expect(verdictLabel({ verdict: "review", reviewKind: null })).toBe("Needs approval");
@@ -64,11 +64,11 @@ describe("whatWouldChange", () => {
     expect(lines[0]).toMatch(/^Combining with a neighbor to reach [\d,]+ sq ft → house would still need staff approval \(administrator exception\)$/);
   });
 
-  it("reaching the lot size where the use is permitted makes the house allowed, no hearing", () => {
+  it("reaching the lot size where the use is permitted makes the house allowed by use table", () => {
     const l = lot({ lotAreaSqFt: 1860 });
     const fs = evaluateLot(l, "current");
     expect(whatWouldChange(l, fs, fs.find((f) => f.typology === "single")!, null)[0]).toBe(
-      "Combining with a neighbor to reach 2,400 sq ft → house allowed, no hearing",
+      "Combining with a neighbor to reach 2,400 sq ft → house allowed by use table",
     );
   });
 });

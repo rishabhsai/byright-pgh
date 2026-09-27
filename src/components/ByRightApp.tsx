@@ -4,9 +4,11 @@ import dynamic from "next/dynamic";
 import { countByRight, evaluateLot } from "@/lib/engine";
 import { buildSelectedCase, showsOtherThanBest, type SelectedCase } from "@/lib/selectedCase";
 import type { Comps, CompsFile, Finding, Lot, LotsFile, RuleSet, Triage, Typology, Verdict } from "@/lib/types";
-import { TYPOLOGY_LABEL, verdictLabel } from "@/lib/types";
+import { TYPOLOGY_LABEL } from "@/lib/types";
 import { isParkOrGreenway, statusGroup } from "@/lib/ranking";
 import { yellowReason, pickFinding, type Evidence } from "@/lib/evidence";
+import { buildPlan, type Plan } from "@/lib/plan";
+import { acceptedValue, FINANCE_RANGES } from "@/lib/proforma";
 import { RULE_SETS, type Evaluations, type Triages, type TriageInput } from "@/lib/evalCompute";
 import { useCityEval } from "@/lib/useCityEval";
 import TopBar from "./TopBar";
@@ -17,7 +19,7 @@ import PlanView from "./PlanView";
 import PlanReader from "./PlanReader";
 import { TYPOLOGIES } from "./verdict";
 import type { HoverInfo, FitBounds } from "./MapView";
-import { money } from "./ui/answer";
+import { blockerLine, money, reasonText, verdictLabel } from "./ui/answer";
 import { compsFor, countTriage, DEFAULT_FINANCE, FALLBACK_COMPS, type FinanceAssumptions } from "@/lib/finance";
 
 const MapView = dynamic(() => import("./MapView"), {
@@ -99,36 +101,81 @@ function boundsOf(lots: Lot[], keep: (l: Lot, i: number) => boolean): FitBounds 
   return Number.isFinite(w) ? [w, s, e, n] : null;
 }
 
-/** URL state: ?lot=<id>&type=duplex&hoods=a,b&scenario=bill&tab=plan (history.replaceState, no router). */
+/**
+ * URL state (history.replaceState, no router):
+ * ?lot=<id>&type=duplex&filterType=townhome&hoods=a,b&scenario=bill&tab=plan&n=12&hc=195
+ * `type` is the proposal picked for the selected lot; `filterType` is the Home type filter. Finance
+ * assumptions appear only where they differ from the defaults.
+ */
 interface UrlState {
   lot: string | null;
   /** The proposal picked for the selected lot, when the user picked one. */
   type: Typology | null;
+  /** The Home type filter. */
+  filterType: Typology | null;
   hoods: string[];
   bill: boolean;
   tab: Tab;
+  /** Projects to plan for. */
+  projects: number;
+  /** Shared finance assumptions (never a lot's land figure). */
+  finance: FinanceAssumptions;
 }
+
+type RangedKey = keyof typeof FINANCE_RANGES;
+/** Short URL keys for the ranged finance inputs. */
+const FIN_KEYS: [string, RangedKey][] = [
+  ["hc", "hardCostPerSf"],
+  ["soft", "softCostPct"],
+  ["dev", "devFeePct"],
+  ["ret", "targetMarginPct"],
+  ["sf", "typicalHomeSf"],
+  ["cap", "capRate"],
+  ["opex", "opexPct"],
+];
+
+const DEFAULT_PROJECTS = 10;
+
+const asTypology = (v: string | null): Typology | null => ((TYPOLOGIES as string[]).includes(v ?? "") ? (v as Typology) : null);
+
 function readUrl(): UrlState {
   const p = new URLSearchParams(window.location.search);
+  const finance: FinanceAssumptions = { ...DEFAULT_FINANCE };
+  for (const [q, k] of FIN_KEYS) {
+    const raw = p.get(q);
+    if (raw != null && raw.trim() !== "") finance[k] = acceptedValue(k, Number(raw));
+  }
+  if (p.get("mode") === "rent") finance.mode = "rent";
+  const n = Number(p.get("n"));
   return {
     lot: p.get("lot"),
-    type: (TYPOLOGIES as string[]).includes(p.get("type") ?? "") ? (p.get("type") as Typology) : null,
+    type: asTypology(p.get("type")),
+    filterType: asTypology(p.get("filterType")),
     hoods: (p.get("hoods") ?? "").split(",").map((h) => h.trim()).filter(Boolean),
     bill: p.get("scenario") === "bill",
     tab: p.get("tab") === "plan" ? "plan" : "lots",
+    projects: Number.isInteger(n) && n >= 1 && n <= 9999 ? n : DEFAULT_PROJECTS,
+    finance,
   };
 }
 function writeUrl(s: UrlState) {
   const p = new URLSearchParams();
   if (s.lot) p.set("lot", s.lot);
   if (s.lot && s.type) p.set("type", s.type);
+  if (s.filterType) p.set("filterType", s.filterType);
   if (s.hoods.length) p.set("hoods", s.hoods.join(","));
   if (s.bill) p.set("scenario", "bill");
   if (s.tab === "plan") p.set("tab", "plan");
+  if (s.projects !== DEFAULT_PROJECTS) p.set("n", String(s.projects));
+  for (const [q, k] of FIN_KEYS) if (s.finance[k] !== DEFAULT_FINANCE[k]) p.set(q, String(s.finance[k]));
+  if (s.finance.mode !== DEFAULT_FINANCE.mode) p.set("mode", s.finance.mode);
   const q = p.toString().replace(/%2C/g, ",");
   const url = `${window.location.pathname}${q ? `?${q}` : ""}${window.location.hash}`;
   if (url !== `${window.location.pathname}${window.location.search}${window.location.hash}`) window.history.replaceState(window.history.state, "", url);
 }
+
+/** Assumption edits reach the city-wide triage this long after the last change (or at once on blur). */
+const COMMIT_DELAY_MS = 500;
 
 export default function ByRightApp() {
   const [file, setFile] = useState<LotsFile | null>(null);
@@ -142,15 +189,26 @@ export default function ByRightApp() {
   const [expanded, setExpanded] = useState(false);
   // The Plan tab in the wide reading overlay.
   const [planReading, setPlanReading] = useState(false);
+  // Live assumptions: the selected lot's case is rebuilt from these on every edit, synchronously.
   const [assumptions, setAssumptions] = useState<FinanceAssumptions>(DEFAULT_FINANCE);
   const [compsFile, setCompsFile] = useState<CompsFile | null>(null);
   const [compsSettled, setCompsSettled] = useState(false);
+  // Set when /data/comps.json failed: distinct from a neighborhood with no Zillow series.
+  const [compsError, setCompsError] = useState<string | null>(null);
+  const [compsAttempt, setCompsAttempt] = useState(0);
+  // Projects to plan for: one value for the rail and the reading view.
+  const [projects, setProjects] = useState(DEFAULT_PROJECTS);
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [tab, setTab] = useState<Tab>("lots");
   // The home type the user picked for the selected lot while the Home type filter is "Any".
   const [pickedTypology, setPickedTypology] = useState<Typology | null>(null);
   // Acquisition cost the user entered for individual lots; never shared across lots.
   const [landOverrides, setLandOverrides] = useState<Record<string, number>>({});
+  // What the city-wide pass runs on: the live assumptions after a pause, or at once on blur.
+  const [committed, setCommitted] = useState<{ assumptions: FinanceAssumptions; landOverrides: Record<string, number> }>({
+    assumptions: DEFAULT_FINANCE,
+    landOverrides: {},
+  });
   // Parcel ID from the URL, selected once the lots arrive.
   const pendingLot = useRef<string | null>(null);
   const [urlRead, setUrlRead] = useState(false);
@@ -162,7 +220,13 @@ export default function ByRightApp() {
     if (u.lot && u.type) setPickedTypology(u.type);
     if (u.bill) setRuleSet("bill-2025-1545");
     if (u.tab === "plan") setTab("plan");
-    if (u.hoods.length) setFilters((f) => ({ ...f, neighborhoods: u.hoods }));
+    if (u.hoods.length || u.filterType)
+      setFilters((f) => ({ ...f, neighborhoods: u.hoods, typology: u.filterType ?? f.typology }));
+    if (u.projects !== DEFAULT_PROJECTS) setProjects(u.projects);
+    if (FIN_KEYS.some(([, k]) => u.finance[k] !== DEFAULT_FINANCE[k]) || u.finance.mode !== DEFAULT_FINANCE.mode) {
+      setAssumptions(u.finance);
+      setCommitted((c) => ({ ...c, assumptions: u.finance }));
+    }
     setUrlRead(true);
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
@@ -193,14 +257,19 @@ export default function ByRightApp() {
     let cancelled = false;
     fetch("/data/comps.json")
       .then((r) => {
-        if (!r.ok) throw new Error(String(r.status));
+        if (!r.ok) throw new Error(`the server answered ${r.status}`);
         return r.json() as Promise<CompsFile>;
       })
       .then((c) => {
-        if (!cancelled) setCompsFile(c?.byNeighborhood ? c : null);
+        if (cancelled) return;
+        if (!c?.byNeighborhood) throw new Error("the file has no neighborhoods");
+        setCompsFile(c);
+        setCompsError(null);
       })
-      .catch(() => {
-        if (!cancelled) setCompsFile(null);
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        setCompsFile(null);
+        setCompsError(e instanceof Error && e.message ? e.message : "the request failed");
       })
       .finally(() => {
         if (!cancelled) setCompsSettled(true);
@@ -208,7 +277,20 @@ export default function ByRightApp() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [compsAttempt]);
+
+  const retryComps = useCallback(() => setCompsAttempt((n) => n + 1), []);
+
+  // Commit assumption edits to the city-wide pass after a pause; flushCommit does it at once (on blur).
+  useEffect(() => {
+    if (committed.assumptions === assumptions && committed.landOverrides === landOverrides) return;
+    const t = window.setTimeout(() => setCommitted({ assumptions, landOverrides }), COMMIT_DELAY_MS);
+    return () => window.clearTimeout(t);
+  }, [assumptions, landOverrides, committed]);
+  const flushCommit = useCallback(() => {
+    setCommitted((c) => (c.assumptions === assumptions && c.landOverrides === landOverrides ? c : { assumptions, landOverrides }));
+  }, [assumptions, landOverrides]);
+  const commitPending = committed.assumptions !== assumptions || committed.landOverrides !== landOverrides;
 
   const lots = useMemo(
     () => (file?.lots ?? []).filter((l) => Number.isFinite(l.lat) && Number.isFinite(l.lon)),
@@ -222,16 +304,23 @@ export default function ByRightApp() {
   const filterTypology: Typology | null = filters.typology || null;
 
   // The city-wide pass runs in a Web Worker. It waits for comps to settle so it runs once on load;
-  // later assumption edits re-run triage there while the detail panel reads `assumptions` directly.
+  // later edits re-run triage there. Everything city-wide (map, list, hover, plan) reads the input the
+  // worker's published result was computed from, never the live filter or assumptions. The selected
+  // lot's case is built locally from the live inputs, so the panel never waits on the worker.
   const triageInput = useMemo<TriageInput | null>(
-    () => (compsSettled ? { comps, assumptions, landOverrides, typology: filterTypology } : null),
-    [compsSettled, comps, assumptions, landOverrides, filterTypology],
+    () =>
+      compsSettled
+        ? { comps, assumptions: committed.assumptions, landOverrides: committed.landOverrides, typology: filterTypology }
+        : null,
+    [compsSettled, comps, committed, filterTypology],
   );
   const city = useCityEval(lots, triageInput);
   const { evals, triages } = city;
-  const cityAssumptions = city.input?.assumptions ?? assumptions;
-  const cityLandOverrides = city.input?.landOverrides ?? landOverrides;
-  const recomputing = city.input !== triageInput;
+  const cityAssumptions = city.input?.assumptions ?? committed.assumptions;
+  const cityLandOverrides = city.input?.landOverrides ?? committed.landOverrides;
+  const cityComps = city.input?.comps ?? comps;
+  const cityTypology: Typology | null = city.input ? city.input.typology : filterTypology;
+  const recomputing = commitPending || city.input !== triageInput;
 
   const evidence = useMemo<Evidence[] | null>(() => city.evidence?.[ruleSet] ?? null, [city.evidence, ruleSet]);
 
@@ -244,7 +333,7 @@ export default function ByRightApp() {
     if (stats && !performance.getEntriesByName("byright:stats").length) performance.mark("byright:stats");
   }, [stats]);
 
-  const typIdx = filters.typology ? TYPOLOGIES.indexOf(filters.typology) : -1;
+  const typIdx = cityTypology ? TYPOLOGIES.indexOf(cityTypology) : -1;
 
   const changed = useMemo(() => (evals && triages ? computeChanged(evals, triages, typIdx) : []), [evals, triages, typIdx]);
 
@@ -340,12 +429,15 @@ export default function ByRightApp() {
     if (!urlRead || (pendingLot.current && !lots.length)) return;
     writeUrl({
       lot: selectedLot?.id ?? null,
-      type: pickedTypology ?? filterTypology,
+      type: filterTypology ? null : pickedTypology,
+      filterType: filterTypology,
       hoods: filters.neighborhoods,
       bill: ruleSet === "bill-2025-1545",
       tab,
+      projects,
+      finance: committed.assumptions,
     });
-  }, [urlRead, lots.length, selectedLot, pickedTypology, filterTypology, filters.neighborhoods, ruleSet, tab]);
+  }, [urlRead, lots.length, selectedLot, pickedTypology, filterTypology, filters.neighborhoods, ruleSet, tab, projects, committed.assumptions]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -410,7 +502,8 @@ export default function ByRightApp() {
     [selectedLot],
   );
 
-  // Hover card: one line that says why, and which proposal the color is for.
+  // Hover card: one line that says why, and which proposal the color is for. It reads the worker's
+  // committed input and applies the answer card's blocker rule, so it never shows money the card hides.
   const hoverInfo = useCallback(
     (i: number): HoverInfo | null => {
       const l = lots[i];
@@ -419,24 +512,57 @@ export default function ByRightApp() {
       const f = evals?.[ruleSet].findings[i] ?? null;
       const ev = evidence?.[i] ?? null;
       if (!t || !f) return { lot: l, triage: null, line: null, note: null };
-      const pick = pickFinding(f, t, filterTypology);
-      const typeName = `${TYPOLOGY_LABEL[pick.typology]} (${filterTypology ? "Home type filter" : "best type"})`;
+      const pick = pickFinding(f, t, cityTypology);
+      const typeName = `${TYPOLOGY_LABEL[pick.typology]} (${cityTypology ? "Home type filter" : "best type"})`;
       const label = verdictLabel(pick);
       const says = `${typeName}: ${label.charAt(0).toLowerCase()}${label.slice(1)}`;
       let line: string;
       if (t.triage === "gray" || t.triage === "red") {
         line = (t.reasons[0] ?? "").replace(/^(Zoning|Topography): /, "");
       } else {
-        const money_ = t.pencils ? (t.margin != null ? `~${money(t.margin)} margin at market` : null) : t.gap != null ? `~${money(t.gap)} short at market` : null;
-        const reason = ev ? yellowReason(t, ev) : null;
-        const second = reason === "unknowns to resolve" ? "site unknowns to resolve" : (money_ ?? "finance not checked");
-        line = `${says} · ${second}`;
+        const blocker = pick.verdict !== "unknown" ? blockerLine(l, pick.typology, pick, ev) : null;
+        if (blocker) {
+          const prefix = `${TYPOLOGY_LABEL[pick.typology]}: `;
+          line = `${typeName}: ${blocker.text.startsWith(prefix) ? blocker.text.slice(prefix.length) : blocker.text}`;
+        } else {
+          const reason = ev ? reasonText(yellowReason(t, ev)) : null;
+          const money_ = t.pencils
+            ? t.margin != null
+              ? `~${money(t.margin)} margin at the reference value`
+              : null
+            : t.gap != null
+              ? `~${money(t.gap)} modeled shortfall`
+              : null;
+          const second = reason === "unknowns to resolve" ? "open items to resolve" : (money_ ?? "finance not checked");
+          line = `${says} · ${second}`;
+        }
       }
       const sel = selectedCase && selectedIdx === i && selectedCase.typology !== pick.typology ? selectedCase : null;
       const note = sel ? `Panel shows ${TYPOLOGY_LABEL[sel.typology]} (selected).` : null;
       return { lot: l, triage: t.triage, line, note };
     },
-    [lots, triages, evals, evidence, ruleSet, filterTypology, selectedCase, selectedIdx],
+    [lots, triages, evals, evidence, ruleSet, cityTypology, selectedCase, selectedIdx],
+  );
+
+  // One plan for the rail and the reading view: same count, shortlist, totals and exports.
+  const planOpen = tab === "plan" || planReading;
+  const plan = useMemo<Plan | null>(
+    () =>
+      planOpen && evals && triages && evidence
+        ? buildPlan(
+            lots,
+            evals,
+            triages[ruleSet].results,
+            evidence,
+            cityComps,
+            cityAssumptions,
+            { neighborhoods: filters.neighborhoods, typology: cityTypology },
+            ruleSet,
+            projects,
+            { sources, landOverrides: cityLandOverrides },
+          )
+        : null,
+    [planOpen, lots, evals, triages, evidence, cityComps, cityAssumptions, filters.neighborhoods, cityTypology, ruleSet, projects, sources, cityLandOverrides],
   );
 
   const retry = useCallback(() => {
@@ -459,10 +585,7 @@ export default function ByRightApp() {
           selectedIdx={selectedIdx}
           onSelect={selectFromList}
           evidence={evidence}
-          comps={comps}
-          assumptions={cityAssumptions}
-          landOverrides={cityLandOverrides}
-          sources={sources}
+          typology={cityTypology}
           tab={tab}
           onTab={setTab}
           loading={!loadError && !city.error && !stats}
@@ -470,6 +593,18 @@ export default function ByRightApp() {
             setExpanded(false);
             setPlanReading(true);
           }}
+          plan={
+            plan ? (
+              <PlanView
+                plan={plan}
+                projects={projects}
+                onProjects={setProjects}
+                ruleSet={ruleSet}
+                stale={recomputing}
+                onSelect={selectFromList}
+              />
+            ) : null
+          }
         />
         {/* Positioning context for the expanded detail panel, which overlays the map area. */}
         <div className="relative flex min-w-0 flex-1">
@@ -488,7 +623,7 @@ export default function ByRightApp() {
               onSelect={selectFromMap}
               flyTo={flyTo}
               fitTo={fitTo}
-              colorBy={filters.typology || null}
+              colorBy={cityTypology}
               ruleSet={ruleSet}
               hoverInfo={hoverInfo}
               loading={!stats && !city.error}
@@ -496,6 +631,17 @@ export default function ByRightApp() {
             {loadError && <LoadError reason={loadError} onRetry={retry} />}
             {!loadError && city.error && (
               <LoadError title="The lots could not be evaluated" reason={`the rules engine stopped: ${city.error}`} onRetry={() => window.location.reload()} />
+            )}
+            {!loadError && compsError && (
+              <div
+                role="alert"
+                className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-[#e7c98a] bg-[#fff8e6] px-3 py-2 text-[13px] text-[#6b4a00] shadow-[0_8px_24px_-12px_rgba(23,33,30,.35)]"
+              >
+                <span>Finance data didn&apos;t load ({compsError}). No lot is assessed for finance until it does.</span>
+                <button onClick={retryComps} className="shrink-0 font-medium text-accent underline decoration-accent/30 underline-offset-[3px] hover:decoration-accent">
+                  Retry
+                </button>
+              </div>
             )}
           </main>
           <DetailPanel
@@ -510,32 +656,28 @@ export default function ByRightApp() {
             onClose={clearSelection}
             onTypology={onTypology}
             onLandOverride={onLandOverride}
-            assumptions={assumptions}
             onAssumptions={setAssumptions}
+            onCommit={flushCommit}
+            compsError={compsError}
+            onRetryComps={retryComps}
             recomputing={recomputing}
             expanded={expanded}
             onExpanded={setExpanded}
             stats={city.error ? undefined : (stats?.[ruleSet] ?? null)}
             onSelectId={lots.length ? selectById : undefined}
           />
-          {planReading && evals && triages && evidence && (
+          {planReading && plan && (
             <PlanReader
-              title={`${filters.neighborhoods.length ? filters.neighborhoods.join(", ") : "Citywide"}${filters.typology ? `, ${TYPOLOGY_LABEL[filters.typology]}` : ""}. Scope follows the neighborhood filter.`}
+              title={`${filters.neighborhoods.length ? filters.neighborhoods.join(", ") : "Citywide"}${cityTypology ? `, ${TYPOLOGY_LABEL[cityTypology]}` : ""}. Scope follows the neighborhood filter.`}
               onClose={() => setPlanReading(false)}
             >
               <PlanView
                 layout="reading"
-                lots={lots}
-                evals={evals}
-                triages={triages[ruleSet].results}
-                evidence={evidence}
-                comps={comps}
-                assumptions={cityAssumptions}
-                landOverrides={cityLandOverrides}
-                neighborhoods={filters.neighborhoods}
-                typology={filterTypology}
+                plan={plan}
+                projects={projects}
+                onProjects={setProjects}
                 ruleSet={ruleSet}
-                sources={sources}
+                stale={recomputing}
                 onSelect={(i) => {
                   setPlanReading(false);
                   selectFromList(i);

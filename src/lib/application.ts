@@ -2,6 +2,7 @@ import type { Check, Comps, Finding, Lot, RuleSet, TriageResult, Typology, Verdi
 import { TYPOLOGY_LABEL, verdictLabel } from "./types";
 import { evaluateLot, lookupDistrict } from "./rules";
 import { buildingSf, fmtUsd, UNIT_PLAN, type Proforma } from "./proforma";
+import { districtAction, districtUnconfirmed } from "./evidence";
 
 /*
  * Application planner: turns structured findings into the filings a lot needs, pre-fills the
@@ -19,6 +20,10 @@ export const NEVER_SUBMITS =
   "Prepared from public records for your review. You file it; ByRight does not submit applications.";
 export const WORKSHEET_LABEL = "ZBA review worksheet (DRAFT)";
 export const BY_RIGHT_VARIANCE_ANSWER = "Not under the checks we ran; zoning staff confirm";
+/** The variance answer while the inventory district and the zoning map disagree: nothing else can be answered yet. */
+export const DISTRICT_FIRST_ANSWER = "Confirm district first (inventory vs map disagree)";
+/** What a by-right result establishes, and what it does not. */
+export const BY_RIGHT_SCOPE = "allowed by the use table and lot-size standards; other standards not checked";
 /** Label on any model-suggested rewording of the proposed-use description. */
 export const SUGGESTION_LABEL = "Suggested wording, unverified; edit before filing";
 export const PERMIT_TIMING_ANSWER = "You estimate; typically after closing";
@@ -324,8 +329,8 @@ function describe(lot: Lot, typology: Typology, zoneName: string | null, pf: Pro
   }.`;
   const s3 = pf
     ? pf.mode === "sale"
-      ? "The home(s) would be sold to owner-occupants."
-      : "The unit(s) would be offered as rentals."
+      ? "Our screen valued the home(s) for sale; buyer terms and any occupancy restrictions are for the applicant to state."
+      : "Our screen valued the unit(s) as rentals; rental terms are for the applicant to state."
     : comps
       ? "Financing and sale or rental terms to be confirmed by the applicant."
       : "Budget to be confirmed by the applicant; our screening had no neighborhood comps for this lot.";
@@ -333,6 +338,22 @@ function describe(lot: Lot, typology: Typology, zoneName: string | null, pf: Pro
 }
 
 /* ---------- ZBA review worksheet (§ 922.09.E): record facts and applicant questions ---------- */
+
+/** The first thing to establish when the district is unconfirmed: which district governs. */
+function districtQuestion(lot: Lot): string {
+  const map = lot.zoneMap ? `the City zoning map says ${lot.zoneMap}` : "no City zoning map district contains the inventory point";
+  return `Which district governs this lot? The inventory says ${lot.zone || "no district"}; ${map}. Get zoning staff's determination before relying on anything below.`;
+}
+
+/**
+ * § 921.04 eligibility turns on the lot's history, not on the deed alone: separate ownership from abutting
+ * land at the applicable date, and vacancy. Asked as questions; staff determine eligibility.
+ */
+const NONCONFORMING_QUESTIONS = [
+  `For a ${NONCONFORMING_LOTS.section} nonconforming-lot exception: was this lot held in separate ownership from all abutting land on the date the standard it fails took effect, and has it stayed separately owned since?`,
+  "Has the lot been vacant, and if so, how long has it been vacant?",
+  "Attach the chain of title for this lot and each abutting parcel, including any publicly held neighbor.",
+];
 
 function worksheet(lot: Lot, finding: Finding, byRight: Typology[], zoneName: string | null): ZbaFinding[] {
   const dims = failingDimensional(finding);
@@ -372,9 +393,11 @@ function worksheet(lot: Lot, finding: Finding, byRight: Typology[], zoneName: st
       title: "Unique physical circumstances or conditions of the lot",
       record: [zoneFact, areaFact, frontageFact, ...standardFacts, hazardFact],
       establish: [
+        ...(districtUnconfirmed(lot) ? [districtQuestion(lot)] : []),
         "What physical condition (narrowness, shallowness, irregular shape, topography) is peculiar to this lot rather than common in the district? Attach a survey.",
         ...(hazards.length ? [`Does the flagged ${hazards.join(" and ")} affect this parcel? Attach a site survey or engineer's letter.`] : []),
         "Is this a lot of record? Attach the deed and recorded plat.",
+        ...(dims.some((c) => LOT_STANDARDS.has(c.id)) ? NONCONFORMING_QUESTIONS : []),
       ],
     },
     {
@@ -460,12 +483,20 @@ export function buildApplicationPlan(
   /** Administrator exception with nothing else to relieve: staff review, no Board hearing. */
   const adminOnly = letter === "A" && !dimsFail;
 
+  const disputed = districtUnconfirmed(lot);
+  const districtLead = disputed
+    ? [
+        `${districtAction(lot)}. The City zoning map ${lot.zoneMap ? `names ${lot.zoneMap}` : "names no district"} at the inventory point, not the inventory's ${lot.zone || "district"}. Ask zoning staff which district governs before filing; everything below assumes the inventory district.`,
+      ]
+    : [];
+
   if (verdict === "by-right") {
     steps.push({
       id: "zoning",
-      title: "Zoning review",
+      title: disputed ? "Zoning review: confirm the district first" : "Zoning review",
       body: [
-        "File a Building and Development Application (BDA) on OneStopPGH after you own the lot; staff zoning review only, no hearing expected under the checks we ran.",
+        ...districtLead,
+        `File a Building and Development Application (BDA) on OneStopPGH after you own the lot. Under ${disputed ? "the inventory district" : "the checks we ran"} the proposal is ${BY_RIGHT_SCOPE}; zoning staff review decides whether any approval is needed.`,
         ...(rsNote ? [rsNote] : []),
       ],
       chips: [
@@ -476,8 +507,9 @@ export function buildApplicationPlan(
   } else if (adminOnly) {
     steps.push({
       id: "zoning",
-      title: "Zoning review: Administrator Exception",
+      title: disputed ? "Zoning review: confirm the district first" : "Zoning review: Administrator Exception",
       body: [
+        ...districtLead,
         ADMIN_PATH,
         "File a Building and Development Application (BDA) on OneStopPGH; staff confirm the review path.",
         ...(rsNote ? [rsNote] : []),
@@ -488,7 +520,7 @@ export function buildApplicationPlan(
       ],
     });
   } else {
-    const body: string[] = [];
+    const body: string[] = [...districtLead];
     if (verdict === "prohibited") {
       body.push(
         `${
@@ -517,7 +549,11 @@ export function buildApplicationPlan(
     if (rsNote) body.push(rsNote);
     steps.push({
       id: "zoning",
-      title: letter === "S" && !dimsFail ? "Zoning review: Special Exception hearing" : "Zoning review: relief needed",
+      title: disputed
+        ? "Zoning review: confirm the district first"
+        : letter === "S" && !dimsFail
+          ? "Zoning review: Special Exception hearing"
+          : "Zoning review: relief needed",
       body,
       chips: [
         { label: "$400 ZBA fee if heard + base zoning fees", tone: "fee" },
@@ -585,7 +621,7 @@ export function buildApplicationPlan(
     { label: "Will you need to seek a building permit?", value: "Yes", who: "prefilled" },
     {
       label: "Will you need to seek a variance or special exception?",
-      value: needsRelief && seekItems.length ? `Yes: ${seekItems.join("; ")}` : BY_RIGHT_VARIANCE_ANSWER,
+      value: disputed ? DISTRICT_FIRST_ANSWER : needsRelief && seekItems.length ? `Yes: ${seekItems.join("; ")}` : BY_RIGHT_VARIANCE_ANSWER,
       who: "prefilled",
     },
     {
@@ -616,7 +652,7 @@ export function buildApplicationPlan(
           note: !variancePossible
             ? "Special exceptions are decided under § 922.07 criteria, not the § 922.09.E variance conditions; ask staff for the criteria that apply."
             : failingDimensional(finding).some((c) => LOT_STANDARDS.has(c.id))
-              ? `These § 922.09.E questions apply if staff route this as a variance. If staff route it under ${NONCONFORMING_LOTS.section} (nonconforming lots) instead, bring the same deed and plat evidence.`
+              ? `These § 922.09.E questions apply if staff route this as a variance. Whether ${NONCONFORMING_LOTS.section} (nonconforming lots) applies instead depends on the lot's ownership and vacancy history; answer those questions under criterion 1. This is an eligibility investigation, not an assurance that the exception applies.`
               : dimsFail
                 ? "These § 922.09.E questions apply if you seek a variance rather than reducing the building to the permitted size."
                 : undefined,

@@ -45,6 +45,18 @@ export const PARK_TYPES = ["Park", "Greenway", "Legislated Greenway", "Infrastru
 const PARK_SET = new Set<string>(PARK_TYPES);
 export const isParkOrGreenway = (inventoryType: string) => PARK_SET.has(inventoryType);
 
+export const PRIVATELY_OWNED = "Privately Owned";
+
+/**
+ * The one disposition-eligibility policy (plan candidates, ranking, Green): the record is not a
+ * protected-purpose inventory type (park, greenway, legislated greenway, infrastructure protection) and
+ * not marked Privately Owned. Ineligible records stay searchable and exportable; they never enter the
+ * housing candidate cohort or the shortfall total. Recorded availability is a separate test (isAvailable).
+ */
+export function isDispositionEligible(lot: Pick<Lot, "status" | "inventoryType">): boolean {
+  return !isParkOrGreenway(lot.inventoryType) && lot.status.trim().toLowerCase() !== PRIVATELY_OWNED.toLowerCase();
+}
+
 export const STATUS_GROUPS = ["Available for Sale", "Sale Pending", "Hold for Study", "Permanent City Ownership", "other"] as const;
 export type StatusGroup = (typeof STATUS_GROUPS)[number];
 
@@ -58,11 +70,12 @@ export function statusGroup(status: string): StatusGroup {
 const MIN_READY_SQFT = 1000;
 
 /**
- * Disposition order: available for sale, then by right, then no hazard flag, then at least 1,000 sf,
+ * Disposition order: eligible (isDispositionEligible), then available for sale, then by right, then no hazard flag, then at least 1,000 sf,
  * then lowest modeled shortfall (unassessed last), then score, then lot area.
  */
 export function compareTriageRanked(a: TriageRanked, b: TriageRanked): number {
   const keys = (r: TriageRanked) => [
+    isDispositionEligible(r.lot) ? 0 : 1,
     isAvailable(r.lot) ? 0 : 1,
     r.byRight ? 0 : 1,
     hasHazardFlag(r.lot) ? 1 : 0,

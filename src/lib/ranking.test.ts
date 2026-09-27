@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Lot } from "./types";
-import { compareTriageRanked, isParkOrGreenway, statusGroup, type TriageRanked } from "./ranking";
+import { compareTriageRanked, isDispositionEligible, isParkOrGreenway, statusGroup, type TriageRanked } from "./ranking";
 
 interface RowOpts {
   status?: string;
@@ -9,6 +9,7 @@ interface RowOpts {
   area?: number | null;
   gap?: number | null;
   score?: number;
+  inventoryType?: string;
 }
 
 const row = (id: string, o: RowOpts = {}): TriageRanked => ({
@@ -30,7 +31,7 @@ const row = (id: string, o: RowOpts = {}): TriageRanked => ({
     frontageFt: 30,
     landValue: 1000,
     status: o.status ?? "Available for Sale",
-    inventoryType: "Public Sale",
+    inventoryType: o.inventoryType ?? "Public Sale",
     hazards: { steepSlope: !!o.hazard, undermined: false, floodZone: false },
   } satisfies Lot,
 });
@@ -68,5 +69,18 @@ describe("inventory helpers", () => {
     expect(isParkOrGreenway("Legislated Greenway")).toBe(true);
     expect(isParkOrGreenway("Infrastructure Protection")).toBe(true);
     expect(isParkOrGreenway("URA Transfer")).toBe(false);
+  });
+
+  it("one disposition-eligibility policy: protected-purpose inventory types and privately owned records are never eligible", () => {
+    const lot = (inventoryType: string, status = "Available for Sale") => row("x", { inventoryType, status }).lot;
+    for (const t of ["Park", "Greenway", "Legislated Greenway", "Infrastructure Protection"]) expect(isDispositionEligible(lot(t))).toBe(false);
+    expect(isDispositionEligible(lot("URA Transfer", "Privately Owned"))).toBe(false);
+    expect(isDispositionEligible(lot("Public Sale"))).toBe(true);
+    expect(isDispositionEligible(lot("URA Transfer"))).toBe(true);
+  });
+
+  it("ranks a Greenway below an eligible lot even when its shortfall is lower", () => {
+    const rows = [row("greenway", { inventoryType: "Greenway", gap: 1 }), row("sale", { gap: 200_000 })];
+    expect(order(rows)).toEqual(["sale", "greenway"]);
   });
 });

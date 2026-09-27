@@ -1,8 +1,8 @@
 import type { CompsFile, Comps, Finding, Lot, RuleSet, Triage, TriageResult, Typology, Verdict } from "./types";
 import { TYPOLOGY_LABEL } from "./types";
 import { evaluateLot } from "./rules";
-import { deriveEvidence, MIN_PRACTICAL_LOT_SQFT, zoneConflict, type Evidence, type EvidenceId } from "./evidence";
-import { isAvailable, isParkOrGreenway } from "./ranking";
+import { deriveEvidence, firstOpenItem, MIN_PRACTICAL_LOT_SQFT, zoneConflict, type Evidence, type EvidenceId } from "./evidence";
+import { isAvailable, isDispositionEligible } from "./ranking";
 import { compsForLot, DEFAULT_FINANCE, fmtNum, fmtUsd, isNarrowLot, runProforma, type FinanceAssumptions, type Proforma } from "./proforma";
 
 /*
@@ -27,7 +27,7 @@ const GREEN_MUST_PASS: EvidenceId[] = ["use", "lotSize", "width", "site", "finan
 /** Why the City's own record keeps a lot off the Green list, or null when it is recorded for sale and not a park type. */
 export function dispositionBlocker(lot: Pick<Lot, "status" | "inventoryType">): string | null {
   if (!isAvailable(lot)) return `Not for sale (City status: ${lot.status || "not recorded"})`;
-  if (isParkOrGreenway(lot.inventoryType)) return `Not a disposition candidate (City inventory type: ${lot.inventoryType})`;
+  if (!isDispositionEligible(lot)) return `Not a disposition candidate (City inventory type: ${lot.inventoryType})`;
   return null;
 }
 
@@ -129,9 +129,11 @@ export function triageLot(
 
   const reasons: string[] = [];
   const label = TYPOLOGY_LABEL[best.typology];
-  reasons.push(`Zoning: ${label.toLowerCase()} ${VERDICT_PHRASE[best.verdict]} in ${lot.zone}.`);
-  const conflict = zoneConflict(lot);
+  const evidence = deriveEvidence(lot, best, null, pf, comps);
+  // The shared first open item decides what leads: an unconfirmed district comes before every other reason.
+  const conflict = firstOpenItem(lot, best, evidence)?.id === "district-conflict" ? zoneConflict(lot) : null;
   if (conflict) reasons.push(`Zoning: ${conflict}`);
+  reasons.push(`Zoning: ${label.toLowerCase()} ${VERDICT_PHRASE[best.verdict]} in ${lot.zone}${conflict ? " (the inventory district, unconfirmed)" : ""}.`);
   const blocker = dispositionBlocker(lot);
   if (blocker) reasons.push(blocker);
 
@@ -163,13 +165,13 @@ export function triageLot(
     const basis = pf.mode === mode ? "" : ` (no ${mode} comp here, so ${pf.mode} comps were used)`;
     reasons.push(
       pf.pencils
-        ? `Finance: pencils, ${pf.marginPct.toFixed(0)}% margin on ${fmtUsd(pf.totalCost)} cost${basis}.`
+        ? `Finance: clears the cost-and-return screen, ${pf.marginPct.toFixed(0)}% modeled margin on ${fmtUsd(pf.totalCost)} cost${basis}.`
         : `Finance: modeled shortfall to target return about ${fmtUsd(pf.gap)}${basis}.`,
     );
   }
   if (unresolved.includes("parking")) reasons.push(PARKING_REASON);
 
-  const green = best.verdict === "by-right" && meetsGreenPolicy(best, deriveEvidence(lot, best, null, pf, comps), lot);
+  const green = best.verdict === "by-right" && meetsGreenPolicy(best, evidence, lot);
   return result(green ? "green" : "yellow", reasons, best.typology, pf);
 }
 

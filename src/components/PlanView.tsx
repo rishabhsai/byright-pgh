@@ -1,27 +1,21 @@
 "use client";
-import { useMemo, useState } from "react";
-import type { Comps, Lot, RuleSet, TriageResult, Typology } from "@/lib/types";
-import type { FinanceAssumptions } from "@/lib/finance";
-import type { Evidence } from "@/lib/evidence";
+import { useState } from "react";
+import type { RuleSet, Typology } from "@/lib/types";
 import { fmtUsdShort } from "@/lib/evidence";
 import { fmtNum, fmtUsd } from "@/lib/proforma";
 import { RULESET_LABEL, TYPOLOGY_ORDER } from "@/lib/rules";
-import { buildPlan, CHANNELS, gapSentence, rowChecks, toBrief, toCsv, TYPE_NAME, type Gap, type GapScenario, type Plan } from "@/lib/plan";
+import { CHANNELS, gapSentence, rowChecks, toBrief, toCsv, TYPE_NAME, type Gap, type GapScenario, type Plan } from "@/lib/plan";
 import { PREMIUM_LABEL } from "@/lib/proforma";
-import type { Evaluations } from "./ByRightApp";
 
 interface Props {
-  lots: Lot[];
-  evals: Evaluations;
-  triages: TriageResult[];
-  evidence: Evidence[];
-  comps: (Comps | null)[];
-  assumptions: FinanceAssumptions;
-  landOverrides: Record<string, number>;
-  neighborhoods: string[];
-  typology: Typology | null;
+  /** The one plan, derived above the rail and the reading view so both show the same numbers. */
+  plan: Plan;
+  /** Projects to plan for, owned by the app. */
+  projects: number;
+  onProjects: (n: number) => void;
   ruleSet: RuleSet;
-  sources: { name: string; url: string; vintage: string }[];
+  /** Inputs changed and the city-wide pass has not caught up: exports wait. */
+  stale?: boolean;
   onSelect: (i: number) => void;
   /** "rail": one column in the 344 px rail. "reading": two columns in the expanded overlay. */
   layout?: "rail" | "reading";
@@ -54,7 +48,7 @@ function FunnelRow({ plan, wide }: { plan: Plan; wide: boolean }) {
   const steps = [
     { n: f.records, label: ["lots"], title: "Vacant-land records in the City inventory" },
     { n: f.encoded, label: ["encoded"], title: "In zoning districts the rules engine encodes" },
-    { n: f.byRight, label: ["by right"], title: "At least one small home type allowed by right under the checks we ran" },
+    { n: f.byRight, label: ["use table"], title: "At least one small home type passes the use-table and lot-size screen" },
     { n: f.availableNoFlag, label: ["for sale,", "no flag"], title: "Recorded Available for Sale, and no slope, mine or flood flag at the inventory point" },
     { n: f.atLeast1000, label: ["1,000+", "sf"], title: "At least 1,000 sf: candidates for staff review" },
     { n: f.pencil, label: ["clear", "screen"], title: "Clear the cost-and-return screen under the displayed assumptions" },
@@ -98,38 +92,20 @@ function SplitRow({ label, n, total }: { label: string; n: number; total: number
   );
 }
 
-export default function PlanView({
-  lots,
-  evals,
-  triages,
-  evidence,
-  comps,
-  assumptions,
-  landOverrides,
-  neighborhoods,
-  typology,
-  ruleSet,
-  sources,
-  onSelect,
-  layout = "rail",
-}: Props) {
-  const [homes, setHomes] = useState(10);
-  const [homesText, setHomesText] = useState("10");
-
-  const plan = useMemo(
-    () =>
-      buildPlan(lots, evals, triages, evidence, comps, assumptions, { neighborhoods, typology }, ruleSet, homes, {
-        sources,
-        landOverrides,
-      }),
-    [lots, evals, triages, evidence, comps, assumptions, neighborhoods, typology, ruleSet, homes, sources, landOverrides],
-  );
+export default function PlanView({ plan, projects, onProjects, ruleSet, stale = false, onSelect, layout = "rail" }: Props) {
+  // The typed text stays as typed (it may be blank mid-edit); the count lives in the app.
+  const [homesText, setHomesText] = useState(String(projects));
+  const [seen, setSeen] = useState(projects);
+  if (projects !== seen) {
+    setSeen(projects);
+    setHomesText(String(projects));
+  }
 
   const onHomes = (v: string) => {
     const digits = v.replace(/[^\d]/g, "").slice(0, 4);
     setHomesText(digits);
     const n = Number(digits);
-    if (n >= 1) setHomes(n);
+    if (n >= 1) onProjects(n);
   };
 
   const g = plan.gap;
@@ -160,8 +136,8 @@ export default function PlanView({
     <section aria-label="Candidates for staff review" className={card}>
       <h4 className={kicker}>Candidates for staff review</h4>
       <p className="mt-1 text-[13px] leading-5">
-        <span className="font-medium tabular-nums">{fmtNum(plan.candidates.total)}</span> lots are by right under the checks we ran, recorded
-        for sale, unflagged and 1,000+ sf. A review queue, not a release list: each has open items.
+        <span className="font-medium tabular-nums">{fmtNum(plan.candidates.total)}</span> lots pass the use-table and lot-size screen, are
+        recorded for sale, unflagged and 1,000+ sf. A review queue: each has open items.
       </p>
       <div className="mt-2 grid grid-cols-2 gap-x-3">
         <div>
@@ -195,7 +171,7 @@ export default function PlanView({
             inputMode="numeric"
             value={homesText}
             onChange={(e) => onHomes(e.target.value)}
-            onBlur={() => setHomesText(String(homes))}
+            onBlur={() => setHomesText(String(projects))}
             className="w-12 rounded border border-hairline bg-white px-1.5 py-0.5 text-right text-[13px] text-ink tabular-nums focus:border-accent/60 focus:ring-2 focus:ring-accent/15"
             style={{ outline: "none" }}
           />
@@ -322,23 +298,32 @@ export default function PlanView({
   );
 
   const exportsRow = (
-    <div className="grid grid-cols-2 gap-2 pt-1">
-      <button
-        data-action="export-csv"
-        onClick={() => downloadText(`${fileBase(plan)}.csv`, toCsv(plan.rows), "text/csv;charset=utf-8")}
-        className="rounded-md bg-accent px-3 py-2 text-[13px] font-medium text-white hover:bg-accent/90"
-      >
-        Export CSV
-        <span className="block text-[12px] font-normal text-white/75">{fmtNum(plan.rows.length)} lots in scope</span>
-      </button>
-      <button
-        data-action="download-brief"
-        onClick={() => downloadText(`${fileBase(plan)}.md`, toBrief(plan), "text/markdown;charset=utf-8")}
-        className="rounded-md border border-hairline bg-white px-3 py-2 text-[13px] font-medium text-ink hover:border-[#bfc4bd]"
-      >
-        Download brief
-        <span className="block text-[12px] font-normal text-muted">Markdown summary</span>
-      </button>
+    <div className="pt-1">
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          data-action="export-csv"
+          disabled={stale}
+          onClick={() => downloadText(`${fileBase(plan)}.csv`, toCsv(plan.rows), "text/csv;charset=utf-8")}
+          className="rounded-md bg-accent px-3 py-2 text-[13px] font-medium text-white hover:bg-accent/90 disabled:cursor-wait disabled:opacity-50"
+        >
+          Export CSV
+          <span className="block text-[12px] font-normal text-white/75">{fmtNum(plan.rows.length)} lots in scope</span>
+        </button>
+        <button
+          data-action="download-brief"
+          disabled={stale}
+          onClick={() => downloadText(`${fileBase(plan)}.md`, toBrief(plan), "text/markdown;charset=utf-8")}
+          className="rounded-md border border-hairline bg-white px-3 py-2 text-[13px] font-medium text-ink hover:border-[#bfc4bd] disabled:cursor-wait disabled:opacity-50"
+        >
+          Download brief
+          <span className="block text-[12px] font-normal text-muted">Markdown summary</span>
+        </button>
+      </div>
+      {stale && (
+        <p aria-live="polite" className="mt-1.5 text-[12px] text-muted">
+          Updating for your latest inputs; exports are available once the plan catches up.
+        </p>
+      )}
     </div>
   );
 

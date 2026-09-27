@@ -129,7 +129,7 @@ describe("prototypeNote", () => {
 
   it("warns that a detached house is the wrong prototype on a lot under 25 ft", () => {
     expect(prototypeNote(lot({ frontageFt: 20 }), "single")).toBe(
-      "Detached prototype on a 20 ft lot: side yards leave a narrow house; the attached form (0 parking under § 914.02.A) fits a lot this width",
+      "Detached prototype on a 20 ft lot: side yards leave a narrow house; the attached form (0 parking under § 914.02.A) is the modeling assumption at this width (building fit not checked)",
     );
   });
 

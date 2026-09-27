@@ -78,6 +78,10 @@ def main():
     if missing:
         raise SystemExit(f"not in lots.json: {missing}")
     eng = engine_results(ids)
+    # Determinism: a second, independent engine run must print the same results for every parcel.
+    deterministic = engine_results(ids) == eng
+    if not deterministic:
+        raise SystemExit("engine results differ between two runs")
 
     zoning_src = next((s for s in doc["sources"] if s["name"].startswith("City of Pittsburgh Zoning Districts")), None)
     compared = [l for l in doc["lots"] if l.get("zoneAgrees") is not None]
@@ -111,6 +115,24 @@ def main():
              + ". Where they disagree, the app marks Use as Unknown and the lot cannot be Green. "
              f"Citywide, {agree_all:,} of {len(compared):,} compared lots agree ({100 * agree_all / len(compared):.1f}%); "
              f"in this set, {set_agree} of {set_compared}.")
+    L.append("")
+    L.append("**Automated checks performed** (machine-verified; no person was involved):")
+    L.append("")
+    L.append(f"- Inventory district vs. City zoning map at each lot's inventory point: {agree_all:,} of {len(compared):,} "
+             f"compared lots agree citywide; {set_agree} of {set_compared} in this set (columns *Map zone* and *Agree?*).")
+    L.append("- Engine determinism: the engine was run twice for these 20 parcels and printed identical results; "
+             "`src/lib/evalCompute.test.ts` checks that the Web Worker and main-thread paths build the same plan, "
+             "brief and CSV on Hazelwood and a 500-lot citywide sample.")
+    L.append("- District tables: two external audits (AI-agent reviews, not practitioner review) checked the encoded "
+             "district tables in `src/lib/rules/districts.ts` against the ecode360 captures in `docs/sources/`.")
+    L.append("")
+    L.append("None of these is a human check of a verdict. The *Hand check* column below is the human check.")
+    L.append("")
+    L.append("**Checked by** (the team fills this in; while blank, no person has checked any row):")
+    L.append("")
+    L.append("- Name: ________")
+    L.append("- Date: ________")
+    L.append("- Rows checked: __ of 20 · agree: __ · disagree: __ (reasons in the *Hand check* column)")
     L.append("")
     L.append("**What is manual, and not done yet.** *Our screen* is the engine's result for the lot's best home type "
              "(the proposal the app shows by default) with the Zoning Code sections it cites. The *Hand check* column is "

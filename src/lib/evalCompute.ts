@@ -61,9 +61,10 @@ function withLand(a: FinanceAssumptions, overrides: Record<string, number>, lot:
 }
 
 /**
- * Findings trimmed for the trip back from the worker: verdicts, unresolved ids, review kind, and the
- * failing checks' ids and (shared) citations; passing and unverified checks are dropped. Measured/required values, notes and summaries are
- * dropped; they are most of the payload (≈150 MB serialized for the city). City-wide consumers
+ * Findings trimmed for the trip back from the worker: verdicts, unresolved ids, review kind, the
+ * failing checks' ids and (shared) citations, and the parking check with its requirement (the plan's bill
+ * line compares spaces under each rule set). Other passing and unverified checks, measured values, notes
+ * and summaries are dropped; they are most of the payload (≈150 MB serialized for the city). City-wide consumers
  * (stats, ranking, readiness, the plan) read only the kept fields; the detail panel re-evaluates
  * its one lot with evaluateLot for the full text.
  */
@@ -80,8 +81,16 @@ export function slimEvaluations(evals: Evaluations): Evaluations {
           unresolved: f.unresolved,
           reviewKind: f.reviewKind,
           checks: f.checks
-            .filter((c) => c.passed === false)
-            .map((c) => ({ id: c.id, label: "", passed: false, measured: null, required: null, citation: c.citation })),
+            .filter((c) => c.passed === false || c.id === "parking")
+            .map((c) => ({
+              id: c.id,
+              label: "",
+              passed: c.passed,
+              measured: null,
+              // The parking requirement feeds the plan's bill comparison (spaces today → under the bill).
+              required: c.id === "parking" ? c.required : null,
+              citation: c.citation,
+            })),
         })),
       ),
     };
@@ -120,3 +129,33 @@ export type EvalResponse =
   | { seq: number; part: "triages"; triages: Triages; ms: number }
   | { seq: number; part: "evidence"; evidence: EvidenceByRuleSet; ms: number }
   | { seq: number; part: "error"; message: string };
+
+/** What the worker keeps between requests: the lots it was sent and their full evaluations. */
+export interface EvalWorkerState {
+  lots: Lot[];
+  evals: Evaluations | null;
+}
+
+/**
+ * The worker's whole message handler, pure apart from `post` so tests run it without a Worker.
+ * Payloads are slimmed: a structured clone of the full findings costs the main thread ~1 s to read.
+ */
+export function handleEvalRequest(state: EvalWorkerState, req: EvalRequest, post: (res: EvalResponse) => void): void {
+  try {
+    let t = performance.now();
+    if (req.lots) {
+      state.lots = req.lots;
+      state.evals = evaluateAll(state.lots);
+      post({ seq: req.seq, part: "evals", evals: slimEvaluations(state.evals), ms: Math.round(performance.now() - t) });
+      t = performance.now();
+    }
+    if (!state.evals) throw new Error("no lots evaluated yet");
+    const triages = triageAll(state.lots, state.evals, req);
+    post({ seq: req.seq, part: "triages", triages, ms: Math.round(performance.now() - t) });
+    t = performance.now();
+    const evidence = evidenceAll(state.lots, state.evals, triages, req);
+    post({ seq: req.seq, part: "evidence", evidence: slimEvidence(evidence), ms: Math.round(performance.now() - t) });
+  } catch (err) {
+    post({ seq: req.seq, part: "error", message: err instanceof Error ? err.message : String(err) });
+  }
+}

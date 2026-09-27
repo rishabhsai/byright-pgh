@@ -1,5 +1,6 @@
 import type { LabelInput, Triage, Typology, Verdict } from "@/lib/types";
-import { TRIAGE_LABEL, VERDICT_SHORT_LABEL, verdictLabel, verdictShort } from "@/lib/types";
+import { TRIAGE_LABEL, VERDICT_SHORT_LABEL, verdictShort } from "@/lib/types";
+import { ALLOWED_TIP, verdictLabel } from "./ui/answer";
 import Tooltip from "./ui/Tooltip";
 import { districtName } from "./district";
 
@@ -26,8 +27,7 @@ export const VERDICT_SHORT: Record<Verdict, string> = VERDICT_SHORT_LABEL;
 
 /** Plain-language glossary for the terms that have to stay (UX copy pass, cycle 1). */
 export const TIP = {
-  byRight:
-    "By right: the use is permitted and no encoded size standard fails. Staff zoning review still applies, with no public hearing expected; setbacks, height and parking are confirmed on the site plan.",
+  byRight: `${ALLOWED_TIP}. Staff zoning review still applies.`,
   review:
     "Administrator exception (§ 922.08): zoning staff decide. Special exception (§ 922.07): the Zoning Board of Adjustment decides after a hearing. Both apply written criteria.",
   hearing:
@@ -144,7 +144,7 @@ export const TRIAGE_WORD: Record<Triage, string> = {
   gray: "Gray",
 };
 
-export const TRIAGE_SHORT: Record<Triage, string> = TRIAGE_LABEL;
+export const TRIAGE_SHORT: Record<Triage, string> = { ...TRIAGE_LABEL, yellow: TRIAGE_LABEL.yellow.replace(/\bsubsidy\b/, "a modeled shortfall") };
 
 export const TRIAGE_ORDER: Triage[] = ["green", "yellow", "red", "gray"];
 

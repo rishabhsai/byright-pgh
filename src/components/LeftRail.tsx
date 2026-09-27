@@ -1,15 +1,14 @@
 "use client";
 import { memo, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import type { Comps, Lot, RuleSet, Triage, Typology } from "@/lib/types";
+import type { Lot, RuleSet, Triage, Typology } from "@/lib/types";
 import { TYPOLOGY_LABEL } from "@/lib/types";
 import { scoreLot, compareTriageRanked, isAvailable, STATUS_GROUPS, type StatusGroup, type TriageRanked } from "@/lib/ranking";
 import { yellowReason, type Evidence } from "@/lib/evidence";
 import { EvidenceGlyphs } from "./ui/EvidenceRow";
 import { isReadyLot } from "@/lib/plan";
-import type { FinanceAssumptions } from "@/lib/finance";
 import type { Evaluations, Triages } from "./ByRightApp";
 import NeighborhoodPicker, { type NeighborhoodOption } from "./NeighborhoodPicker";
-import PlanView from "./PlanView";
+import { reasonText } from "./ui/answer";
 import SearchBox from "./SearchBox";
 import Segmented from "./ui/Segmented";
 import {
@@ -108,16 +107,16 @@ interface Props {
   selectedIdx: number | null;
   onSelect: (i: number) => void;
   evidence: Evidence[] | null;
-  comps: (Comps | null)[];
-  assumptions: FinanceAssumptions;
-  landOverrides: Record<string, number>;
-  sources: { name: string; url: string; vintage: string }[];
+  /** The Home type the city-wide results were computed for (lags the filter while recomputing). */
+  typology: Typology | null;
   tab: Tab;
   onTab: (t: Tab) => void;
   /** The city-wide evaluation has not arrived yet: show skeletons, never empty states. */
   loading: boolean;
   /** Open the plan in the wide reading overlay. */
   onReadPlan?: () => void;
+  /** The plan, derived by the app; null while the city-wide pass is running. */
+  plan: ReactNode;
 }
 
 export type Tab = "lots" | "plan";
@@ -169,14 +168,12 @@ function LeftRail({
   selectedIdx,
   onSelect,
   evidence,
-  comps,
-  assumptions,
-  landOverrides,
-  sources,
+  typology,
   tab,
   onTab,
   loading,
   onReadPlan,
+  plan,
 }: Props) {
   const [filtersOpen, setFiltersOpen] = useState(true);
   const filtersId = useId();
@@ -207,9 +204,7 @@ function LeftRail({
 
   const matchCount = useMemo(() => matches.reduce((n, m) => (m ? n + 1 : n), 0), [matches]);
 
-  const typIdx = filters.typology ? TYPOLOGIES.indexOf(filters.typology) : -1;
-
-  const typology: Typology | null = filters.typology || null;
+  const typIdx = typology ? TYPOLOGIES.indexOf(typology) : -1;
 
   const readyHoods = useMemo(() => {
     if (!evals) return [];
@@ -324,28 +319,15 @@ function LeftRail({
               )}
             </div>
             <p className="mt-1.5 text-[13px] leading-[18px] text-muted">
-              Which City lots can take a small home without a hearing, through which channel, and the gap per home. Scope follows the
-              neighborhood filter.
+              Which City lots pass the use-table and lot-size screen, through which channel, and the modeled shortfall per project.
+              Scope follows the neighborhood filter.
             </p>
             <div className="mt-3">
               <NeighborhoodPicker options={hoodOptions} selected={filters.neighborhoods} onChange={(v) => set("neighborhoods", v)} />
             </div>
           </div>
-          {evals && triages && evidence ? (
-            <PlanView
-              lots={lots}
-              evals={evals}
-              triages={triages[ruleSet].results}
-              evidence={evidence}
-              comps={comps}
-              assumptions={assumptions}
-              landOverrides={landOverrides}
-              neighborhoods={filters.neighborhoods}
-              typology={typology}
-              ruleSet={ruleSet}
-              sources={sources}
-              onSelect={onSelect}
-            />
+          {plan ? (
+            plan
           ) : (
             <div aria-hidden className="space-y-3 px-4 pt-3">
               {[72, 120, 150].map((h) => (
@@ -489,10 +471,10 @@ function LeftRail({
 
               <div className="mt-2 border-t border-hairline pt-2">
                 <h3 className="text-[12px] font-medium text-ink">
-                  Neighborhoods with the most ready lots
-                  {filters.typology && <span className="text-muted">, {TYPOLOGY_SHORT[filters.typology]}</span>}
+                  Neighborhoods with the most review candidates
+                  {typology && <span className="text-muted">, {TYPOLOGY_SHORT[typology]}</span>}
                 </h3>
-                <p className="mt-0.5 text-[11px] text-faint">By right, available for sale, no hazard flag, at least 1,000 sf</p>
+                <p className="mt-0.5 text-[11px] text-faint">Pass the use table, for sale, no hazard flag, at least 1,000 sf</p>
                 <ol className="mt-1.5 space-y-1">
                   {loading &&
                     [92, 80, 70, 64, 58].map((w) => (
@@ -500,7 +482,7 @@ function LeftRail({
                         <span className="block h-full animate-pulse rounded-sm bg-surface" style={{ width: `${w}%` }} />
                       </li>
                     ))}
-                  {!loading && readyHoods.length === 0 && <li className="text-[12px] text-muted">No ready lots under this rule set.</li>}
+                  {!loading && readyHoods.length === 0 && <li className="text-[12px] text-muted">No review candidates under this rule set.</li>}
                   {readyHoods.map((h) => (
                     <li key={h.name}>
                       <button
@@ -570,7 +552,7 @@ function LeftRail({
                 const f = evals![ruleSet].findings[i];
                 const selected = i === selectedIdx;
                 const ev = evidence?.[i];
-                const reason = ev ? yellowReason(triages![ruleSet].results[i], ev) : null;
+                const reason = ev ? reasonText(yellowReason(triages![ruleSet].results[i], ev)) : null;
                 return (
                   <li
                     key={lot.id}

@@ -1,6 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
-import { TYPOLOGY_LABEL, verdictLabel } from "@/lib/types";
+import { TYPOLOGY_LABEL } from "@/lib/types";
+import { verdictLabel } from "./ui/answer";
 import type { SelectedCase } from "@/lib/selectedCase";
 import {
   buildApplicationPlan,
@@ -126,7 +127,7 @@ export default function ApplicationPlanner({ selected, onChangeType, onFlash, wi
             </span>
           </p>
 
-          {plan && <p className="font-serif text-[20px] leading-tight text-ink">{packetHeadline(plan)}</p>}
+          {plan && <p className="font-serif text-[20px] leading-tight text-ink">{packetHeadline(plan, lot.zoneAgrees === false)}</p>}
         </>
       )}
 
@@ -183,11 +184,12 @@ export default function ApplicationPlanner({ selected, onChangeType, onFlash, wi
   );
 }
 
-/** "3 filings · no hearing expected" or "4 filings · Zoning Board hearing required (§ 922.09.E)" */
-function packetHeadline(plan: ApplicationPlan): string {
+/** "3 filings · staff zoning review" or "4 filings · Zoning Board hearing required (§ 922.09.E)" */
+function packetHeadline(plan: ApplicationPlan, districtUnconfirmed = false): string {
   const filings = plan.steps.filter((s) => s.id !== "bill").length;
   const base = `${filings} filing${filings === 1 ? "" : "s"}`;
-  if (plan.verdict === "by-right") return `${base} · no hearing expected`;
+  if (districtUnconfirmed) return `${base} · confirm the zoning district first`;
+  if (plan.verdict === "by-right") return `${base} · staff zoning review; other standards not checked`;
   if (plan.verdict === "review") return `${base} · staff approval needed`;
   if (plan.verdict === "variance") return `${base} · Zoning Board hearing likely (§ 922.09.E)`;
   return `${base} · confirm the path with the Zoning Administrator`;

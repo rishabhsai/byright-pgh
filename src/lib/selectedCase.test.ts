@@ -5,6 +5,7 @@ import { evaluateLot } from "./rules";
 import { compsFor, DEFAULT_FINANCE } from "./finance";
 import { buildApplicationPlan } from "./application";
 import { buildSelectedCase } from "./selectedCase";
+import { answerHeadline, blockerLine } from "@/components/ui/answer";
 
 const haveData = existsSync("public/data/lots.json") && existsSync("public/data/comps.json");
 
@@ -45,5 +46,34 @@ describe.skipIf(!haveData)("selected case", () => {
     expect(Math.round(c.proforma!.totalCost)).toBe(349_650);
     const plan = buildApplicationPlan(c.lot, c.findings.current, "current", c.triage, c.proforma, c.comps, c.typology);
     expect(plan.description).toContain("$349,650");
+  });
+
+  it("a typology switch rebuilds headline, triage, evidence and finance from the same proposal (126 Carrington)", () => {
+    const id = "0023F00165000000";
+    const head = (c: ReturnType<typeof caseFor>) => answerHeadline(c.triage, c.finding, c.proforma, c.lot).text;
+    const state = (c: ReturnType<typeof caseFor>, check: string) => c.evidence.checks.find((x) => x.id === check)?.state;
+
+    const any = caseFor(id, null);
+    expect(any.triage.triage).toBe("green");
+    expect(head(any)).toMatch(/^Passes the screen/);
+    expect(state(any, "use")).toBe("pass");
+    expect(state(any, "finance")).toBe("pass");
+
+    const duplex = caseFor(id, "duplex");
+    expect(duplex.typology).toBe("duplex");
+    expect(duplex.finding?.typology).toBe("duplex");
+    expect(duplex.finding?.verdict).toBe("prohibited");
+    // Every part of the case describes the duplex: no Green, no passing Use, no passing Finance.
+    expect(duplex.triage.triage).not.toBe("green");
+    expect(head(duplex)).not.toMatch(/^Passes the screen/);
+    expect(state(duplex, "use")).toBe("fail");
+    expect(state(duplex, "finance")).not.toBe("pass");
+    expect(blockerLine(duplex.lot, duplex.typology, duplex.finding, duplex.evidence)?.text).toBe("Duplex: not allowed here (use)");
+
+    // Switching back leaves no residue from the duplex.
+    const back = caseFor(id, null);
+    expect(head(back)).toBe(head(any));
+    expect(back.evidence).toEqual(any.evidence);
+    expect(back.triage).toEqual(any.triage);
   });
 });

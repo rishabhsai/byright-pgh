@@ -1,7 +1,7 @@
 "use client";
 import { useRef, useState } from "react";
 import type { Check, Finding, Lot, RuleSet, Typology, Verdict } from "@/lib/types";
-import { TYPOLOGY_LABEL, VERDICT_LABEL, verdictLabel } from "@/lib/types";
+import { TYPOLOGY_LABEL } from "@/lib/types";
 import type { FinanceAssumptions } from "@/lib/finance";
 import type { SelectedCase } from "@/lib/selectedCase";
 import { TIP, VERDICT_COLOR, VERDICT_TIP, VerdictChip, ZoneChip, zoneLabel } from "./verdict";
@@ -13,12 +13,23 @@ import Tooltip from "./ui/Tooltip";
 import Section from "./ui/Section";
 import AnswerCard from "./ui/AnswerCard";
 import { evidenceSummary } from "./ui/EvidenceRow";
-import { answerHeadline, approvalRoute, blockerLine, cityStatus, financeLine, HIGH_MARGIN_PCT, typologyPhrase, whatWouldChange } from "./ui/answer";
+import {
+  answerHeadline,
+  approvalRoute,
+  blockerLine,
+  cityStatus,
+  financeLine,
+  HIGH_MARGIN_PCT,
+  typologyPhrase,
+  verdictLabel,
+  verdictWord,
+  whatWouldChange,
+} from "./ui/answer";
 import { MIN_PRACTICAL_LOT_SQFT } from "@/lib/evidence";
 import { prototypeNote } from "@/lib/proforma";
 import { FunnelBars, FunnelSentence, type FunnelStats } from "./ui/Funnel";
 
-/** 5118 Ladora Way, Hazelwood: R1A-VH, URA Transfer, one of three adjacent ready-for-a-house lots. */
+/** 5118 Ladora Way, Hazelwood: R1A-VH, URA Transfer, a 19.5 ft lot screened for the attached prototype. */
 export const DEMO_LOT_ID = "0056N00203000000";
 
 interface Props {
@@ -31,9 +42,13 @@ interface Props {
   onClose: () => void;
   onTypology: (t: Typology) => void;
   onLandOverride: (v: number | null) => void;
-  /** Shared finance assumptions (without the per-lot land figure) for the Pays inputs. */
-  assumptions: FinanceAssumptions;
+  /** Shared finance assumptions changed; the case is rebuilt from them at once. */
   onAssumptions: (a: FinanceAssumptions) => void;
+  /** Send pending assumption edits to the city-wide pass now. */
+  onCommit?: () => void;
+  /** Set when the finance data file failed to load. */
+  compsError?: string | null;
+  onRetryComps?: () => void;
   /** True while the city-wide triage is catching up with the latest assumptions. */
   recomputing: boolean;
   /** Reading mode: the panel overlays the map as a wide, centered surface. */
@@ -92,7 +107,7 @@ function EmptyState({
     return (
       <div className="flex flex-1 flex-col justify-center px-8">
         <p className="font-serif text-[25px] leading-tight text-ink">Pick a lot on the map or in the list.</p>
-        <p className="mt-2 text-[13px] text-muted">See what&apos;s allowed, whether it pays for itself, and what to file.</p>
+        <p className="mt-2 text-[13px] text-muted">See what the use table allows, whether it clears the cost-and-return screen, and what to file.</p>
       </div>
     );
   return (
@@ -143,14 +158,15 @@ function LotDetail({
   onClose,
   onTypology,
   onLandOverride,
-  assumptions,
   onAssumptions,
+  onCommit,
+  compsError,
+  onRetryComps,
   recomputing,
   expanded,
   onExpanded,
 }: Props & { c: SelectedCase }) {
   const [open, setOpen] = useState<string | null>(null);
-  const [pfPending, setPfPending] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [scrolled, setScrolled] = useState(false);
   const [active, setActive] = useState<string>("allowed");
@@ -345,7 +361,7 @@ function LotDetail({
           onPlan={() => goTo("file")}
         />
 
-        <Section id="allowed" title="Allowed?" summary={`${allowedCount} of ${findings.length} home types with no hearing`}>
+        <Section id="allowed" title="Allowed?" summary={`${allowedCount} of ${findings.length} home types allowed by use table`}>
           <VerdictList
             findings={findings}
             other={otherFindings}
@@ -388,10 +404,10 @@ function LotDetail({
             <span
               aria-live="polite"
               className={`flex items-center gap-1.5 text-[12px] text-muted transition-opacity duration-150 ${
-                pfPending || recomputing ? "opacity-100" : "opacity-0"
+                recomputing ? "opacity-100" : "opacity-0"
               }`}
             >
-              {(pfPending || recomputing) && (
+              {recomputing && (
                 <>
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
                   Updating the map…
@@ -406,11 +422,14 @@ function LotDetail({
             findings={findings}
             typology={typology}
             onTypology={onTypology}
-            landOverride={c.landOverride}
-            onLandOverride={onLandOverride}
-            assumptions={assumptions}
+            proforma={c.proforma}
+            assumptions={c.assumptions}
             onAssumptions={onAssumptions}
-            onPending={setPfPending}
+            onLandOverride={onLandOverride}
+            onCommit={onCommit}
+            compsError={compsError}
+            onRetryComps={onRetryComps}
+            blocked={blocker?.text ?? (chosen && chosen.verdict === "unknown" ? `${TYPOLOGY_LABEL[typology]}: zoning not checked` : null)}
           />
         </Section>
 
@@ -643,8 +662,8 @@ function VerdictList({
                         {diff && (
                           <span className="mt-0.5 block text-[12px] leading-snug text-[#7a5a00]">
                             {ruleSet === "current"
-                              ? `→ ${VERDICT_LABEL[diff]} if the housing bill passes`
-                              : `Today: ${lowerFirst(VERDICT_LABEL[diff])}`}
+                              ? `→ ${verdictWord(diff)} if the housing bill passes`
+                              : `Today: ${lowerFirst(verdictWord(diff))}`}
                           </span>
                         )}
                       </span>
@@ -670,7 +689,7 @@ function VerdictList({
                 {opened.typology === "single_adu" && <p className="mb-2 text-[12px] text-muted">{TIP.adu}</p>}
                 {opened.summary && <p className="mb-2 max-w-[70ch] text-[12px] leading-snug text-muted">{opened.summary}</p>}
                 {opened.checks.length === 0 && (
-                  <p className="text-[12px] text-muted">No checks run. {VERDICT_LABEL[opened.verdict]}.</p>
+                  <p className="text-[12px] text-muted">No checks run. {verdictWord(opened.verdict)}.</p>
                 )}
                 <ul className={columns === 2 ? "grid grid-cols-2 gap-x-6 gap-y-3" : "space-y-2.5"}>
                   {opened.checks.map((c) => (

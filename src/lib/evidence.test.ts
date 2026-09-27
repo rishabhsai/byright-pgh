@@ -72,18 +72,31 @@ describe("deriveEvidence", () => {
       state: "unknown",
       detail: "Inventory says R1D-H; City zoning map says RM-M at this point. Confirm district before relying on this.",
     });
-    expect(evidence.counts.pass).toBe(4);
+    // Lot size, width and site pass; finance is not screened until the district is confirmed.
+    expect(evidence.counts.pass).toBe(3);
+    expect(check(evidence, "finance").state).toBe("notChecked");
   });
 
   it("keeps use as the rule result when the map agrees or was not compared", () => {
     expect(check(evidenceFor(lot({ zoneMap: "R2-M", zoneAgrees: true }), RICH).evidence, "use").state).toBe("pass");
-    expect(check(evidenceFor(lot({ zoneMap: null, zoneAgrees: null }), RICH).evidence, "use").state).toBe("pass");
+    expect(check(evidenceFor(lot(), RICH).evidence, "use").state).toBe("pass");
   });
 
-  it("fails site on a steep-slope flag and says what was not checked", () => {
+  it("marks use unknown when no zoning map district contains the inventory point: the district is unconfirmed", () => {
+    expect(check(evidenceFor(lot({ zoneMap: null, zoneAgrees: null }), RICH).evidence, "use")).toMatchObject({
+      state: "unknown",
+      detail: "Inventory says R2-M; no City zoning map district contains this point. Confirm district before relying on this.",
+    });
+  });
+
+  it("fails site on a steep-slope flag and says what was not checked; the Hillside citation is for H lots only", () => {
     const { evidence } = evidenceFor(lot({ hazards: { steepSlope: true, undermined: false, floodZone: false } }), RICH);
     expect(check(evidence, "site").state).toBe("fail");
-    expect(check(evidence, "site").detail).toMatch(/^Slope ≥ 25% flag at the inventory point \(City GIS\)\. Site review needed; H-district conditions in § 911\.04\.A\.69\(a\)/);
+    // An R2-M lot: a slope flag does not make it an H-district lot.
+    expect(check(evidence, "site").detail).toMatch(/^Slope ≥ 25% flag at the inventory point \(City GIS\)\. Site review needed\. /);
+    expect(check(evidence, "site").detail).not.toMatch(/911\.04\.A\.69/);
+    const h = evidenceFor(lot({ zone: "H", lotAreaSqFt: 50_000, frontageFt: 100, hazards: { steepSlope: true, undermined: false, floodZone: false } }), RICH).evidence;
+    expect(check(h, "site").detail).toMatch(/Site review needed; H-district conditions in § 911\.04\.A\.69\(a\)/);
     expect(check(evidence, "site").detail).toMatch(/Access, water\/sewer, soils not checked/);
     expect(evidence.passed).toBe(4);
     expect(summary(evidence)).toBe("4 pass · 1 fail · 1 not checked");
@@ -153,14 +166,29 @@ describe("deriveEvidence", () => {
 const LOTS = "public/data/lots.json";
 const COMPS = "public/data/comps.json";
 describe.runIf(existsSync(LOTS) && existsSync(COMPS))("deriveEvidence on real records", () => {
-  it("5724 Murray Hill Pl (frontage missing; inventory RM-M, zoning map R1D-L) reads 3 pass · 2 unknown · 1 not checked", () => {
+  it("0 Forbes Av (259 sf LNC): the triplex fails Fit, so Finance is not screened rather than showing a margin", () => {
+    const l = (JSON.parse(readFileSync(LOTS, "utf8")) as LotsFile).lots.find((x) => x.id === "0086L00500000000")!;
+    const c = compsFor(l, JSON.parse(readFileSync(COMPS, "utf8")) as CompsFile);
+    const findings = evaluateLot(l, "current");
+    const triage = triageLot(l, findings, c, DEFAULT_FINANCE);
+    expect(triage.bestTypology).toBe("triplex");
+    const ev = evidenceForLot(l, findings, triage, c, DEFAULT_FINANCE, null);
+    expect(ev.checks.find((x) => x.id === "fit")!.state).toBe("fail");
+    expect(ev.checks.find((x) => x.id === "finance")).toMatchObject({
+      state: "notChecked",
+      detail: "Not screened: proposal not buildable as checked",
+    });
+  });
+
+  it("5724 Murray Hill Pl (frontage missing; inventory RM-M, zoning map R1D-L) reads 2 pass · 2 unknown · 2 not checked", () => {
     const l = (JSON.parse(readFileSync(LOTS, "utf8")) as LotsFile).lots.find((x) => x.id === "0085K00296000000")!;
     const c = compsFor(l, JSON.parse(readFileSync(COMPS, "utf8")) as CompsFile);
     const findings = evaluateLot(l, "current");
     const triage = triageLot(l, findings, c, DEFAULT_FINANCE);
     const ev = evidenceForLot(l, findings, triage, c, DEFAULT_FINANCE, null);
-    expect(ev.counts).toEqual({ pass: 3, fail: 0, unknown: 2, notChecked: 1 });
-    expect(summary(ev)).toBe("3 pass · 2 unknown · 1 not checked");
+    // Use is Unknown (district unconfirmed), so Finance is not screened for this proposal.
+    expect(ev.counts).toEqual({ pass: 2, fail: 0, unknown: 2, notChecked: 2 });
+    expect(summary(ev)).toBe("2 pass · 2 unknown · 2 not checked");
     expect(ev.checks.find((x) => x.id === "use")!.detail).toBe(
       "Inventory says RM-M; City zoning map says R1D-L at this point. Confirm district before relying on this.",
     );
@@ -169,9 +197,9 @@ describe.runIf(existsSync(LOTS) && existsSync(COMPS))("deriveEvidence on real re
 });
 
 describe("yellowReason", () => {
-  it("names subsidy for a clean by-right lot that does not pencil", () => {
+  it("names a modeled shortfall to target return, not subsidy, for a clean by-right lot that does not pencil", () => {
     const { evidence, triage } = evidenceFor(lot(), POOR);
-    expect(yellowReason(triage, evidence)).toBe("needs subsidy");
+    expect(yellowReason(triage, evidence)).toBe("modeled shortfall to target return");
   });
 
   it("names a hearing or staff approval when relief is needed", () => {

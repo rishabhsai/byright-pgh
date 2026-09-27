@@ -90,13 +90,13 @@ export const NARROW_LOT_FT = 25;
 
 export const isNarrowLot = (lot: Pick<Lot, "frontageFt">) => lot.frontageFt !== null && lot.frontageFt < NARROW_LOT_FT;
 
-/** Why this prototype fits (or does not fit) a narrow lot; null when the frontage is unknown, 25 ft or more, or the type is not a house. */
+/** Why this prototype is (or is not) the modeled form on a narrow lot (an assumption, not a fit check); null when the frontage is unknown, 25 ft or more, or the type is not a house. */
 export function prototypeNote(lot: Pick<Lot, "frontageFt">, typology: Typology): string | null {
   if (!isNarrowLot(lot)) return null;
   const w = `${fmtNum(Math.round(lot.frontageFt!))} ft`;
   if (typology === "townhome") return `Prototype chosen for a ${w} lot: attached form, 0 parking under § 914.02.A`;
   if (typology === "single") {
-    return `Detached prototype on a ${w} lot: side yards leave a narrow house; the attached form (0 parking under § 914.02.A) fits a lot this width`;
+    return `Detached prototype on a ${w} lot: side yards leave a narrow house; the attached form (0 parking under § 914.02.A) is the modeling assumption at this width (building fit not checked)`;
   }
   return null;
 }

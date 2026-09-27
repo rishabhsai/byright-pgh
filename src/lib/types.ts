@@ -78,7 +78,7 @@ export const TYPOLOGY_LABEL: Record<Typology, string> = {
 
 /** Generic label per verdict. UI copy should go through verdictLabel(finding), which keeps the approval route. */
 export const VERDICT_LABEL: Record<Verdict, string> = {
-  "by-right": "Allowed, no hearing",
+  "by-right": "Allowed by the use table and lot-size standards; other standards not checked",
   review: "Needs approval",
   variance: "Relief needed (variance or § 921.04 exception)",
   prohibited: "Not allowed here",
@@ -133,7 +133,7 @@ export type Triage = "green" | "yellow" | "red" | "gray";
 
 export const TRIAGE_LABEL: Record<Triage, string> = {
   green: "Passes the screen",
-  yellow: "Needs review, relief, data or subsidy",
+  yellow: "Needs review, relief, data or a shortfall",
   red: "Blocked",
   gray: "Not checked",
 };

@@ -1,13 +1,33 @@
 // Plain-language answer for one lot: the triage in words, the money line, the City status, and deltas.
 import type { Finding, Lot, RuleSet, TriageResult, Typology } from "@/lib/types";
-import { TYPOLOGY_LABEL, verdictLabel, verdictShort } from "@/lib/types";
+import { TYPOLOGY_LABEL, verdictLabel as libVerdictLabel, verdictShort, type LabelInput, type Verdict } from "@/lib/types";
 import { evaluateLot } from "@/lib/rules";
 import type { Proforma } from "@/lib/finance";
 import type { Evidence } from "@/lib/evidence";
 import { isParkOrGreenway } from "@/lib/ranking";
 
 /** Every UI verdict label goes through these (they keep the approval route). */
-export { verdictLabel, verdictShort };
+export { verdictShort };
+
+/** What a by-right verdict establishes: the use table and the lot-size standard, nothing about the building. */
+export const ALLOWED_LABEL = "Allowed by use table";
+export const ALLOWED_TIP = "Use permitted (§ 911.02) and lot-size standard met; setbacks, height, coverage not checked";
+
+/** The lib's label, with by-right worded as what was actually checked (never "no hearing"). */
+export function verdictLabel(f: LabelInput): string {
+  return f.verdict === "by-right" ? ALLOWED_LABEL : libVerdictLabel(f);
+}
+
+/** Generic label per verdict, for places without a finding. */
+export function verdictWord(v: Verdict): string {
+  return verdictLabel({ verdict: v, reviewKind: null });
+}
+
+/** A lib reason phrase in the UI's vocabulary ("needs subsidy" reads as a modeled shortfall). */
+export function reasonText(r: string | null): string | null {
+  if (!r) return r;
+  return r === "needs subsidy" ? "modeled shortfall" : r;
+}
 
 const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 
@@ -25,17 +45,18 @@ export function answerHeadline(
   t: TriageResult | null,
   best: Finding | null,
   pf: Proforma | null,
-  lot?: Pick<Lot, "status" | "inventoryType"> | null,
+  lot?: (Pick<Lot, "status" | "inventoryType"> & Partial<Pick<Lot, "zoneAgrees">>) | null,
 ): { text: string; tone: AnswerTone } {
   if (!t || t.triage === "gray") return { text: "Not checked", tone: "none" };
   if (t.triage === "red") return { text: "Blocked", tone: "blocked" };
   if (t.triage === "green") return { text: "Passes the screen: candidate for staff review", tone: "ready" };
+  if (lot?.zoneAgrees === false && best?.verdict !== "prohibited") return { text: "District unconfirmed: confirm the zoning first", tone: "hearing" };
   if (best?.verdict === "variance" || best?.verdict === "review") return { text: verdictLabel(best), tone: "hearing" };
-  if (lot && !cityStatus(lot).available) return { text: "Allowed, but not for sale", tone: "money" };
-  if (lot && isParkOrGreenway(lot.inventoryType)) return { text: "Allowed, but not a disposition candidate", tone: "money" };
-  if (pf && !pf.pencils) return { text: "Allowed, needs subsidy", tone: "money" };
-  if (!pf) return { text: "Allowed; finance not checked", tone: "money" };
-  return { text: "Allowed, needs a check on site", tone: "money" };
+  if (lot && !cityStatus(lot).available) return { text: "Allowed by use table, but not for sale", tone: "money" };
+  if (lot && isParkOrGreenway(lot.inventoryType)) return { text: "Allowed by use table, but not a disposition candidate", tone: "money" };
+  if (pf && !pf.pencils) return { text: "Allowed by use table; modeled shortfall", tone: "money" };
+  if (!pf) return { text: "Allowed by use table; finance not checked", tone: "money" };
+  return { text: "Allowed by use table; needs a check on site", tone: "money" };
 }
 
 /** Margins above this read as an artifact of an index value, not a comp; flagged on the card. */
@@ -52,7 +73,7 @@ export interface Blocker {
 }
 
 export function blockerLine(
-  lot: Pick<Lot, "status" | "inventoryType">,
+  lot: Pick<Lot, "status" | "inventoryType"> & Partial<Pick<Lot, "zone" | "zoneMap" | "zoneAgrees">>,
   typology: Typology,
   finding: Pick<Finding, "verdict" | "checks"> | null,
   evidence: Pick<Evidence, "checks"> | null,
@@ -61,6 +82,8 @@ export function blockerLine(
   const state = (id: string) => evidence?.checks.find((c) => c.id === id)?.state;
   const useFails = finding?.verdict === "prohibited" || state("use") === "fail";
   if (useFails) return { text: `${name}: not allowed here (use)`, why: "allowed" };
+  if (lot.zoneAgrees === false)
+    return { text: `${name}: district unconfirmed (inventory ${lot.zone || "none"}, map ${lot.zoneMap ?? "other"})`, why: "allowed" };
   if (state("fit") === "fail") {
     const far = finding?.checks.some((c) => c.id === "far" && c.passed === false);
     return { text: `${name}: not buildable as proposed (${far ? "FAR" : "building fit"})`, why: "fits" };
@@ -75,8 +98,7 @@ export function blockerLine(
 
 export function financeLine(pf: Proforma | null): string | null {
   if (!pf) return null;
-  const basis = pf.mode === "rent" ? "at market rent" : "at market";
-  return pf.pencils ? `~${money(pf.margin)} margin (${Math.round(pf.marginPct)}%)` : `~${money(pf.gap)} short ${basis}`;
+  return pf.pencils ? `~${money(pf.margin)} margin (${Math.round(pf.marginPct)}%)` : `~${money(pf.gap)} modeled shortfall${pf.mode === "rent" ? " (rent)" : ""}`;
 }
 
 const STATUS: Record<string, string> = {
@@ -96,10 +118,10 @@ export function cityStatus(lot: Pick<Lot, "status">): { text: string; available:
   return { text: STATUS[k] ?? `${lot.status} (confirm availability)`, available: k === "available for sale" };
 }
 
-/** "house allowed, no hearing" or "house would still need staff approval (administrator exception)". */
+/** "house allowed by use table" or "house would still need staff approval (administrator exception)". */
 function outcome(f: Pick<Finding, "typology" | "verdict" | "reviewKind" | "checks">): string {
   const name = TYPOLOGY_LABEL[f.typology].toLowerCase();
-  return f.verdict === "by-right" ? `${name} allowed, no hearing` : `${name} would still need ${lowerFirst(verdictLabel(f))}`;
+  return f.verdict === "by-right" ? `${name} ${lowerFirst(ALLOWED_LABEL)}` : `${name} would still need ${lowerFirst(verdictLabel(f))}`;
 }
 
 /** Re-run the rules on the lot as it would be after one change, for the same home type. */
@@ -158,7 +180,7 @@ export function whatWouldChange(lot: Lot, findings: Finding[], chosen: Finding |
   }
   if (lot.lotAreaSqFt === null) out.push("A survey with the lot area → the lot-size checks resolve");
   if (pf && !pf.pencils && out.length < 2)
-    out.push(`Subsidy of ${money(pf.gap)}, or a ${pf.mode === "rent" ? "capitalized" : "sale"} value of ${money(pf.breakEvenValue)} → clears the cost-and-return screen`);
+    out.push(`Closing the ${money(pf.gap)} modeled shortfall, or a ${pf.mode === "rent" ? "capitalized" : "sale"} value of ${money(pf.breakEvenValue)} → clears the cost-and-return screen`);
   return out.slice(0, 2);
 }
 

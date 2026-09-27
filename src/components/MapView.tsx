@@ -96,7 +96,7 @@ const RINGED: ExpressionSpecification = ["==", ["get", "c"], 1];
 
 const STRIP_TRIAGE: Record<Triage, string> = {
   green: "Passes the screen",
-  yellow: "Needs review, data or subsidy",
+  yellow: "Needs review, data, or a modeled shortfall",
   red: "Blocked",
   gray: "Not checked",
 };

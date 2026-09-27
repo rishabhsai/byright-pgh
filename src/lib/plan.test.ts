@@ -130,6 +130,19 @@ describe.runIf(haveData)("buildPlan: Hazelwood", () => {
   });
 });
 
+describe.runIf(haveData)("buildPlan: citywide eligibility", () => {
+  it("drops the two recorded-available Greenways from the candidate cohort and the shortfall pool", () => {
+    const file = JSON.parse(readFileSync(LOTS, "utf8")) as LotsFile;
+    const compsFile = JSON.parse(readFileSync(COMPS, "utf8")) as CompsFile;
+    const lots = file.lots;
+    const comps = lots.map((l) => compsFor(l, compsFile));
+    const plan = wire(lots, comps);
+    for (const id of ["0116J00315000000", "0047N00323000000"]) expect(plan.rows.find((r) => r.parcel_id === id)!.candidate).toBe(false);
+    expect(plan.candidates.total).toBe(1_038);
+    expect(plan.candidates.byChannel).toEqual({ "Public Sale": 772, "URA Transfer": 257, "PLB Transfer": 9, Other: 0 });
+  }, 60_000);
+});
+
 describe.runIf(haveData)("plan exports", () => {
   it("writes the CSV with the 47 section 4 columns first, then the appended evidence, assumption and citation columns", () => {
     const { plan, lots } = hazelwood();
@@ -157,6 +170,13 @@ describe.runIf(haveData)("plan exports", () => {
     expect(md).toContain("Zillow Home Value Index");
     expect(md).toContain("Not a zoning determination or legal advice");
     expect(md).toMatch(/\$150\/sf/);
+  });
+
+  it("brief and CSV never use readiness, release, no-hearing, subsidy-need or pays-for-itself wording", () => {
+    const { plan } = hazelwood();
+    const text = `${toBrief(plan)}\n${toCsv(plan.rows)}`;
+    expect(text).not.toMatch(/\bready\b|releas|no hearing|needs subsidy|pays? for (it|them)sel/i);
+    expect(toBrief(plan)).toMatch(/may address the size standard only, if eligible and approved/);
   });
 
   it("the brief calls the list candidates for staff review and never promises readiness", () => {
@@ -211,10 +231,14 @@ describe("buildPlan: relief and Hillside counts", () => {
     expect(md).toMatch(/1 of them also need a use approval \(Hillside\) that relief does not remove/);
   });
 
-  it("an Other-channel record (Greenway) is a candidate only for review of its channel", () => {
+  it("a protected-purpose record (Greenway) stays searchable and exportable but never enters the candidate cohort", () => {
     const green = { ...testLot("0116J00315000000", "R1D-M", 6000), inventoryType: "Greenway" };
     const plan = wire([green], [null]);
-    expect(plan.rows[0].candidate).toBe(true);
+    expect(plan.rows).toHaveLength(1);
+    expect(plan.rows[0].candidate).toBe(false);
+    expect(plan.candidates.total).toBe(0);
+    expect(plan.funnel.byRight).toBe(1);
+    expect(plan.funnel.availableNoFlag).toBe(0);
     expect(plan.rows[0].next_action).toBe("Staff review: confirm disposition channel (inventory type Greenway); channel Other");
   });
 });

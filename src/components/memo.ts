@@ -1,5 +1,6 @@
 import type { Lot, RuleSet } from "@/lib/types";
-import { TYPOLOGY_LABEL, verdictLabel } from "@/lib/types";
+import { TYPOLOGY_LABEL } from "@/lib/types";
+import { verdictLabel } from "./ui/answer";
 import { RULESET_LABEL } from "@/lib/engine";
 import { fmtUsd } from "@/lib/finance";
 import { EVIDENCE_STATE_LABEL } from "@/lib/evidence";

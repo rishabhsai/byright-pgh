@@ -108,10 +108,19 @@ export function fmtUsdShort(n: number): string {
   return fmtUsd(n);
 }
 
-/** The inventory's district and the City zoning map disagree at the inventory point: the use result rests on an unconfirmed district. */
-export function zoneConflict(lot: Lot): string | null {
-  if (lot.zoneAgrees !== false) return null;
-  return `Inventory says ${lot.zone}; City zoning map says ${lot.zoneMap ?? "a different district"} at this point. Confirm district before relying on this.`;
+/**
+ * The inventory's district is not confirmed by the City zoning map: the two disagree at the inventory
+ * point, or no map district contains the point. Every result for the lot rests on the inventory district.
+ */
+export function districtUnconfirmed(lot: Pick<Lot, "zoneAgrees" | "zoneMap">): boolean {
+  return lot.zoneAgrees === false || lot.zoneMap === null;
+}
+
+/** Why the district is unconfirmed, in one sentence, or null when the map agrees (or was not compared). */
+export function zoneConflict(lot: Pick<Lot, "zone" | "zoneAgrees" | "zoneMap">): string | null {
+  if (!districtUnconfirmed(lot)) return null;
+  const map = lot.zoneMap === null ? "no City zoning map district contains this point" : `City zoning map says ${lot.zoneMap ?? "a different district"} at this point`;
+  return `Inventory says ${lot.zone || "no district"}; ${map}. Confirm district before relying on this.`;
 }
 
 function permittedUseCheck(lot: Lot, f: Finding): EvidenceCheck {
@@ -227,7 +236,13 @@ function fitCheck(lot: Lot, f: Finding): EvidenceCheck {
     : { ...base, state: "fail", detail: `FAR ${ratio}:1 caps floor area at ${cap} · ${sec}. The ${proposed} proposal does not fit.`, citation: far.citation };
 }
 
-function siteCheck(lot: Lot): EvidenceCheck {
+/** The lot's encoded district is a Hillside (H) district under the finding's rule set. */
+function isHillsideLot(lot: Lot, f: Finding): boolean {
+  const rs = find(f, "use")?.citation.ruleSet ?? "current";
+  return lookupDistrict(rs, lot.zone)?.family === "H";
+}
+
+function siteCheck(lot: Lot, f: Finding): EvidenceCheck {
   const base = { id: "site" as const, label: EVIDENCE_LABEL.site };
   const h = lot.hazards;
   const flags: string[] = [];
@@ -235,7 +250,8 @@ function siteCheck(lot: Lot): EvidenceCheck {
   if (h.undermined) flags.push("Undermined-area");
   if (h.floodZone) flags.push("FEMA flood zone");
   if (flags.length) {
-    const hillside = h.steepSlope ? "; H-district conditions in § 911.04.A.69(a)" : "";
+    // A slope flag alone does not make § 911.04.A.69 apply; only an H-district lot carries those conditions.
+    const hillside = h.steepSlope && isHillsideLot(lot, f) ? "; H-district conditions in § 911.04.A.69(a)" : "";
     return {
       ...base,
       state: "fail",
@@ -256,10 +272,16 @@ function siteCheck(lot: Lot): EvidenceCheck {
   };
 }
 
-function financeCheck(lot: Lot, f: Finding, pf: Proforma | null, comps: Comps | null): EvidenceCheck {
+export const FINANCE_NOT_BUILDABLE = "Not screened: proposal not buildable as checked";
+
+/**
+ * Finance is screened only for a proposal the other checks let stand: when Fit fails, or Use fails or is
+ * Unknown (not permitted, needs an exception, district unconfirmed, not evaluated), it is Not checked.
+ */
+function financeCheck(lot: Lot, pf: Proforma | null, comps: Comps | null, use: EvidenceCheck, fit: EvidenceCheck): EvidenceCheck {
   const base = { id: "finance" as const, label: EVIDENCE_LABEL.finance };
-  if (!pf && (f.verdict === "prohibited" || f.verdict === "unknown")) {
-    return { ...base, state: "unknown", detail: "Not screened: the proposal is not permitted or not evaluated here." };
+  if (fit.state === "fail" || use.state === "fail" || use.state === "unknown") {
+    return { ...base, state: "notChecked", detail: FINANCE_NOT_BUILDABLE };
   }
   if (!pf || !comps) {
     return { ...base, state: "unknown", detail: `No Zillow series for ${lot.neighborhood || "this lot"}; finance not screened.` };
@@ -322,7 +344,9 @@ export function deriveEvidence(
     unresolved: [],
     reviewKind: null,
   };
-  const checks = [permittedUseCheck(lot, finding), lotSizeCheck(lot, finding), widthCheck(lot, finding), fitCheck(lot, finding), siteCheck(lot), financeCheck(lot, finding, proforma, comps)];
+  const use = permittedUseCheck(lot, finding);
+  const fit = fitCheck(lot, finding);
+  const checks = [use, lotSizeCheck(lot, finding), widthCheck(lot, finding), fit, siteCheck(lot, finding), financeCheck(lot, proforma, comps, use, fit)];
   const counts: EvidenceCounts = { pass: 0, fail: 0, unknown: 0, notChecked: 0 };
   for (const c of checks) counts[c.state]++;
   const needsApproval =
@@ -333,15 +357,108 @@ export function deriveEvidence(
   return { checks, counts, passed: counts.pass, total: 6, needsApproval, unresolved: unresolvedRequirements(finding) };
 }
 
-export type YellowReason = "needs subsidy" | "needs a hearing or staff approval" | "unknowns to resolve";
+/** Every open review item's kind, in the order staff clear them (see openItems). */
+export type OpenItemId =
+  | "district-conflict"
+  | "status"
+  | "use-approval"
+  | "relief"
+  | "survey-area"
+  | "survey-width"
+  | "sliver"
+  | "site"
+  | "finance"
+  | "fit"
+  | "parking"
+  | "unverified";
+
+/** One open review item on a lot's selected proposal. `label` is a sentence-case action. */
+export interface OpenItem {
+  id: OpenItemId;
+  label: string;
+}
+
+const REVIEW_ROUTE = {
+  administrator: "Use needs staff approval (administrator exception), § 922.08",
+  special: "Use needs Board approval (special exception), § 922.07",
+} as const;
+
+const DISPOSITION_CHANNELS = new Set(["Public Sale", "URA Transfer", "PLB Transfer"]);
+
+/** "Resolve district: inventory R2-VH vs map UPR-B". */
+export function districtAction(lot: Pick<Lot, "zone" | "zoneMap">): string {
+  return `Resolve district: inventory ${lot.zone || "none"} vs map ${lot.zoneMap ?? "none at the point"}`;
+}
+
+/**
+ * Open review items for one proposal, in the order staff clear them: the district first (every other
+ * result rests on it), then recorded channel and status, use approval, failed standards, missing survey
+ * data, the screening floor, site flags, finance, fit, and requirements outside the six checks (parking).
+ * Reads only fields the worker's slimmed findings and evidence keep. `proforma` supplies the shortfall figure.
+ */
+export function openItems(
+  lot: Lot,
+  finding: Pick<Finding, "reviewKind" | "checks">,
+  evidence: Pick<Evidence, "checks" | "unresolved">,
+  proforma?: Pick<Proforma, "gap"> | null,
+): OpenItem[] {
+  const items: OpenItem[] = [];
+  const state = (id: EvidenceId) => evidence.checks.find((c) => c.id === id)?.state;
+  if (districtUnconfirmed(lot)) items.push({ id: "district-conflict", label: districtAction(lot) });
+  if (!DISPOSITION_CHANNELS.has(lot.inventoryType)) {
+    items.push({ id: "status", label: `Confirm disposition channel (inventory type ${lot.inventoryType || "not recorded"})` });
+  }
+  if (lot.status !== "Available for Sale") items.push({ id: "status", label: `Confirm status (${lot.status || "not recorded"})` });
+  if (finding.reviewKind) items.push({ id: "use-approval", label: REVIEW_ROUTE[finding.reviewKind] });
+  const failed = new Set(finding.checks.filter((c) => c.passed === false).map((c) => c.id));
+  if (failed.has("lot-area") || failed.has("lot-area-per-unit")) items.push({ id: "relief", label: "Lot-size relief (variance or § 921.04 exception)" });
+  if (failed.has("lot-width")) items.push({ id: "relief", label: "Lot-width relief (variance or § 921.04 exception)" });
+  if (failed.has("far")) items.push({ id: "relief", label: "FAR relief (smaller building or variance)" });
+  if (state("lotSize") === "unknown") items.push({ id: "survey-area", label: "Survey lot area" });
+  if (state("width") === "unknown") items.push({ id: "survey-width", label: "Survey width" });
+  if (lot.lotAreaSqFt !== null && lot.lotAreaSqFt < MIN_PRACTICAL_LOT_SQFT) {
+    items.push({ id: "sliver", label: `Below the ${fmtNum(MIN_PRACTICAL_LOT_SQFT)} sf screening floor (consolidation not assessed)` });
+  }
+  const h = lot.hazards;
+  const flags = [h.steepSlope && "slope", h.undermined && "undermining", h.floodZone && "flood"].filter(Boolean);
+  if (flags.length) items.push({ id: "site", label: `Site review (${flags.join(", ")} flag)` });
+  else if (state("site") === "unknown") items.push({ id: "site", label: "Flood screening missing" });
+  if (state("finance") === "fail") {
+    items.push({ id: "finance", label: `Financing review (modeled shortfall${proforma ? ` ${fmtUsd(proforma.gap)}` : ""})` });
+  } else if (state("finance") === "unknown") items.push({ id: "finance", label: "Finance not screened" });
+  if (state("fit") === "notChecked") items.push({ id: "fit", label: "Fit not checked" });
+  for (const u of evidence.unresolved ?? []) {
+    items.push({ id: u.id === "parking" ? "parking" : "unverified", label: `${u.label} not verified` });
+  }
+  return items;
+}
+
+/** The one open item a lot's next action names: the district when it is unconfirmed, else the first of openItems. */
+export function firstOpenItem(
+  lot: Lot,
+  finding: Pick<Finding, "reviewKind" | "checks">,
+  evidence: Pick<Evidence, "checks" | "unresolved">,
+  proforma?: Pick<Proforma, "gap"> | null,
+): OpenItem | null {
+  return openItems(lot, finding, evidence, proforma)[0] ?? null;
+}
+
+export type YellowReason =
+  | "district unconfirmed"
+  | "modeled shortfall to target return"
+  | "needs a hearing or staff approval"
+  | "unknowns to resolve"
+  /** @deprecated No longer returned; read "modeled shortfall to target return". Kept so existing comparisons compile. */
+  | "needs subsidy";
 
 /** One phrase for why a Yellow lot is Yellow, in the order a disposition analyst clears them. */
-export function yellowReason(triage: TriageResult | null, evidence: Evidence): YellowReason | null {
+export function yellowReason(triage: TriageResult | null, evidence: Evidence, lot?: Pick<Lot, "zoneAgrees" | "zoneMap">): YellowReason | null {
   if (!triage || triage.triage !== "yellow") return null;
-  if (evidence.needsApproval) return "needs a hearing or staff approval";
   const state = (id: EvidenceId) => evidence.checks.find((c) => c.id === id)?.state;
+  if (lot && districtUnconfirmed(lot) && state("use") !== "fail") return "district unconfirmed";
+  if (evidence.needsApproval) return "needs a hearing or staff approval";
   if (evidence.checks.some((c) => c.id !== "finance" && (c.state === "unknown" || c.state === "fail"))) return "unknowns to resolve";
-  if (state("finance") === "fail") return "needs subsidy";
+  if (state("finance") === "fail") return "modeled shortfall to target return";
   return "unknowns to resolve";
 }
 

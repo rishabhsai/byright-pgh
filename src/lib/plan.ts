@@ -1,5 +1,4 @@
 import type { Citation, Comps, Finding, Lot, RuleSet, TriageResult, Typology } from "./types";
-import { REVIEW_KIND_LABEL } from "./types";
 import { lookupDistrict, normalizeZone, RULESET_LABEL, TYPOLOGY_ORDER, TYPOLOGY_USE_ROW, UNENCODED_DISTRICT_NAME } from "./rules";
 import {
   fmtNum,
@@ -12,8 +11,10 @@ import {
   type Proforma,
   type RevenueMode,
 } from "./proforma";
-import { hasHazardFlag, isAvailable } from "./ranking";
+import { hasHazardFlag, isAvailable, isDispositionEligible } from "./ranking";
 import {
+  districtUnconfirmed,
+  firstOpenItem,
   fmtUsdShort,
   MIN_PRACTICAL_LOT_SQFT,
   pickFinding,
@@ -102,6 +103,7 @@ export interface Funnel {
   records: number;
   encoded: number;
   byRight: number;
+  /** Recorded available, disposition-eligible (isDispositionEligible), no hazard flag. */
   availableNoFlag: number;
   atLeast1000: number;
   pencil: number;
@@ -140,7 +142,13 @@ export interface Plan {
   assumptions: FinanceAssumptions;
   funnel: Funnel;
   /** Candidates for staff review, split by recorded channel and by screened type. */
-  candidates: { total: number; byChannel: Record<Channel, number>; byType: Partial<Record<Typology, number>> };
+  candidates: {
+    total: number;
+    byChannel: Record<Channel, number>;
+    byType: Partial<Record<Typology, number>>;
+    /** Candidates whose inventory district the zoning map does not confirm; their next action resolves the district. */
+    districtUnconfirmed: number;
+  };
   gap: Gap | null;
   /** Lots whose most permissive option fails only a lot-size standard. */
   needsRelief: number;
@@ -219,14 +227,14 @@ function zoneName(zone: string, rs: RuleSet): string {
 function candidateStage(lot: Lot, fs: Finding[], typology: Typology | null): number {
   if (!isEncoded(fs)) return 1;
   if (!byRightFor(fs, typology)) return 2;
-  if (!isAvailable(lot) || hasHazardFlag(lot)) return 3;
+  if (!isAvailable(lot) || !isDispositionEligible(lot) || hasHazardFlag(lot)) return 3;
   if (lot.lotAreaSqFt === null || lot.lotAreaSqFt < MIN_PRACTICAL_LOT_SQFT) return 4;
   return 5;
 }
 
 /**
  * Candidate for staff review: by right (for the Home type filter, or any type), recorded Available for Sale,
- * no hazard flag at the inventory point, at least 1,000 sf. Open items (fit, parking, finance, unknowns,
+ * disposition-eligible (not a protected-purpose or privately owned record: isDispositionEligible), no hazard flag at the inventory point, at least 1,000 sf. Open items (fit, parking, finance, unknowns,
  * channel) stay on the row as its next action; this is a review queue, not a release list.
  */
 export function isCandidateLot(lot: Lot, findings: Finding[], typology: Typology | null): boolean {
@@ -246,41 +254,17 @@ function scopeLabel(scope: PlanScope): string {
 const round = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? "" : Math.round(n));
 
 const lowerFirst = (x: string) => x.charAt(0).toLowerCase() + x.slice(1);
-const ROUTE_SECTION = { administrator: "§ 922.08", special: "§ 922.07" } as const;
 
 /**
- * Open review items for one row, in the order staff clear them: channel and status, use approval, failed
- * standards, missing data, site, finance, fit, then requirements outside the six checks (parking).
+ * The row's next action, from the shared first open item (evidence.ts firstOpenItem): "Resolve district:
+ * inventory R2-VH vs map UPR-B" when the district is unconfirmed, else "Staff review: <first open item>;
+ * channel <recorded channel>". Never an instruction to offer the lot.
  */
-function reviewItems(lot: Lot, f: Finding, ev: Evidence, pf: Proforma | null): string[] {
-  const items: string[] = [];
-  const state = (id: EvidenceId) => ev.checks.find((c) => c.id === id)?.state;
-  if (channelOf(lot) === "Other") items.push(`confirm disposition channel (inventory type ${lot.inventoryType || "not recorded"})`);
-  if (!isAvailable(lot)) items.push(`confirm status (${lot.status || "not recorded"})`);
-  if (f.reviewKind) items.push(`use needs ${lowerFirst(REVIEW_KIND_LABEL[f.reviewKind])}, ${ROUTE_SECTION[f.reviewKind]}`);
-  const failed = new Set(f.checks.filter((c) => c.passed === false).map((c) => c.id));
-  if (failed.has("lot-area") || failed.has("lot-area-per-unit")) items.push("lot-size relief (variance or § 921.04 exception)");
-  if (failed.has("lot-width")) items.push("lot-width relief (variance or § 921.04 exception)");
-  if (failed.has("far")) items.push("FAR relief (smaller building or variance)");
-  if (state("lotSize") === "unknown") items.push("survey lot area");
-  if (state("width") === "unknown") items.push("survey width");
-  const sliver = lot.lotAreaSqFt !== null && lot.lotAreaSqFt < MIN_PRACTICAL_LOT_SQFT;
-  if (sliver) items.push(`below the ${fmtNum(MIN_PRACTICAL_LOT_SQFT)} sf screening floor (consolidation not assessed)`);
-  const flags = [lot.hazards.steepSlope && "slope", lot.hazards.undermined && "undermining", lot.hazards.floodZone && "flood"].filter(Boolean);
-  if (flags.length) items.push(`site review (${flags.join(", ")} flag)`);
-  else if (state("site") === "unknown") items.push("flood screening missing");
-  if (state("finance") === "fail" && pf) items.push(`financing review (modeled shortfall ${fmtUsd(pf.gap)})`);
-  else if (state("finance") === "unknown") items.push("finance not screened");
-  if (state("fit") === "notChecked") items.push("fit not checked");
-  for (const u of ev.unresolved ?? []) items.push(`${u.label.toLowerCase()} not verified`);
-  return items;
-}
-
-/** "Staff review: <first open item>; channel <recorded channel>". Never an instruction to offer the lot. */
 function nextAction(lot: Lot, f: Finding, ev: Evidence, pf: Proforma | null, triage: TriageResult | null): string {
   if (f.verdict === "unknown" || f.verdict === "prohibited" || triage?.triage === "red") return "";
-  const first = reviewItems(lot, f, ev, pf)[0];
-  return `Staff review${first ? `: ${first}` : ""}; channel ${channelOf(lot)}`;
+  const first = firstOpenItem(lot, f, ev, pf);
+  if (first?.id === "district-conflict") return first.label;
+  return `Staff review${first ? `: ${lowerFirst(first.label)}` : ""}; channel ${channelOf(lot)}`;
 }
 
 /** Every requirement this row leaves open: unknown and not-checked checks, unverified requirements, site limits. */
@@ -372,6 +356,13 @@ function billSentence(t: BillTally, ready: Record<RuleSet, number>): string {
   return `If Bill 2025-1545 passes: ${adu}; ${parking}.${count}`;
 }
 
+/** One grouped open item for candidates whose inventory district the zoning map does not confirm. */
+export const DISTRICT_OPEN_ITEM = {
+  label: "District",
+  detail:
+    "The inventory district and the City zoning map disagree at the inventory point (or no map district contains it). Resolve the district before relying on the use result; the next action on each row names both districts.",
+} as const;
+
 export function buildPlan(
   lots: Lot[],
   evals: Record<RuleSet, { findings: Finding[][] }>,
@@ -393,6 +384,7 @@ export function buildPlan(
   const funnel: Funnel = { records: 0, encoded: 0, byRight: 0, availableNoFlag: 0, atLeast1000: 0, pencil: 0 };
   const byChannel: Record<Channel, number> = { "Public Sale": 0, "URA Transfer": 0, "PLB Transfer": 0, Other: 0 };
   const byType: Partial<Record<Typology, number>> = {};
+  let districtOpen = 0;
   let needsRelief = 0;
   let needsReliefWithApproval = 0;
   let hillsideReview = 0;
@@ -445,8 +437,13 @@ export function buildPlan(
       }
       byChannel[channelOf(lot)]++;
       byType[f.typology] = (byType[f.typology] ?? 0) + 1;
+      const disputed = districtUnconfirmed(lot);
+      if (disputed) districtOpen++;
       const items = [
-        ...ev.checks.filter((c) => c.state === "unknown" || c.state === "notChecked").map((c) => ({ label: c.label, state: c.state, detail: c.detail })),
+        ...(disputed ? [{ label: DISTRICT_OPEN_ITEM.label, state: "unknown" as EvidenceState, detail: DISTRICT_OPEN_ITEM.detail }] : []),
+        ...ev.checks
+          .filter((c) => (c.state === "unknown" || c.state === "notChecked") && !(disputed && c.id === "use"))
+          .map((c) => ({ label: c.label, state: c.state, detail: c.detail })),
         ...(ev.unresolved ?? []).map((u) => ({ label: u.label, state: "unknown" as EvidenceState, detail: u.detail })),
       ];
       for (const c of items) {
@@ -601,7 +598,7 @@ export function buildPlan(
     generatedAt,
     assumptions,
     funnel,
-    candidates: { total: funnel.atLeast1000, byChannel, byType },
+    candidates: { total: funnel.atLeast1000, byChannel, byType, districtUnconfirmed: districtOpen },
     gap,
     needsRelief,
     needsReliefWithApproval,
@@ -610,7 +607,8 @@ export function buildPlan(
     billLine,
     shortlist,
     rows,
-    openItems: [...open.values()].sort((a, b) => b.count - a.count),
+    // The district leads: every other item rests on it.
+    openItems: [...open.values()].sort((a, b) => Number(b.label === DISTRICT_OPEN_ITEM.label) - Number(a.label === DISTRICT_OPEN_ITEM.label) || b.count - a.count),
     sources: opts.sources ?? [],
   };
 }
@@ -627,7 +625,7 @@ export function toCsv(rows: PlanRow[]): string {
 }
 
 export function funnelLine(f: Funnel): string {
-  return `${fmtNum(f.records)} lots → ${fmtNum(f.encoded)} in encoded districts → ${fmtNum(f.byRight)} by right → ${fmtNum(f.availableNoFlag)} no hazard flag and available → ${fmtNum(f.atLeast1000)} ≥ 1,000 sf (candidates for staff review) → ${fmtNum(f.pencil)} clear the cost-and-return screen`;
+  return `${fmtNum(f.records)} lots → ${fmtNum(f.encoded)} in encoded districts → ${fmtNum(f.byRight)} by right → ${fmtNum(f.availableNoFlag)} recorded available, disposition-eligible, no hazard flag → ${fmtNum(f.atLeast1000)} ≥ 1,000 sf (candidates for staff review) → ${fmtNum(f.pencil)} clear the cost-and-return screen`;
 }
 
 const VALUE_WORD: Record<Gap["valueMode"], string> = { sale: "sale value", rent: "capitalized value", mixed: "value (sale or capitalized)" };
@@ -658,6 +656,11 @@ export function rowChecks(r: PlanRow): string {
   return summary({ counts: { pass, fail: 6 - pass - unknown - notChecked, unknown, notChecked } });
 }
 
+function districtLine(n: number): string {
+  if (!n) return "";
+  return ` ${fmtNum(n)} of them ${n === 1 ? "has" : "have"} an unresolved district (inventory and zoning map disagree); ${n === 1 ? "its" : "their"} first action is to resolve it.`;
+}
+
 export function toBrief(plan: Plan): string {
   const L: string[] = [];
   const f = plan.funnel;
@@ -671,7 +674,7 @@ export function toBrief(plan: Plan): string {
 
   L.push("## Candidates for staff review", "");
   L.push(
-    `${fmtNum(plan.candidates.total)} lots are candidates for staff review: a small home type is allowed by right under the checks we ran, the lot is recorded Available for Sale, no hazard flag at the inventory point, and at least 1,000 sf. This is a review queue, not a release list; each row's next action names its first open item.`,
+    `${fmtNum(plan.candidates.total)} lots are candidates for staff review: a small home type is allowed by the use table and lot-size standards under the inventory district (other standards not checked), the lot is recorded Available for Sale and not a protected-purpose record, no hazard flag at the inventory point, and at least 1,000 sf. This is a review queue, not a disposition list; each row's next action names its first open item.${districtLine(plan.candidates.districtUnconfirmed)}`,
     "",
   );
   L.push(`- By recorded channel: ${CHANNELS.map((c) => `${c} ${fmtNum(plan.candidates.byChannel[c])}`).join(" · ")}`);
@@ -694,7 +697,7 @@ export function toBrief(plan: Plan): string {
 
   L.push("## Needs relief", "");
   L.push(
-    `${fmtNum(plan.needsRelief)} lots fail only lot size; ${fmtNum(plan.needsReliefWithApproval)} of them also need a use approval (Hillside) that relief does not remove. Consolidation or a § 921.04 exception would address the size standard only; status, site and finance would still need review. Adjacent City lots are not computed.`,
+    `${fmtNum(plan.needsRelief)} lots fail only lot size; ${fmtNum(plan.needsReliefWithApproval)} of them also need a use approval (Hillside) that relief does not remove. Consolidation or a § 921.04 exception may address the size standard only, if eligible and approved; status, site and finance would still need review. Adjacent City lots are not computed.`,
     "",
   );
 
