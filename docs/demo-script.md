@@ -2,7 +2,7 @@
 
 _Numbers from the Sept 27, 2026 build: current code, Any home type, sale mode, $225/sf plus a $35,000 site-work allowance per project, no land overrides. Replace [names]. Target 3:20–3:50 with pauses._
 
-**Open the app.** AI for Housing Hackathon, Track One. We're [names]. ByRight PGH helps Pittsburgh disposition staff decide which public lots deserve review, what financial assumptions need checking, and which zoning changes would matter. AI helped extract the zoning text into inspectable rule tables; rules and arithmetic make every decision.
+**Open the app.** AI for Housing Hackathon, Track One. We're [names]. On Saturday the hackathon's housing mentors told teams two things: developers check whether a project pencils before chasing a variance, and cost above value is the biggest blocker. ByRight PGH is built around both. It helps Pittsburgh disposition staff decide which public lots deserve review, what financial assumptions need checking, and which zoning changes would matter. AI helped extract the zoning text into inspectable rule tables; rules and arithmetic make every decision.
 
 **Plan tab, pick Hazelwood, Escape, open reading view.** Start with Hazelwood. Seven hundred ninety-seven inventory records become one hundred six candidates for staff review: ninety-eight recorded as URA Transfer, eight as Public Sale. Each candidate carries its next review action in the export.
 
