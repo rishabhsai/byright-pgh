@@ -64,11 +64,11 @@ const STATUS_LABEL: Record<StatusGroup, string> = {
 
 function Switch({ checked, onChange, children }: { checked: boolean; onChange: (v: boolean) => void; children: ReactNode }) {
   return (
-    <label className="flex cursor-pointer items-center gap-2 py-1 text-[12px] text-ink select-none">
+    <label className="flex cursor-pointer items-center gap-2 py-1 text-callout text-ink select-none">
       <input type="checkbox" role="switch" checked={checked} onChange={(e) => onChange(e.target.checked)} className="peer sr-only" />
       <span
         aria-hidden
-        className="relative inline-flex h-[18px] w-[30px] shrink-0 items-center rounded-full bg-[#cfd3cc] transition-colors peer-checked:bg-v-byright peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent after:absolute after:left-[2px] after:h-[14px] after:w-[14px] after:rounded-full after:bg-white after:shadow-[0_1px_2px_rgba(0,0,0,.2)] after:transition-transform peer-checked:after:translate-x-[12px]"
+        className="relative inline-flex h-6 w-10 shrink-0 items-center rounded-full bg-control-edge transition-colors peer-checked:bg-v-byright peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-accent after:absolute after:left-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow-thumb after:transition-transform peer-checked:after:translate-x-4"
       />
       {children}
     </label>
@@ -149,7 +149,7 @@ function filterSummary(f: Filters): string {
 /** A list row's footprint, for skeletons: same padding, two text lines, dot column. */
 function SkeletonRow() {
   return (
-    <li aria-hidden className="flex items-start gap-2 rounded-md px-2 py-2">
+    <li aria-hidden className="flex items-start gap-2 rounded-control px-2 py-2">
       <span className="mt-px h-4 w-[18px] animate-pulse rounded-[4px] bg-surface" />
       <span className="min-w-0 flex-1">
         <span className="block h-[18px] py-[3px]">
@@ -298,8 +298,8 @@ function LeftRail({
   };
 
   return (
-    <aside className="flex w-[344px] shrink-0 flex-col border-r border-hairline bg-panel">
-      <div className="space-y-2 px-4 pt-3 pb-2">
+    <aside className="flex w-rail shrink-0 flex-col border-r border-hairline bg-panel">
+      <div className="shrink-0 space-y-4 px-panel pt-panel pb-4">
         <SearchBox lots={lots} onPick={onSelect} onScope={(h) => set("neighborhoods", [h])} triage={searchTriage} matches={matches} selectedIdx={selectedIdx} />
         <Segmented<Tab>
           kind="tabs"
@@ -316,22 +316,22 @@ function LeftRail({
 
       {tab === "plan" ? (
         <div role="tabpanel" aria-label="Plan" data-scroll className="scroll-thin relative min-h-0 flex-1 overflow-y-auto">
-          <div className="border-b border-hairline px-4 pt-2 pb-3">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="font-serif text-[22px] leading-none">Disposition plan</h2>
+          <div className="border-b border-hairline px-panel pt-2 pb-panel">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-title">Disposition plan</h2>
               {onReadPlan && evals && triages && evidence && (
                 <button
                   onClick={onReadPlan}
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-hairline bg-white px-2 py-1 text-[12px] font-medium text-ink transition-colors hover:bg-surface active:scale-[0.98]"
+                  className="button-secondary shrink-0 gap-1.5 text-caption"
                 >
-                  <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden>
-                    <path d="M7.5 1H11v3.5M4.5 11H1V7.5M11 1L7 5M1 11l4-4" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                  <svg width="16" height="16" viewBox="0 0 12 12" aria-hidden>
+                    <path d="M7.5 1H11v3.5M4.5 11H1V7.5M11 1L7 5M1 11l4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                   Open in reading view
                 </button>
               )}
             </div>
-            <p className="mt-1.5 text-[13px] leading-[18px] text-muted">
+            <p className="mt-1.5 text-callout text-muted">
               Which City lots pass the use-table and lot-size screen, through which channel, and the modeled shortfall per project.
               Scope follows the neighborhood filter.
             </p>
@@ -342,16 +342,16 @@ function LeftRail({
           {plan ? (
             plan
           ) : (
-            <div aria-hidden className="space-y-3 px-4 pt-3">
+            <div aria-hidden className="space-y-4 px-panel pt-4">
               {[72, 120, 150].map((h) => (
-                <div key={h} className="animate-pulse rounded-lg bg-surface" style={{ height: h }} />
+                <div key={h} className="animate-pulse rounded-card bg-surface" style={{ height: h }} />
               ))}
             </div>
           )}
         </div>
       ) : (
         <>
-          <div className="border-b border-hairline px-4 pb-2">
+          <div className="scroll-thin min-h-0 shrink overflow-y-auto border-b border-hairline px-panel pb-4">
             <button
               type="button"
               aria-expanded={filtersOpen}
@@ -359,20 +359,20 @@ function LeftRail({
               onClick={() => setFiltersOpen((o) => !o)}
               className="flex h-8 w-full items-center gap-2 text-left"
             >
-              <svg width="10" height="10" viewBox="0 0 12 12" aria-hidden className={`shrink-0 text-muted transition-transform ${filtersOpen ? "" : "-rotate-90"}`}>
-                <path d="M3 4.5l3 3 3-3" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" />
+              <svg width="16" height="16" viewBox="0 0 12 12" aria-hidden className={`shrink-0 text-muted transition-transform ${filtersOpen ? "" : "-rotate-90"}`}>
+                <path d="M3 4.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />
               </svg>
-              <span className="text-[13px] font-medium text-ink">Filters</span>
-              {!filtersOpen && <span className="min-w-0 flex-1 truncate text-[12px] text-muted">{filterSummary(filters)}</span>}
+              <span className="text-callout font-medium text-ink">Filters</span>
+              {!filtersOpen && <span className="min-w-0 flex-1 truncate text-caption text-muted">{filterSummary(filters)}</span>}
             </button>
 
             <div id={filtersId} hidden={!filtersOpen} className="pb-1">
-              <p className="text-[12px] leading-4 text-muted">
+              <p className="text-caption text-muted">
                 Ranked: available for sale first, then by right, no hazard flag, at least 1,000 sf, lowest modeled shortfall.
               </p>
 
-              <div className="mt-2.5">
-                <span className="mb-1 block text-[11px] text-muted">Triage</span>
+              <div className="mt-4">
+                <span className="mb-1 block text-caption text-muted">Triage</span>
                 <Segmented<Filters["triage"]>
                   label="Triage filter"
                   value={filters.triage}
@@ -390,12 +390,12 @@ function LeftRail({
                 />
               </div>
 
-              <div className="mt-2.5">
+              <div className="mt-4">
                 <NeighborhoodPicker options={hoodOptions} selected={filters.neighborhoods} onChange={(v) => set("neighborhoods", v)} />
               </div>
 
-              <div className="mt-2.5">
-                <span className="mb-1 block text-[11px] text-muted">Home type</span>
+              <div className="mt-4">
+                <span className="mb-1 block text-caption text-muted">Home type</span>
                 <Segmented<Filters["typology"]>
                   label="Home type"
                   value={filters.typology}
@@ -408,17 +408,16 @@ function LeftRail({
                 />
               </div>
 
-              <div className="mt-2.5 grid grid-cols-[1fr_auto] items-end gap-x-4">
+              <div className="mt-4 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-x-3">
                 <div>
-                  <label htmlFor="status-filter" className="mb-1 block text-[11px] text-muted">
+                  <label htmlFor="status-filter" className="mb-1 block text-caption text-muted">
                     Status
                   </label>
                   <select
                     id="status-filter"
                     value={filters.status}
                     onChange={(e) => set("status", e.target.value as Filters["status"])}
-                    className="h-7 w-full rounded-[6px] border border-hairline bg-white px-2 text-[13px] text-ink focus:border-accent/60 focus:ring-2 focus:ring-accent/15"
-                    style={{ outline: "none" }}
+                    className="input-field w-full"
                   >
                     <option value="">Any</option>
                     {STATUS_GROUPS.map((g) => (
@@ -434,14 +433,14 @@ function LeftRail({
               </div>
 
               <details className="group mt-1.5" open={advancedOn || undefined}>
-                <summary className="cursor-pointer py-1 text-[12px] text-muted select-none hover:text-ink">Advanced</summary>
+                <summary className="cursor-pointer py-1 text-caption text-muted select-none hover:text-ink">Advanced</summary>
                 <div className="mt-1.5 space-y-2">
                   <div>
-                    <label htmlFor="min-lot-area" className="mb-1 block text-[11px] text-muted">
+                    <label htmlFor="min-lot-area" className="mb-1 block text-caption text-muted">
                       Min lot area
                     </label>
                     <div className="flex items-center gap-2">
-                      <div className="flex w-[104px] items-center rounded-md border border-hairline bg-white focus-within:border-accent/60 focus-within:ring-2 focus-within:ring-accent/15">
+                      <div className="input-shell flex w-24 shrink-0 items-center">
                         <input
                           id="min-lot-area"
                           inputMode="numeric"
@@ -449,10 +448,10 @@ function LeftRail({
                           value={filters.minArea ? filters.minArea.toLocaleString() : ""}
                           placeholder="Any"
                           onChange={(e) => set("minArea", Number(e.target.value.replace(/[^\d]/g, "").slice(0, 7)) || 0)}
-                          className="w-full min-w-0 bg-transparent py-1 pl-2 text-[12px] tabular-nums placeholder:text-faint"
+                          className="w-full min-w-0 bg-transparent py-1 pl-2 text-caption tabular-nums placeholder:text-faint"
                           style={{ outline: "none" }}
                         />
-                        <span className="pr-2 pl-1 text-[11px] text-faint select-none">sf</span>
+                        <span className="pr-2 pl-1 text-caption text-faint select-none">sf</span>
                       </div>
                       <div className="flex gap-1" role="group" aria-label="Lot area presets">
                         {AREA_PRESETS.map((p) => {
@@ -463,10 +462,10 @@ function LeftRail({
                               title={p.title}
                               aria-pressed={on}
                               onClick={() => set("minArea", p.sf)}
-                              className={`rounded border px-1.5 py-px text-[11px] tabular-nums transition-colors ${
+                              className={`rounded-full px-2 py-1 text-caption tabular-nums transition-colors ${
                                 on
-                                  ? "border-accent/40 bg-accent-soft font-medium text-accent"
-                                  : "border-hairline bg-white text-muted hover:border-[#bfc4bd] hover:text-ink"
+                                  ? "bg-accent-soft font-medium text-accent"
+                                  : "bg-control text-muted hover:bg-track hover:text-ink"
                               }`}
                             >
                               {p.sf ? p.sf.toLocaleString() : "Any"}
@@ -483,11 +482,11 @@ function LeftRail({
               </details>
 
               <div className="mt-2 border-t border-hairline pt-2">
-                <h3 className="text-[12px] font-medium text-ink">
+                <h3 className="text-caption font-medium text-ink">
                   Neighborhoods with the most review candidates
                   {typology && <span className="text-muted">, {TYPOLOGY_SHORT[typology]}</span>}
                 </h3>
-                <p className="mt-0.5 text-[11px] text-faint">Pass the use table, for sale, no hazard flag, at least 1,000 sf</p>
+                <p className="mt-0.5 text-caption text-faint">Pass the use table, for sale, no hazard flag, at least 1,000 sf</p>
                 <ol className="mt-1.5 space-y-1">
                   {loading &&
                     [92, 80, 70, 64, 58].map((w) => (
@@ -495,20 +494,20 @@ function LeftRail({
                         <span className="block h-full animate-pulse rounded-sm bg-surface" style={{ width: `${w}%` }} />
                       </li>
                     ))}
-                  {!loading && readyHoods.length === 0 && <li className="text-[12px] text-muted">No review candidates under this rule set.</li>}
+                  {!loading && readyHoods.length === 0 && <li className="text-caption text-muted">No review candidates under this rule set.</li>}
                   {readyHoods.map((h) => (
                     <li key={h.name}>
                       <button
                         onClick={() => toggleHood(h.name)}
                         aria-pressed={filters.neighborhoods.includes(h.name)}
                         title={filters.neighborhoods.includes(h.name) ? `Remove ${h.name} from the filter` : `Add ${h.name} to the filter`}
-                        className={`group relative flex w-full items-center gap-2 rounded px-1.5 py-0.5 text-left text-[12px] ${
+                        className={`group relative flex w-full items-center gap-2 rounded px-1.5 py-0.5 text-left text-caption ${
                           filters.neighborhoods.includes(h.name) ? "bg-accent-soft font-medium" : "hover:bg-surface"
                         }`}
                       >
                         <span
                           aria-hidden
-                          className="absolute inset-y-0.5 left-0 rounded-sm bg-v-byright/10 transition-[width] duration-500"
+                          className="absolute inset-y-0.5 left-0 rounded-sm bg-control transition-[width] duration-200"
                           style={{ width: `${(h.n / maxHood) * 100}%` }}
                         />
                         <span className="relative flex-1 truncate">{h.name}</span>
@@ -521,9 +520,9 @@ function LeftRail({
             </div>
           </div>
 
-          <div className="flex min-h-9 items-center justify-between gap-2 px-4 py-1">
+          <div className="flex min-h-12 shrink-0 items-center justify-between gap-2 px-panel py-3">
             <span
-              className="min-w-0 text-[12px] leading-4 text-muted"
+              className="min-w-0 text-caption text-muted"
               aria-live="polite"
             >
               {loading ? (
@@ -544,7 +543,7 @@ function LeftRail({
                     </span>
                   )}
                   {filtersOpen && !filters.includeParks && (
-                    <span className="whitespace-nowrap text-faint">
+                    <span className="text-faint">
                       {" · "}parks and greenways hidden ·{" "}
                       <button
                         onClick={() => set("includeParks", true)}
@@ -558,12 +557,12 @@ function LeftRail({
               )}
             </span>
             {active ? (
-              <button onClick={() => onFilters(DEFAULT_FILTERS)} className="shrink-0 text-[12px] font-medium text-accent hover:underline">
+              <button onClick={() => onFilters(DEFAULT_FILTERS)} className="shrink-0 text-caption font-medium text-accent hover:underline">
                 Reset
               </button>
             ) : (
               <span
-                className="flex shrink-0 cursor-help items-center gap-1 text-[11px] text-faint"
+                className="flex shrink-0 cursor-help items-center gap-1 text-caption text-faint"
                 title={TYPOLOGIES.map(
                   (t) => `${TYPE_LETTER[t]} ${TYPOLOGY_LABEL[t]}`,
                 ).join(" · ")}
@@ -592,7 +591,7 @@ function LeftRail({
             aria-activedescendant={cur >= 0 ? rowId(cur) : undefined}
             onKeyDown={onListKey}
             data-scroll
-            className="scroll-thin group/list relative min-h-0 flex-1 overflow-y-auto px-2 pb-2 focus-visible:outline-offset-[-2px]"
+            className="scroll-thin group/list relative min-h-32 flex-1 overflow-y-auto px-4 pb-4 focus-visible:outline-offset-[-2px]"
           >
             {loading && Array.from({ length: 8 }, (_, k) => <SkeletonRow key={k} />)}
             {!loading &&
@@ -615,27 +614,27 @@ function LeftRail({
                       setCursor(pos);
                       onSelect(i);
                     }}
-                    className={`group flex cursor-pointer items-start gap-2 rounded-md px-2 py-2 text-left transition-colors ${
-                      selected ? "bg-accent-soft ring-1 ring-accent/30" : "hover:bg-surface"
+                    className={`group flex cursor-pointer items-start gap-2 rounded-control px-2 py-4 text-left transition-colors ${
+                      selected ? "bg-accent-soft" : "hover:bg-surface"
                     } ${pos === cur ? "group-focus-visible/list:ring-2 group-focus-visible/list:ring-accent" : ""}`}
                   >
                     <span className="mt-px">
                       <TriageChip triage={triage} />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-[13px] font-medium text-ink">{lot.address || lot.id}</div>
-                      <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted">
+                      <div className="truncate text-body font-semibold text-ink">{lot.address || lot.id}</div>
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-caption text-muted">
                         <ZoneChip zone={lot.zone} />
                         <span
                           title={`City inventory status: ${lot.status || "not recorded"}; type: ${lot.inventoryType || "not recorded"}`}
-                          className={`shrink-0 rounded px-1 py-px text-[10px] leading-[14px] ${
-                            isAvailable(lot) ? "bg-accent-soft font-medium text-accent" : "bg-surface text-faint"
+                          className={`status-chip max-w-full ${
+                            isAvailable(lot) ? "bg-control text-muted" : "bg-surface text-muted"
                           }`}
                         >
                           {statusChip(lot.status)}
                         </span>
                         {ev && <EvidenceGlyphs evidence={ev} extra={reason ? [`Yellow: ${reason}`] : undefined} />}
-                        <span className="truncate" title={reason ? `${lot.neighborhood}: ${reason}` : lot.neighborhood}>
+                        <span className="min-w-0 basis-full" title={reason ? `${lot.neighborhood}: ${reason}` : lot.neighborhood}>
                           {lot.neighborhood}
                           {reason && <span className="text-faint">, {reason}</span>}
                         </span>
@@ -649,7 +648,7 @@ function LeftRail({
                           </span>
                         ))}
                       </div>
-                      <span className="text-[11px] text-muted tabular-nums">
+                      <span className="text-caption text-muted tabular-nums">
                         {lot.lotAreaSqFt != null ? `${lot.lotAreaSqFt.toLocaleString()} sf` : "area n/a"}
                       </span>
                     </div>
@@ -657,11 +656,11 @@ function LeftRail({
                 );
               })}
             {!loading && rows.length === 0 && (
-              <li className="px-2 py-6 text-center text-[12px] text-muted">No lots match these filters. Clear a filter or switch the rule set.</li>
+              <li className="px-2 py-6 text-center text-caption text-muted">No lots match these filters. Clear a filter or switch the rule set.</li>
             )}
           </ul>
 
-          <div className="border-t border-hairline px-4 py-2">
+          <div className="shrink-0 border-t border-hairline px-panel py-4">
             <VerdictLegend />
           </div>
         </>

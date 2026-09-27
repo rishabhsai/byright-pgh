@@ -1,5 +1,5 @@
 "use client";
-import { useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useLayoutEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
 
 export interface SegmentedOption<T extends string> {
   value: T;
@@ -21,11 +21,12 @@ interface Props<T extends string> {
 }
 
 /**
- * The one segmented control: 28 px tall, 6 px radius, 13 px text. One Tab stop; arrow keys, Home
+ * The one segmented control: 32 px tall, a sliding white thumb, 13 px text. One Tab stop; arrow keys, Home
  * and End move and select (roving tabindex), skipping disabled options.
  */
 export default function Segmented<T extends string>({ options, value, onChange, label, kind = "radio", equal = false, className = "" }: Props<T>) {
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const track = useRef<HTMLDivElement>(null);
   const current = Math.max(
     0,
     options.findIndex((o) => o.value === value),
@@ -53,12 +54,29 @@ export default function Segmented<T extends string>({ options, value, onChange, 
   };
 
   const tabs = kind === "tabs";
+  // Measure the actual segment so variable-width labels and font swaps keep the thumb aligned.
+  useLayoutEffect(() => {
+    const root = track.current;
+    const selected = refs.current[current];
+    if (!root || !selected) return;
+    const placeThumb = () => {
+      root.style.setProperty("--thumb-left", `${selected.offsetLeft}px`);
+      root.style.setProperty("--thumb-width", `${selected.offsetWidth}px`);
+    };
+    placeThumb();
+    const observer = new ResizeObserver(placeThumb);
+    observer.observe(root);
+    observer.observe(selected);
+    return () => observer.disconnect();
+  }, [current, options]);
+
   return (
     <div
+      ref={track}
       role={tabs ? "tablist" : "radiogroup"}
       aria-label={label}
       onKeyDown={onKeyDown}
-      className={`flex h-7 rounded-[6px] border border-hairline bg-surface p-[2px] text-[13px] leading-none ${className}`}
+      className={`segmented ${className}`}
     >
       {options.map((o, i) => {
         const on = i === current;
@@ -76,11 +94,11 @@ export default function Segmented<T extends string>({ options, value, onChange, 
             tabIndex={on ? 0 : -1}
             title={o.title}
             onClick={() => !o.disabled && onChange(o.value)}
-            className={`inline-flex min-w-0 items-center justify-center gap-1.5 rounded-[4px] px-1.5 whitespace-nowrap transition-colors focus-visible:outline-offset-0 ${
+            className={`inline-flex min-w-0 items-center justify-center gap-1 rounded-tooltip px-1 whitespace-nowrap transition-colors focus-visible:outline-offset-0 ${
               equal ? "flex-1 basis-0" : "flex-auto"
             } ${
               on
-                ? "bg-white font-medium text-ink shadow-[0_0_0_1px_rgba(23,33,30,.08)]"
+                ? "text-ink"
                 : o.disabled
                   ? "cursor-not-allowed text-faint/70"
                   : "text-muted hover:text-ink"

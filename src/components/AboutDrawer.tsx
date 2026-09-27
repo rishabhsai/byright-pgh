@@ -89,21 +89,21 @@ export default function AboutDrawer({
     <div className={`fixed inset-0 z-40 ${open ? "" : "pointer-events-none"}`} aria-hidden={!open} inert={!open}>
       <div
         onClick={onClose}
-        className={`absolute inset-0 bg-[#17211e]/25 transition-opacity duration-300 ${open ? "opacity-100" : "opacity-0"}`}
+        className={`absolute inset-0 bg-ink/25 transition-opacity duration-200 ${open ? "opacity-100" : "opacity-0"}`}
       />
       <div
         role="dialog"
         aria-modal="true"
         aria-label="About the data"
         data-scroll
-        className={`scroll-thin absolute top-0 right-0 h-full w-[520px] overflow-y-auto border-l border-hairline bg-panel shadow-[-20px_0_40px_-20px_rgba(23,33,30,.3)] transition-transform duration-300 ease-[cubic-bezier(.2,.8,.2,1)] ${
+        className={`scroll-thin absolute top-0 right-0 h-full w-[520px] max-w-full overflow-y-auto bg-panel shadow-overlay transition-transform duration-200 ease-[cubic-bezier(.2,.8,.2,1)] ${
           open ? "translate-x-0" : "translate-x-full"
         }`}
       >
-        <div className="flex items-start justify-between border-b border-hairline px-6 pt-6 pb-4">
+        <div className="toolbar sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-hairline p-panel">
           <div>
-            <h2 className="font-serif text-[32px] leading-none">About the data</h2>
-            <p className="mt-2 text-[12px] text-muted">
+            <h2 className="text-display">About the data</h2>
+            <p className="mt-3 text-callout text-muted">
               What ByRight PGH knows, where it came from, and what it deliberately leaves to people.
             </p>
           </div>
@@ -111,15 +111,15 @@ export default function AboutDrawer({
             ref={closeBtn}
             onClick={onClose}
             aria-label="Close (Esc)"
-            className="flex h-7 w-7 items-center justify-center rounded-md text-muted hover:bg-surface hover:text-ink"
+            className="icon-button shrink-0"
           >
-            <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden>
+            <svg width="16" height="16" viewBox="0 0 12 12" aria-hidden>
               <path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
           </button>
         </div>
 
-        <div className="space-y-7 px-6 py-6 text-[13px]">
+        <div className="space-y-section p-panel text-body">
           <Block title="Sources">
             <ul className="space-y-3">
               {(file?.sources ?? []).map((s) => (
@@ -127,19 +127,19 @@ export default function AboutDrawer({
                   <a href={s.url} target="_blank" rel="noreferrer" className="text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent">
                     {s.name}
                   </a>
-                  <p className="mt-0.5 text-[11px] leading-snug break-words text-muted [overflow-wrap:anywhere]">{vintageET(s.vintage, file?.generatedAt)}</p>
+                  <p className="mt-0.5 text-caption break-words text-muted [overflow-wrap:anywhere]">{vintageET(s.vintage, file?.generatedAt)}</p>
                 </li>
               ))}
             </ul>
             {file && (
-              <p className="mt-2 text-[11px] text-faint">
+              <p className="mt-3 text-callout text-faint">
                 {file.lots.length.toLocaleString()} lots, file generated {isoET(file.generatedAt)}.
               </p>
             )}
           </Block>
 
           <Block title="How the AI was used">
-            <ul className="list-disc space-y-1.5 pl-4 text-[12px] leading-relaxed text-ink marker:text-faint">
+            <ul className="list-disc space-y-3 pl-4 text-body text-ink marker:text-faint">
               {AI_USE.map((c) => (
                 <li key={c}>{c}</li>
               ))}
@@ -147,7 +147,7 @@ export default function AboutDrawer({
           </Block>
 
           <Block title="Green, Yellow, Red, Gray">
-            <ul className="space-y-1.5 text-[13px] leading-relaxed text-ink">
+            <ul className="space-y-3 text-body text-ink">
               {TRIAGE_ORDER.map((t) => (
                 <li key={t}>
                   <Swatch c={TRIAGE_COLOR[t]} />{" "}
@@ -158,11 +158,11 @@ export default function AboutDrawer({
                 </li>
               ))}
             </ul>
-            <p className="mt-2 text-[12px] leading-relaxed text-muted">
+            <p className="mt-3 text-callout text-muted">
               {HAZARD_STATEMENT} None of the colors confirms a project is
               feasible.
             </p>
-            <p className="mt-2 text-[12px] leading-relaxed text-ink">
+            <p className="mt-3 text-callout text-ink">
               {GREEN_POLICY}
             </p>
           </Block>
@@ -174,21 +174,21 @@ export default function AboutDrawer({
                   <a href={s.url} target="_blank" rel="noreferrer" className="text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent">
                     {s.name}
                   </a>
-                  <p className="mt-0.5 text-[11px] leading-snug break-words text-muted [overflow-wrap:anywhere]">{vintageET(s.vintage, compsFile?.generatedAt)}</p>
+                  <p className="mt-0.5 text-caption break-words text-muted [overflow-wrap:anywhere]">{vintageET(s.vintage, compsFile?.generatedAt)}</p>
                 </li>
               ))}
               {MENTOR_SOURCES.map((s) => (
                 <li key={s.name} className="text-ink">{s.name}<p className="mt-0.5 text-[11px] leading-snug text-muted">{s.vintage}</p></li>
               ))}
               {!compsFile?.sources?.length && (
-                <li className="text-[12px] text-muted">No comps file loaded; finance is not assessed for any lot.</li>
+                <li className="text-caption text-muted">No comps file loaded; finance is not assessed for any lot.</li>
               )}
             </ul>
-            <p className="mt-3 text-[12px] leading-relaxed text-ink">
+            <p className="mt-3 text-callout text-ink">
               A lot that is short at today&apos;s prices is common for small infill, not a dead end. The shortfall is a
               screening number, not a subsidy award or an eligibility finding.
             </p>
-            <p className="mt-3 text-[12px] text-muted">
+            <p className="mt-3 text-callout text-muted">
               Further reading:{" "}
               <a
                 href="https://www.prohousingpgh.org/ycbth"
@@ -206,7 +206,7 @@ export default function AboutDrawer({
               {(Object.keys(RULESET_LABEL) as (keyof typeof RULESET_LABEL)[]).map((k) => (
                 <div key={k}>
                   <dt className="font-medium">{RULESET_LABEL[k]}</dt>
-                  <dd className="text-[12px] text-muted">{RULESET_NOTE[k]}</dd>
+                  <dd className="text-caption text-muted">{RULESET_NOTE[k]}</dd>
                 </div>
               ))}
             </dl>
@@ -215,17 +215,17 @@ export default function AboutDrawer({
           <Block title={`Districts encoded (${districts.length})`}>
             <div className="flex flex-wrap gap-1.5">
               {districts.map((d) => (
-                <span key={d} className="rounded border border-hairline bg-white px-1.5 py-0.5 text-[11px] font-medium">
+                <span key={d} className="rounded-full bg-control px-3 py-1 text-caption font-medium">
                   {d}
                 </span>
               ))}
             </div>
-            <p className="mt-2 text-[11px] text-faint">Lots in any other district show as not evaluated.</p>
+            <p className="mt-3 text-callout text-faint">Lots in any other district show as not evaluated.</p>
           </Block>
 
           {caveats.length > 0 && (
             <Block title="Engine caveats">
-              <ul className="list-disc space-y-1.5 pl-4 text-[12px] leading-relaxed text-ink marker:text-faint">
+              <ul className="list-disc space-y-3 pl-4 text-body text-ink marker:text-faint">
                 {caveats.map((c) => (
                   <li key={c}>{c}</li>
                 ))}
@@ -234,7 +234,7 @@ export default function AboutDrawer({
           )}
 
           <Block title="Limitations">
-            <ul className="list-disc space-y-1.5 pl-4 text-[12px] leading-relaxed text-ink marker:text-faint">
+            <ul className="list-disc space-y-3 pl-4 text-body text-ink marker:text-faint">
               {LIMITATIONS.map((c) => (
                 <li key={c}>{c}</li>
               ))}
@@ -253,7 +253,7 @@ function Swatch({ c }: { c: string }) {
 function Block({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h3 className="mb-2.5 font-serif text-[20px] leading-none text-ink">{title}</h3>
+      <h3 className="mb-4 text-title text-ink">{title}</h3>
       {children}
     </section>
   );

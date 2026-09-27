@@ -25,7 +25,7 @@ import { compsFor, countTriage, DEFAULT_FINANCE, FALLBACK_COMPS, type FinanceAss
 
 const MapView = dynamic(() => import("./MapView"), {
   ssr: false,
-  loading: () => <div className="h-full w-full animate-pulse bg-[#e4e6e1]" />,
+  loading: () => <div className="h-full w-full animate-pulse bg-surface" />,
 });
 
 export type { Evaluations, Triages };
@@ -658,7 +658,7 @@ export default function ByRightApp() {
             {!loadError && compsError && (
               <div
                 role="alert"
-                className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-[#e7c98a] bg-[#fff8e6] px-3 py-2 text-[13px] text-[#6b4a00] shadow-[0_8px_24px_-12px_rgba(23,33,30,.35)]"
+                className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-3 rounded-card bg-warning-soft px-card py-3 text-callout text-warning-ink shadow-card"
               >
                 <span>Finance data didn&apos;t load ({compsError}). No lot is assessed for finance until it does.</span>
                 <button onClick={retryComps} className="shrink-0 font-medium text-accent underline decoration-accent/30 underline-offset-[3px] hover:decoration-accent">
@@ -724,9 +724,9 @@ export default function ByRightApp() {
 function LoadError({ title = "The lot file did not load", reason, onRetry }: { title?: string; reason: string; onRetry: () => void }) {
   return (
     <div className="absolute inset-0 z-20 flex items-center justify-center bg-surface/70 backdrop-blur-[2px]">
-      <div role="alert" className="w-[360px] rounded-xl border border-hairline bg-panel px-5 py-4 shadow-[0_12px_32px_-12px_rgba(23,33,30,.35)]">
-        <p className="font-serif text-[20px] leading-tight text-ink">{title}</p>
-        <p className="mt-1.5 text-[13px] leading-5 text-muted">
+      <div role="alert" className="surface-card w-[360px] p-card">
+        <p className="text-title text-ink">{title}</p>
+        <p className="mt-1.5 text-callout text-muted">
           {title === "The lot file did not load"
             ? `/data/lots.json could not be read (${reason}). Nothing below is evaluated until it loads. Check the connection and retry.`
             : `Screening results are unavailable (${reason}). Reload to try again.`}
@@ -734,7 +734,7 @@ function LoadError({ title = "The lot file did not load", reason, onRetry }: { t
         <button
           onClick={onRetry}
           autoFocus
-          className="mt-3 inline-flex h-8 items-center rounded-[6px] bg-accent px-3 text-[13px] font-medium text-white hover:bg-accent/90"
+          className="button-primary mt-4"
         >
           Retry
         </button>

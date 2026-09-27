@@ -17,11 +17,11 @@ export default function Section({
 }) {
   return (
     <section id={id} data-section={id} aria-labelledby={`${id}-h`} className="scroll-mt-[104px]">
-      <div className="mb-3 flex items-baseline gap-3 border-t border-hairline pt-5">
-        <h3 id={`${id}-h`} className="font-serif text-[22px] leading-none text-ink">
+      <div className="mb-4 flex flex-wrap items-baseline gap-x-3 gap-y-1 border-t border-hairline pt-section">
+        <h3 id={`${id}-h`} className="text-title text-ink">
           {title}
         </h3>
-        {summary && <span className="min-w-0 flex-1 truncate text-right text-[12px] text-muted">{summary}</span>}
+        {summary && <span className="min-w-0 flex-1 text-right text-caption text-muted">{summary}</span>}
         {action}
       </div>
       {children}
