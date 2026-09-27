@@ -334,3 +334,38 @@ describe("purchase-form address", () => {
     for (const a of ["1200 Voskamp", "44 Perrysville", "0 Rule"]) expect(hasStreetSuffix(a)).toBe(false);
   });
 });
+
+describe("unresolved permission in the application packet", () => {
+  it("R1D townhouse with no width (like 1978 Montier St): resolve the width first; no definite special-exception route", () => {
+    const l = lot({ zone: "R1D-L", frontageFt: null, lotAreaSqFt: 31806 });
+    const p = plan(l, "townhome");
+    const zoning = p.steps.find((s) => s.id === "zoning")!;
+    expect(zoning.title).toBe("Zoning review: resolve permission first");
+    expect(zoning.body[0]).toBe(
+      "Resolve permission: confirm lot width (§ 911.04.A.69A). P if lot width ≤ 35 ft, else S; width not in the record.",
+    );
+    expect(zoning.body.join(" ")).toMatch(/35 ft or narrower.*by right.*wider.*Special Exception \(§ 922\.07\)/);
+    expect(field(p, "Will you need to seek a variance")?.value).toBe(
+      "Not yet known: P if lot width ≤ 35 ft, else S; width not in the record. Zoning staff confirm.",
+    );
+    expect(p.zba).toBeNull();
+    expect(p.verdictLabel).toBe("Permission unresolved (lot width not in the record)");
+  });
+
+  it("House + ADU under today's code: the overlay question, never 'a use variance is required'", () => {
+    const p = plan(lot(), "single_adu");
+    const text = sentences(p).join(" ");
+    expect(text).not.toMatch(/use variance is required/);
+    expect(p.steps.find((s) => s.id === "zoning")!.body[0]).toMatch(/^Resolve permission: confirm ADU overlay \(§ 912\.08\)\. ADU overlay applicability unknown/);
+    expect(field(p, "Will you need to seek a variance")?.value).toMatch(/^Not yet known: ADU overlay applicability unknown/);
+  });
+
+  it("when a lot standard also fails, the permission question goes first in What you must establish", () => {
+    const l = lot({ zone: "R1D-M", frontageFt: null, lotAreaSqFt: 1500 });
+    const p = plan(l, "townhome");
+    expect(p.verdict).toBe("variance");
+    expect(p.zba!.findings[0].establish[0]).toBe(
+      "Which use route applies? P if lot width ≤ 35 ft, else S; width not in the record. Attach a survey showing the lot width.",
+    );
+  });
+});

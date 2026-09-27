@@ -5,6 +5,7 @@ import { evaluateLot } from "@/lib/rules";
 import type { Proforma } from "@/lib/finance";
 import { districtUnconfirmed, type Evidence } from "@/lib/evidence";
 import { isDispositionEligible } from "@/lib/ranking";
+import { unresolvedPermission } from "./approval";
 
 /** Every UI verdict label goes through these (they keep the approval route). */
 export { verdictShort };
@@ -73,6 +74,13 @@ export function answerHeadline(
       text: "District unconfirmed: confirm the zoning first",
       tone: "hearing",
     };
+  if (best?.verdict === "unknown") {
+    // An unanswered applicability question (width, ADU overlay) is unresolved permission, not an allowance.
+    const open = unresolvedPermission(best, lot ?? null);
+    return open
+      ? { text: `Permission unresolved: confirm ${open} first`, tone: "hearing" }
+      : { text: "Not checked", tone: "none" };
+  }
   if (best?.verdict === "variance" || best?.verdict === "review")
     return { text: verdictLabel(best), tone: "hearing" };
   if (lot && !cityStatus(lot).available)

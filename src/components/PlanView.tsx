@@ -31,6 +31,8 @@ interface Props {
   onSelect: (i: number) => void;
   /** "rail": one column in the 344 px rail. "reading": two columns in the expanded overlay. */
   layout?: "rail" | "reading";
+  /** Inventory records whose district the City zoning map confirms, of those compared. */
+  mapAgreement?: { agree: number; compared: number } | null;
 }
 
 /** Save text as a file through a Blob URL. */
@@ -60,7 +62,7 @@ function FunnelRow({ plan, wide }: { plan: Plan; wide: boolean }) {
   const steps = [
     { n: f.records, label: ["lots"], title: "Vacant-land records in the City inventory" },
     { n: f.encoded, label: ["encoded"], title: "In zoning districts the rules engine encodes" },
-    { n: f.byRight, label: ["use table"], title: "At least one small home type passes the use-table and lot-size screen" },
+    { n: f.byRight, label: ["use table"], title: "At least one small home type passes the use-table and lot-size screen under the inventory district" },
     { n: f.availableNoFlag, label: ["for sale,", "no flag"], title: "Recorded Available for Sale, and no slope, mine or flood flag at the inventory point" },
     { n: f.atLeast1000, label: ["1,000+", "sf"], title: "At least 1,000 sf: candidates for staff review" },
     { n: f.pencil, label: ["clear", "screen"], title: "Clear the cost-and-return screen under the displayed assumptions" },
@@ -104,7 +106,37 @@ function SplitRow({ label, n, total }: { label: string; n: number; total: number
   );
 }
 
-export default function PlanView({ plan, projects, onProjects, ruleSet, stale = false, onSelect, layout = "rail" }: Props) {
+/** A row's money is published only when its Finance check ran (pass or fail) and it carries a result. */
+const rowScreened = (r: Plan["rows"][number]) => {
+  const flag = (r as Record<string, unknown>).finance_screened;
+  if (flag === "true" || flag === "false") return flag === "true" && r.finance !== null;
+  return (r.check_finance === "pass" || r.check_finance === "fail") && r.finance !== null;
+};
+
+/** "98.3%": one decimal, never rounded up to 100% while any record disagrees. */
+function agreementPct(m: { agree: number; compared: number }): string {
+  const p = (m.agree / m.compared) * 100;
+  return `${(m.agree < m.compared ? Math.min(p, 99.9) : p).toFixed(1)}%`;
+}
+
+const MODE_WORD: Record<"sale" | "rent" | "mixed", string> = { sale: "sale", rent: "rent, capitalized", mixed: "sale or capitalized rent" };
+
+/** The hurdle the selected prototypes must clear: mean target value against the mean index-based value, screened rows only. */
+function hurdleOf(plan: Plan): { target: number; value: number; mode: "sale" | "rent" | "mixed"; n: number } | null {
+  const num = (v: string | number) => (v === "" ? NaN : Number(v));
+  const rows = plan.shortlist.filter((r) => rowScreened(r) && Number.isFinite(num(r.est_value)) && Number.isFinite(num(r.break_even_value)));
+  if (!rows.length) return null;
+  const mean = (f: (r: (typeof rows)[number]) => number) => rows.reduce((a, r) => a + f(r), 0) / rows.length;
+  const modes = new Set(rows.map((r) => r.finance!.mode));
+  return {
+    target: mean((r) => num(r.break_even_value)),
+    value: mean((r) => num(r.est_value)),
+    mode: modes.size === 1 ? [...modes][0] : "mixed",
+    n: rows.length,
+  };
+}
+
+export default function PlanView({ plan, projects, onProjects, ruleSet, stale = false, onSelect, layout = "rail", mapAgreement = null }: Props) {
   // The typed text stays as typed (it may be blank mid-edit); the count lives in the app.
   const [homesText, setHomesText] = useState(String(projects));
   const [seen, setSeen] = useState(projects);
@@ -125,15 +157,54 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
   const premium = premiumOf(g);
   const reading = layout === "reading";
 
-  const funnel = (
-    <section aria-label="Funnel">
+  const heading = (
+    <div className="flex items-baseline justify-between gap-2">
+      <h3 className={`font-serif leading-tight ${reading ? "text-[26px]" : "text-[21px]"}`}>{plan.scopeLabel}</h3>
+      <span className="truncate text-[12px] text-faint" title={RULESET_LABEL[ruleSet]}>
+        {ruleSet === "current" ? "Current code" : "If Bill 2025-1545 passes"}
+      </span>
+    </div>
+  );
+
+  const h = hurdleOf(plan);
+  const hurdle = (
+    <section aria-label="Financial hurdle" className={card}>
       <div className="flex items-baseline justify-between gap-2">
-        <h3 className={`font-serif leading-tight ${reading ? "text-[26px]" : "text-[21px]"}`}>{plan.scopeLabel}</h3>
-        <span className="truncate text-[12px] text-faint" title={RULESET_LABEL[ruleSet]}>
-          {ruleSet === "current" ? "Current code" : "If Bill 2025-1545 passes"}
+        <h4 className={kicker}>Financial hurdle</h4>
+        <span className="text-[12px] text-faint">
+          {h ? MODE_WORD[h.mode] : plan.assumptions.mode}, ${plan.assumptions.hardCostPerSf}/sf
         </span>
       </div>
-      <div className={`${card} mt-2`}>
+      {h ? (
+        <>
+          <p className={`mt-1 font-serif leading-snug text-ink ${reading ? "text-[22px]" : "text-[19px]"}`}>
+            Target value {fmtUsdShort(h.target)} vs index {fmtUsdShort(h.value)}
+          </p>
+          <div className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 gap-y-1 text-[11px] text-muted" aria-hidden>
+            <span>Target</span>
+            <div className="h-1.5 rounded-full bg-ink/80" />
+            <span>Index</span>
+            <div className="h-1.5 rounded-full bg-surface">
+              <div className="h-full rounded-full bg-accent" style={{ width: `${Math.min(100, (h.value / h.target) * 100)}%` }} />
+            </div>
+          </div>
+          <p className="mt-1.5 text-[12px] leading-4 text-muted">
+            Mean of {h.n === 1 ? "the one screened project" : `${fmtNum(h.n)} screened projects`}: cost plus the {plan.assumptions.targetMarginPct}% target return, against the value modeled from{" "}
+            {plan.gap?.valueBasis.length === 1 ? plan.gap.valueBasis[0].label : "aggregate Zillow indices"}. An index is not an appraisal
+            of new construction; staff decide what evidence would support the target.
+          </p>
+        </>
+      ) : (
+        <p className="mt-1 text-[13px] leading-5 text-muted">
+          Not screened: no candidate in this scope has a screened financial result.
+        </p>
+      )}
+    </section>
+  );
+
+  const funnel = (
+    <section aria-label="Funnel">
+      <div className={card}>
         <FunnelRow plan={plan} wide={reading} />
         <p className="mt-2.5 border-t border-hairline pt-2 text-[12px] leading-[17px] text-muted">
           <span className="tabular-nums text-ink">{fmtNum(plan.needsRelief)}</span> need relief (lot size) ·{" "}
@@ -148,8 +219,16 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
     <section aria-label="Candidates for staff review" className={card}>
       <h4 className={kicker}>Candidates for staff review</h4>
       <p className="mt-1 text-[13px] leading-5">
-        <span className="font-medium tabular-nums">{fmtNum(plan.candidates.total)}</span> lots pass the use-table and lot-size screen, are
-        recorded for sale, unflagged and 1,000+ sf. A review queue: each has open items.
+        <span className="font-medium tabular-nums">{fmtNum(plan.candidates.total)}</span> lots pass the use-table and lot-size screen
+        under the inventory district{mapAgreement ? ` (${agreementPct(mapAgreement)} agree with the City map)` : ""}, are recorded for sale,
+        unflagged and 1,000+ sf. A review queue: each has open items.
+      </p>
+      <p className="mt-1 text-[13px] leading-5">
+        <span className={`font-medium tabular-nums ${plan.candidates.districtUnconfirmed ? "text-[#8a4b00]" : ""}`}>
+          {fmtNum(plan.candidates.districtUnconfirmed)}
+        </span>{" "}
+        {plan.candidates.districtUnconfirmed === 1 ? "has" : "have"} an unconfirmed district (inventory and City map disagree)
+        {plan.candidates.districtUnconfirmed ? "; permission stays unresolved until staff confirm it." : "."}
       </p>
       <div className="mt-2 grid grid-cols-2 gap-x-3">
         <div>
@@ -294,10 +373,12 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
                   <span className="min-w-0 flex-1 truncate font-medium text-ink group-hover:underline">
                     {r.address || r.parcel_id}
                   </span>
-                  <span className="shrink-0 tabular-nums">
-                    {r.shortfall_to_target === ""
-                      ? "n/a"
-                      : fmtUsdShort(Number(r.shortfall_to_target))}
+                  <span className={`shrink-0 tabular-nums ${rowScreened(r) ? "" : "text-[12px] text-muted"}`}>
+                    {!rowScreened(r)
+                      ? "not screened"
+                      : r.shortfall_to_target === ""
+                        ? "n/a"
+                        : fmtUsdShort(Number(r.shortfall_to_target))}
                   </span>
                 </span>
                 <span className="mt-0.5 flex items-baseline gap-2 text-[12px] leading-4 text-muted">
@@ -361,6 +442,8 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
     return (
       <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-6 px-10 pt-5 pb-8">
         <div className="space-y-4">
+          {heading}
+          {hurdle}
           {funnel}
           {candidates}
           {relief}
@@ -375,6 +458,8 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
 
   return (
     <div className="space-y-3 px-4 pt-3 pb-4">
+      {heading}
+      {hurdle}
       {funnel}
       {candidates}
       {gap}

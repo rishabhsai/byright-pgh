@@ -68,7 +68,7 @@ floor area ratio) with `passed === false` -> `variance`. Otherwise P -> `by-righ
   a positive parking minimum (not verifiable from inventory data), and building fit. Unresolved checks
   never change the verdict, but an unresolved lot-size check, unknown lot area, or missing flood
   screening keeps the lot out of Green in triage. `single_adu` = the Single-Unit Detached row plus the ADU rule: under
-`current` the ADU rule is N (no overlay data), under the bill it is P. Districts outside the registry
+`current` the ADU rule is "overlay only" and, with no overlay data, the house + ADU verdict is `unknown` with the question "ADU overlay applicability unknown" (never prohibited by default); under the bill it is P. Districts outside the registry
 (P, EMI, RIV/DR, GT, SP, UI, GI, HC, NDO, NDI, UNC, UC, PUD, GPR, UNKNOWN) return `unknown` for every
 typology.
 
@@ -91,13 +91,15 @@ typology.
 Mirrors the `caveats` export in `src/lib/rules/index.ts`.
 
 1. Screening only; the Zoning Administrator interprets the code.
-2. Current-code ADU verdicts assume the lot is outside any ADU Overlay District; the prototype has
-   no overlay layer. The only overlay we know of was the 2018 interim pilot (Ord. 32-2018).
+2. Under current code an ADU is allowed only inside an ADU Overlay District; the prototype has no
+   overlay layer, so the house + ADU permission is unresolved (verdict `unknown`, question "ADU overlay
+   applicability unknown"), not prohibited. The only overlay we know of was the 2018 interim pilot (Ord. 32-2018).
 3. Lot area comes from the City inventory; frontage is parsed from the County legal description
    (approximate; a survey governs). Missing lot area or frontage -> "needs survey", verdict not
    downgraded, lot kept out of Green.
 4. Frontage stands in for Lot Width in the § 911.04.A.69A 35 ft test; the code's Lot Width
-   definition (§ 925/926) can differ from street frontage.
+   definition (§ 925/926) can differ from street frontage. With no frontage the attached-unit
+   permission is unresolved ("P if lot width ≤ 35 ft, else S; width not in the record"), not S.
 5. Parking minimums are reported, not checked against lot geometry.
 6. H-district single-unit uses require Administrator Exception review; those site conditions are
    not encoded.

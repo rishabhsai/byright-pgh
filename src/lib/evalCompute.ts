@@ -61,7 +61,7 @@ function withLand(a: FinanceAssumptions, overrides: Record<string, number>, lot:
 }
 
 /**
- * Findings trimmed for the trip back from the worker: verdicts, unresolved ids, review kind, the
+ * Findings trimmed for the trip back from the worker: verdicts, unresolved ids, review kind, the open permission question, the
  * failing checks' ids and (shared) citations, and the parking check with its requirement (the plan's bill
  * line compares spaces under each rule set). Other passing and unverified checks, measured values, notes
  * and summaries are dropped; they are most of the payload (≈150 MB serialized for the city). City-wide consumers
@@ -80,6 +80,7 @@ export function slimEvaluations(evals: Evaluations): Evaluations {
           summary: "",
           unresolved: f.unresolved,
           reviewKind: f.reviewKind,
+          permissionQuestion: f.permissionQuestion ?? null,
           checks: f.checks
             .filter((c) => c.passed === false || c.id === "parking")
             .map((c) => ({

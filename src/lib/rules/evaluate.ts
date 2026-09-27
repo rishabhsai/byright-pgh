@@ -1,4 +1,4 @@
-import type { Check, Finding, Lot, ReviewKind, RuleSet, Typology, Verdict } from "../types";
+import type { Check, Finding, Lot, PermissionQuestion, ReviewKind, RuleSet, Typology, Verdict } from "../types";
 import { TYPOLOGY_LABEL } from "../types";
 import { buildingSf } from "../proforma";
 import {
@@ -38,13 +38,21 @@ const REVIEW_KIND: Partial<Record<UseLetter, ReviewKind>> = { A: "administrator"
 const NUM = new Intl.NumberFormat("en-US");
 const fmt = (n: number) => NUM.format(n);
 
-/** Resolve a conditional use entry against the lot. Unknown width falls back to the stricter letter. */
-function resolveUse(entry: UseEntry, lot: Lot): { letter: UseLetter; note?: string } {
+/** "P if lot width ≤ 35 ft, else S; width not in the record". */
+const widthQuestion = (widthFt: number, otherwise: UseLetter) => `P if lot width ≤ ${widthFt} ft, else ${otherwise}; width not in the record`;
+
+/**
+ * Resolve a conditional use entry against the lot. With no width in the record the letter is null:
+ * the permission is unresolved, never the stricter branch by default.
+ */
+function resolveUse(entry: UseEntry, lot: Lot): { letter: UseLetter | null; note?: string; question?: string } {
   if (typeof entry === "string") return { letter: entry };
   if (lot.frontageFt === null) {
+    const question = widthQuestion(entry.widthFt, entry.otherwise);
     return {
-      letter: entry.otherwise,
-      note: `Frontage not in inventory (${NEEDS_SURVEY}); by right only if lot width is ${entry.widthFt} ft or less.`,
+      letter: null,
+      question,
+      note: `${question} (${NEEDS_SURVEY}). Frontage is not in the County legal description; confirm lot width before choosing a route.`,
     };
   }
   return lot.frontageFt <= entry.widthFt
@@ -52,35 +60,68 @@ function resolveUse(entry: UseEntry, lot: Lot): { letter: UseLetter; note?: stri
     : { letter: entry.otherwise, note: `Lot width ${fmt(lot.frontageFt)} ft exceeds the ${entry.widthFt} ft by-right threshold.` };
 }
 
-function permittedUseCheck(d: DistrictStandards, typology: Typology, lot: Lot): { check: Check; letter: UseLetter } {
+const ADU_UNKNOWN = "ADU overlay applicability unknown; the City's overlay map is not in our data";
+
+interface UseResult {
+  check: Check;
+  /** null: permission unresolved (see `question`). */
+  letter: UseLetter | null;
+  question: PermissionQuestion | null;
+}
+
+function permittedUseCheck(d: DistrictStandards, typology: Typology, lot: Lot): UseResult {
   const row = TYPOLOGY_USE_ROW[typology];
   const std = d.uses[row];
   const resolved = resolveUse(std.value, lot);
   let letter = resolved.letter;
   let notes = [std.note, resolved.note].filter(Boolean) as string[];
+  let question: PermissionQuestion | null = resolved.question
+    ? {
+        kind: "lot-width",
+        question: resolved.question,
+        action: "Resolve permission: confirm lot width (§ 911.04.A.69A)",
+        citation: std.citation,
+      }
+    : null;
+  let citation = std.citation;
 
   // single_adu: the ADU is an accessory use gated by §912.08, on top of the primary single-unit use.
   if (typology === "single_adu") {
     const adu = d.adu.value;
     const aduNote = d.adu.note ?? `ADU permitted as accessory to a residential use, up to ${adu.maxPerLot} per lot.`;
-    if (adu.permitted === "N" && letter !== "N") {
+    if (letter === "N") {
+      notes.push(aduNote);
+    } else if (adu.permitted === "N") {
       letter = "N";
       notes = [aduNote]; // the ADU rule is the blocker; the primary-use note would only confuse
+      citation = d.adu.citation;
+    } else if (adu.permitted === "overlay") {
+      // Permitted only inside an ADU Overlay District, and we have no overlay layer: the permission is open.
+      letter = null;
+      notes = [aduNote];
+      citation = d.adu.citation;
+      question = {
+        kind: "adu-overlay",
+        question: `${ADU_UNKNOWN}. ADUs are permitted only inside an adopted ADU Overlay District (§ 912.08)`,
+        action: "Resolve permission: confirm ADU overlay (§ 912.08)",
+        citation: d.adu.citation,
+      };
     } else {
       notes.push(aduNote);
     }
   }
 
+  const unresolvedMeasure = question?.kind === "lot-width" ? question.question : ADU_UNKNOWN;
   const check: Check = {
     id: "use",
     label: `Use permitted: ${USE_ROW_TITLE[row]}${typology === "single_adu" ? " + ADU" : ""}`,
     passed: letter === "P" ? true : letter === "N" ? false : null,
-    measured: USE_LETTER_LABEL[letter],
+    measured: letter === null ? unresolvedMeasure : USE_LETTER_LABEL[letter],
     required: "P (permitted by right)",
-    citation: typology === "single_adu" && d.adu.value.permitted === "N" ? d.adu.citation : std.citation,
+    citation,
     note: notes.length ? notes.join(" ") : undefined,
   };
-  return { check, letter };
+  return { check, letter, question: letter === null ? question : null };
 }
 
 function numericCheck(
@@ -228,23 +269,25 @@ function aduCheck(d: DistrictStandards): Check {
   return {
     id: "adu-eligibility",
     label: "Accessory dwelling unit eligibility",
-    passed: adu.permitted === "P" ? true : false,
-    measured: adu.permitted === "P" ? "Permitted accessory use" : "Only inside an ADU Overlay District (none assumed)",
+    passed: adu.permitted === "P" ? true : adu.permitted === "overlay" ? null : false,
+    measured: adu.permitted === "P" ? "Permitted accessory use" : adu.permitted === "overlay" ? ADU_UNKNOWN : "Not permitted",
     required: `Up to ${adu.maxPerLot} ADU per lot, max ${fmt(adu.maxSizeSqFt)} sq ft, owner-occupancy ${adu.ownerOccupancyRequired ? "required" : "not required"}`,
     citation: d.adu.citation,
     note: d.adu.note,
   };
 }
 
-function verdictFor(letter: UseLetter, checks: Check[]): Verdict {
+/** An unresolved permission (letter null) is `unknown`, or `variance` when a lot standard fails regardless. */
+function verdictFor(letter: UseLetter | null, checks: Check[]): Verdict {
   if (letter === "N") return "prohibited";
   const dimensional = checks.filter((c) => c.id !== "use" && c.id !== "adu-eligibility");
   const failed = dimensional.some((c) => c.passed === false);
   if (failed) return "variance";
+  if (letter === null) return "unknown";
   return letter === "P" ? "by-right" : "review";
 }
 
-function summarize(d: DistrictStandards, typology: Typology, verdict: Verdict, letter: UseLetter, checks: Check[]): string {
+function summarize(d: DistrictStandards, typology: Typology, verdict: Verdict, letter: UseLetter | null, checks: Check[], question: PermissionQuestion | null): string {
   const name = TYPOLOGY_LABEL[typology];
   const zone = d.zone;
   const survey = checks.filter((c) => c.passed === null && c.label.includes(NEEDS_SURVEY)).map((c) => c.label.replace(` (${NEEDS_SURVEY})`, "").toLowerCase());
@@ -259,21 +302,25 @@ function summarize(d: DistrictStandards, typology: Typology, verdict: Verdict, l
       const relief = lotFailed
         ? LOT_RELIEF
         : "Relief required: a smaller building, or a dimensional variance; zoning staff determine the path.";
-      return `${name} is ${letter === "P" ? "a permitted use" : `allowed only through ${USE_LETTER_LABEL[letter]}`} in ${zone}, but ${failed
+      const useText =
+        letter === null ? `a use whose permission is unresolved (${question?.question ?? "not in the record"})` : letter === "P" ? "a permitted use" : `allowed only through ${USE_LETTER_LABEL[letter]}`;
+      return `${name} is ${useText} in ${zone}, but ${failed
         .map((c) => `${c.label.toLowerCase()} fails (${c.measured} vs ${c.required} required, ${c.citation.section})`)
         .join("; ")}. ${relief}${surveyNote}`;
     }
     case "review":
-      return `${name} in ${zone} is allowed only through ${USE_LETTER_LABEL[letter]}; no encoded lot standard fails.${use?.note ? ` ${use.note}` : ""}${surveyNote}`;
+      return `${name} in ${zone} is allowed only through ${USE_LETTER_LABEL[letter ?? "S"]}; no encoded lot standard fails.${use?.note ? ` ${use.note}` : ""}${surveyNote}`;
     case "by-right":
       return `${name} is permitted by right in ${zone} and no encoded lot standard fails; building fit (setbacks, height, coverage) and parking on the site plan are not established.${surveyNote}`;
     default:
-      return `${name}: not evaluated.`;
+      return question
+        ? `${name} in ${zone}: permission unresolved. ${question.question}. No encoded lot standard fails.${surveyNote}`
+        : `${name}: not evaluated.`;
   }
 }
 
 function evaluateTypology(d: DistrictStandards, typology: Typology, lot: Lot): Finding {
-  const { check: use, letter } = permittedUseCheck(d, typology, lot);
+  const { check: use, letter, question } = permittedUseCheck(d, typology, lot);
   const checks: Check[] = [use, ...dimensionalChecks(d, typology, lot), capacityCheck(d, typology, lot), parkingCheck(d, typology)];
   if (typology === "single_adu") checks.push(aduCheck(d));
   const verdict = verdictFor(letter, checks);
@@ -281,9 +328,10 @@ function evaluateTypology(d: DistrictStandards, typology: Typology, lot: Lot): F
     typology,
     verdict,
     checks,
-    summary: summarize(d, typology, verdict, letter, checks),
+    summary: summarize(d, typology, verdict, letter, checks, question),
     unresolved: checks.filter((c) => c.passed === null).map((c) => c.id),
-    reviewKind: verdict === "review" || verdict === "variance" ? (REVIEW_KIND[letter] ?? null) : null,
+    reviewKind: letter !== null && (verdict === "review" || verdict === "variance") ? (REVIEW_KIND[letter] ?? null) : null,
+    permissionQuestion: question,
   };
 }
 

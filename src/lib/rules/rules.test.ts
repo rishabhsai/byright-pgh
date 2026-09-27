@@ -69,16 +69,33 @@ describe("evaluateLot", () => {
     expect(f.triplex.verdict).toBe("by-right");
   });
 
-  it("single_adu in R1D-H: prohibited outside an ADU overlay under current, by-right under bill-2025-1545", () => {
+  it("single_adu under current code: overlay applicability unknown, so the verdict is unknown with the question, not prohibited; by right under bill-2025-1545", () => {
     const now = byTypology(lot({ zone: "R1D-H" }), "current");
     const bill = byTypology(lot({ zone: "R1D-H" }), "bill-2025-1545");
-    expect(now.single_adu.verdict).toBe("prohibited");
-    expect(now.single_adu.checks.find((c) => c.id === "adu-eligibility")?.citation.section).toContain("912.08");
+    expect(now.single_adu.verdict).toBe("unknown");
+    expect(now.single_adu.reviewKind).toBeNull();
+    const nowAdu = now.single_adu.checks.find((c) => c.id === "adu-eligibility");
+    expect(nowAdu?.passed).toBeNull();
+    expect(nowAdu?.measured).toBe("ADU overlay applicability unknown; the City's overlay map is not in our data");
+    expect(nowAdu?.citation.section).toContain("912.08");
+    expect(now.single_adu.unresolved).toContain("adu-eligibility");
+    expect(now.single_adu.permissionQuestion).toMatchObject({ kind: "adu-overlay" });
+    expect(now.single_adu.summary).toMatch(/ADU Overlay District/);
     expect(bill.single_adu.verdict).toBe("by-right");
+    expect(bill.single_adu.permissionQuestion ?? null).toBeNull();
     const adu = bill.single_adu.checks.find((c) => c.id === "adu-eligibility");
     expect(adu?.passed).toBe(true);
     expect(adu?.citation.url).toContain("2025-1545");
     expect(adu?.citation.ruleSet).toBe("bill-2025-1545");
+  });
+
+  it("single_adu in a district that does not list the primary use stays prohibited: the overlay cannot rescue it", () => {
+    const f = byTypology(lot({ zone: "R1D-H" }), "current");
+    expect(f.duplex.verdict).toBe("prohibited");
+    // H lists a detached house only by Administrator Exception; the ADU question stays open on top of it.
+    const h = byTypology(lot({ zone: "H", lotAreaSqFt: 4000 }), "current");
+    expect(h.single_adu.verdict).toBe("unknown");
+    expect(h.single_adu.permissionQuestion?.kind).toBe("adu-overlay");
   });
 
   it("bill-2025-1545 removes minimum parking (0 per unit); current requires 1 per unit for a detached single", () => {
@@ -124,10 +141,29 @@ describe("evaluateLot", () => {
     expect(big.single.checks.find((c) => c.id === "lot-area")?.citation.section).toContain("905.02");
   });
 
-  it("townhome in R1D: by right on a 25 ft lot, Special Exception review on a 40 ft lot, review when frontage unknown (§911.04.A.69A)", () => {
+  it("townhome in R1D: by right on a 25 ft lot, Special Exception review on a 40 ft lot (§911.04.A.69A)", () => {
     expect(byTypology(lot({ zone: "R1D-M", frontageFt: 25 })).townhome.verdict).toBe("by-right");
     expect(byTypology(lot({ zone: "R1D-M", frontageFt: 40 })).townhome.verdict).toBe("review");
-    expect(byTypology(lot({ zone: "R1D-M", frontageFt: null })).townhome.verdict).toBe("review");
+  });
+
+  it("townhome in R1D with frontage unknown: permission unresolved, not a Special Exception route", () => {
+    const t = byTypology(lot({ zone: "R1D-M", frontageFt: null })).townhome;
+    expect(t.verdict).toBe("unknown");
+    expect(t.reviewKind).toBeNull();
+    const use = t.checks.find((c) => c.id === "use")!;
+    expect(use.passed).toBeNull();
+    expect(use.measured).toBe("P if lot width ≤ 35 ft, else S; width not in the record");
+    expect(t.unresolved).toContain("use");
+    expect(t.permissionQuestion).toMatchObject({ kind: "lot-width", question: "P if lot width ≤ 35 ft, else S; width not in the record" });
+    expect(t.permissionQuestion?.action).toMatch(/^Resolve permission: confirm lot width/);
+    expect(t.summary).toMatch(/permission unresolved/i);
+  });
+
+  it("townhome in R1D with frontage unknown that also fails lot size: relief needed, use route still unresolved", () => {
+    const t = byTypology(lot({ zone: "R1D-M", frontageFt: null, lotAreaSqFt: 1500 })).townhome;
+    expect(t.verdict).toBe("variance");
+    expect(t.reviewKind).toBeNull();
+    expect(t.permissionQuestion?.kind).toBe("lot-width");
   });
 
   it("LNC: minimum lot size 0, all four housing rows permitted by right on a lot big enough for the 2:1 FAR", () => {

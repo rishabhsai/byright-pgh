@@ -199,6 +199,67 @@ describe("triageLot", () => {
   });
 });
 
+describe("triageLot: one financial result", () => {
+  it("a lot not recorded for sale carries no margin, gap or pencil flag: finance is not screened", () => {
+    const l = lot({ status: "Hold for Study", inventoryType: "Hold For Study" });
+    const t = triageLot(l, evaluateLot(l, "current"), POOR);
+    expect(t).toMatchObject({ triage: "yellow", pencils: null, gap: null, margin: null });
+    expect(t.reasons).toContain("Finance: not screened (not recorded Available for Sale).");
+  });
+
+  it("an unconfirmed district carries no margin or gap", () => {
+    const l = lot({ zoneMap: "RM-M", zoneAgrees: false });
+    const t = triageLot(l, evaluateLot(l, "current"), RICH);
+    expect(t).toMatchObject({ pencils: null, gap: null, margin: null });
+    expect(t.reasons).toContain("Finance: not screened (district unconfirmed).");
+  });
+
+  it("a Hillside exception use carries no margin or gap: permission unresolved", () => {
+    const l = lot({ zone: "H", lotAreaSqFt: 5000 });
+    const t = triageLot(l, evaluateLot(l, "current"), POOR);
+    expect(t.bestTypology).toBe("single");
+    expect(t).toMatchObject({ pencils: null, gap: null, margin: null });
+    expect(t.reasons).toContain("Finance: not screened (permission unresolved).");
+  });
+
+  it("a selected townhouse on an R1D lot with no width is Yellow with the permission question, not a Special Exception", () => {
+    const l = lot({ frontageFt: null });
+    const t = triageLot(l, evaluateLot(l, "current"), RICH, undefined, "townhome");
+    expect(t.triage).toBe("yellow");
+    expect(t.bestTypology).toBe("townhome");
+    expect(t.gap).toBeNull();
+    expect(t.reasons[0]).toBe("Zoning: townhouse permission unresolved in R1D-H: P if lot width ≤ 35 ft, else S; width not in the record.");
+  });
+
+  it("a selected house + ADU under today's code is Yellow pending the overlay question, not Red", () => {
+    const l = lot();
+    const t = triageLot(l, evaluateLot(l, "current"), RICH, undefined, "single_adu");
+    expect(t.triage).toBe("yellow");
+    expect(t.reasons[0]).toMatch(/^Zoning: house \+ backyard unit permission unresolved in R1D-H: ADU overlay applicability unknown/);
+  });
+});
+
+describe("triageLot: default proposal", () => {
+  it("prefers the type with the lower modeled shortfall, not the higher dollar margin", () => {
+    // 0091 Banner Wa (R1A-VH, 488 sf): townhouse $33,270 short with the larger margin; detached house $28,564 short.
+    const lots = existsSync("public/data/lots.json") ? (JSON.parse(readFileSync("public/data/lots.json", "utf8")) as LotsFile).lots : [];
+    const l = lots.find((x) => x.id === "0049B00127000000");
+    if (!l) return;
+    const file = JSON.parse(readFileSync("public/data/comps.json", "utf8")) as CompsFile;
+    expect(triageLot(l, evaluateLot(l, "current"), compsFor(l, file), DEFAULT_FINANCE).bestTypology).toBe("single");
+  });
+
+  it("among types that clear the screen, the higher margin wins; equal results go to fewer dwellings", () => {
+    const f: Finding[] = [
+      { typology: "single", verdict: "by-right", checks: [], summary: "", unresolved: [], reviewKind: null },
+      { typology: "single_adu", verdict: "by-right", checks: [], summary: "", unresolved: [], reviewKind: null },
+    ];
+    expect(triageLot(lot(), f, RICH).bestTypology).toBe("single_adu");
+    // With no comps both are unassessed: the one-dwelling house is the default.
+    expect(triageLot(lot(), [...f].reverse(), null).bestTypology).toBe("single");
+  });
+});
+
 describe("GREEN_POLICY", () => {
   it("states the policy in plain English, including that fit is not checked and parking is listed", () => {
     expect(GREEN_POLICY).toMatch(/allowed by the use table and lot-size standards/);

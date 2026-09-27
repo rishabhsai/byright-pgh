@@ -1,9 +1,9 @@
 import type { CompsFile, Comps, Finding, Lot, RuleSet, Triage, TriageResult, Typology, Verdict } from "./types";
 import { TYPOLOGY_LABEL } from "./types";
 import { evaluateLot } from "./rules";
-import { deriveEvidence, firstOpenItem, MIN_PRACTICAL_LOT_SQFT, zoneConflict, type Evidence, type EvidenceId } from "./evidence";
+import { deriveEvidence, financeResult, firstOpenItem, MIN_PRACTICAL_LOT_SQFT, zoneConflict, type Evidence, type EvidenceId } from "./evidence";
 import { isAvailable, isDispositionEligible } from "./ranking";
-import { compsForLot, DEFAULT_FINANCE, fmtNum, fmtUsd, isNarrowLot, runProforma, type FinanceAssumptions, type Proforma } from "./proforma";
+import { compsForLot, DEFAULT_FINANCE, fmtNum, fmtUsd, isNarrowLot, runProforma, UNIT_PLAN, type FinanceAssumptions, type Proforma } from "./proforma";
 
 /*
  * Green / Yellow / Red triage (organizer colors; the evidence behind them is narrower):
@@ -13,14 +13,30 @@ import { compsForLot, DEFAULT_FINANCE, fmtNum, fmtUsd, isNarrowLot, runProforma,
  *   gray   = district not encoded, so zoning was not evaluated
  */
 
+/** How triage picks a lot's default proposal among the types with its best verdict. */
+export const DEFAULT_PROPOSAL_RULE =
+  "the allowed home type with the lowest modeled shortfall to the target return (the highest margin when more than one clears the screen), ties to fewer dwellings; on a lot under 25 ft the attached form replaces the detached house";
+
 /** The one statement of what Green means. Shown in the UI and About; meetsGreenPolicy implements it. */
 export const GREEN_POLICY =
   "Green means the lot passes this preliminary screen under the displayed assumptions: its best home type is allowed by the use table and lot-size standards; " +
   "the Use, Lot size, Width and Site checks all pass (Use is Unknown when the City zoning map names a different district than the inventory at the lot's point, or none); " +
   "Fit is not failing (setbacks, height and coverage are not modeled, so Fit is usually Not checked); " +
   "Finance passes the cost-and-return screen; and the City records the lot as Available for Sale, not as a park, greenway or infrastructure-protection parcel and not as privately owned. " +
-  "Required parking and other unverified items stay listed on the lot. " +
-  "Green is a candidate for staff review, not a determination that the lot can be built or offered for sale.";
+  "Two open items do not block Green: Fit not checked, and required on-site parking not verified; both stay listed on the lot. " +
+  "Green is a candidate for staff review, not a determination that the lot can be built or offered for sale. " +
+  `The proposal screened on each lot is ${DEFAULT_PROPOSAL_RULE}.`;
+
+/**
+ * Is modeled result `p` a better default proposal than `q`? Lowest shortfall first (every type that clears
+ * the screen has shortfall 0, so the higher margin decides among them), then fewer dwellings.
+ */
+function betterProposal(p: Proforma, q: Proforma | null): boolean {
+  if (!q) return true;
+  if (p.gap !== q.gap) return p.gap < q.gap;
+  if (p.margin !== q.margin) return p.margin > q.margin;
+  return p.units < q.units;
+}
 
 const GREEN_MUST_PASS: EvidenceId[] = ["use", "lotSize", "width", "site", "finance"];
 
@@ -88,15 +104,12 @@ export function triageLot(
   }
 
   const chosen = typology ? findings.find((f) => f.typology === typology) : undefined;
-  if (typology && (!chosen || chosen.verdict === "unknown")) {
+  // A selected type whose permission turns on a missing fact (width, ADU overlay) is screened as unresolved, not skipped.
+  if (typology && (!chosen || (chosen.verdict === "unknown" && !chosen.permissionQuestion))) {
     return result("gray", [`${TYPOLOGY_LABEL[typology]} was not evaluated in ${lot.zone}.`], null, null);
   }
   if (chosen && chosen.verdict === "prohibited") {
-    const why =
-      chosen.typology === "single_adu" && chosen.checks.find((c) => c.id === "adu-eligibility")?.passed === false
-        ? `${TYPOLOGY_LABEL[chosen.typology]} is not permitted in ${lot.zone} outside an ADU Overlay District.`
-        : `${TYPOLOGY_LABEL[chosen.typology]} is not listed in ${lot.zone}.`;
-    return result("red", [`Zoning: ${why}`], null, null);
+    return result("red", [`Zoning: ${TYPOLOGY_LABEL[chosen.typology]} is not listed in ${lot.zone}.`], null, null);
   }
 
   const buildable = chosen ? [chosen] : findings.filter((f) => BUILDABLE.includes(f.verdict));
@@ -110,7 +123,10 @@ export function triageLot(
   }
 
   const bestRank = Math.min(...buildable.map((f) => VERDICT_RANK[f.verdict]));
-  let candidates = buildable.filter((f) => VERDICT_RANK[f.verdict] === bestRank);
+  // Fewer dwellings first, so an unassessed tie falls to the smaller proposal.
+  let candidates = buildable
+    .filter((f) => VERDICT_RANK[f.verdict] === bestRank)
+    .sort((a, b) => UNIT_PLAN[a.typology].units - UNIT_PLAN[b.typology].units);
   // Prototype follows the lot: under 25 ft a detached house loses its side yards, so the attached form is the proposal.
   const byRightTownhome = candidates.some((f) => f.typology === "townhome" && f.verdict === "by-right");
   if (isNarrowLot(lot) && byRightTownhome) candidates = candidates.filter((f) => f.typology !== "single");
@@ -121,7 +137,7 @@ export function triageLot(
   for (const f of candidates) {
     // If this lot lacks the comp the chosen mode needs, fall back to the other comp.
     const p = runProforma(lot, f.typology, comps, assumptions) ?? runProforma(lot, f.typology, comps, { ...assumptions, mode: other });
-    if (p && (!pf || p.margin > pf.margin)) {
+    if (p && betterProposal(p, pf)) {
       pf = p;
       best = f;
     }
@@ -133,7 +149,12 @@ export function triageLot(
   // The shared first open item decides what leads: an unconfirmed district comes before every other reason.
   const conflict = firstOpenItem(lot, best, evidence)?.id === "district-conflict" ? zoneConflict(lot) : null;
   if (conflict) reasons.push(`Zoning: ${conflict}`);
-  reasons.push(`Zoning: ${label.toLowerCase()} ${VERDICT_PHRASE[best.verdict]} in ${lot.zone}${conflict ? " (the inventory district, unconfirmed)" : ""}.`);
+  const q = best.permissionQuestion;
+  reasons.push(
+    q && best.verdict === "unknown"
+      ? `Zoning: ${label.toLowerCase()} permission unresolved in ${lot.zone}: ${q.question}.`
+      : `Zoning: ${label.toLowerCase()} ${VERDICT_PHRASE[best.verdict]} in ${lot.zone}${conflict ? " (the inventory district, unconfirmed)" : ""}.`,
+  );
   const blocker = dispositionBlocker(lot);
   if (blocker) reasons.push(blocker);
 
@@ -159,8 +180,12 @@ export function triageLot(
     );
   }
 
+  // One financial result: an unscreened proposal publishes no margin, gap or pencil flag.
+  const finance = financeResult(lot, best, evidence, pf);
   if (!pf) {
     reasons.push("Finance: comps unavailable; finance not assessed.");
+  } else if (!finance.screened) {
+    reasons.push(`Finance: not screened (${finance.reason}).`);
   } else {
     const basis = pf.mode === mode ? "" : ` (no ${mode} comp here, so ${pf.mode} comps were used)`;
     reasons.push(
@@ -172,7 +197,7 @@ export function triageLot(
   if (unresolved.includes("parking")) reasons.push(PARKING_REASON);
 
   const green = best.verdict === "by-right" && meetsGreenPolicy(best, evidence, lot);
-  return result(green ? "green" : "yellow", reasons, best.typology, pf);
+  return result(green ? "green" : "yellow", reasons, best.typology, finance.screened ? pf : null);
 }
 
 export interface TriageCounts {

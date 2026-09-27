@@ -78,7 +78,9 @@ describe.runIf(haveData)("district uncertainty is one shared decision", () => {
     expect(plan.rows[0].next_action).toBe("Resolve district: inventory R1D-H vs map RIV-RM");
     expect(plan.openItems[0]).toMatchObject({ label: "District", count: 1 });
     const md = toBrief(plan);
-    expect(md).toMatch(/1 of them has an unresolved district/);
+    expect(md).toMatch(/1 has an unconfirmed district; resolve it first/);
+    expect(plan.openGroups[0]).toEqual({ id: "district", label: "District unconfirmed (inventory vs zoning map)", count: 1 });
+    expect(md).toMatch(/Finance not screened: 1/);
     expect(md).not.toMatch(/allowed by right under the checks we ran/);
   });
 

@@ -16,7 +16,7 @@ import {
 } from "@/lib/application";
 import { VERDICT_COLOR } from "./verdict";
 import { REVIEW_CHECKLIST } from "./memo";
-import { districtUnconfirmed } from "@/lib/evidence";
+import { approvalOf, filingHeadline, VARIANCE_QUESTION } from "./ui/approval";
 
 interface Props {
   /** The selected case: the packet is for its proposal, rule set and effective land cost. */
@@ -45,14 +45,22 @@ export default function ApplicationPlanner({ selected, onChangeType, onFlash, wi
 
   const evaluable = findings.some((f) => f.verdict !== "unknown");
 
-  /** Deterministic plan for the selected proposal. Model text never replaces any of it. */
-  const plan = useMemo<ApplicationPlan | null>(
-    () =>
-      evaluable
-        ? buildApplicationPlan(lot, findings, ruleSet, triage, proforma, comps, typology)
-        : null,
-    [evaluable, typology, lot, findings, ruleSet, triage, proforma, comps],
-  );
+  // The approval route, from the verdict, review kind and failed checks (unresolved permission stays unresolved).
+  const approval = useMemo(() => approvalOf(finding, lot), [finding, lot]);
+
+  /**
+   * Deterministic plan for the selected proposal. Model text never replaces any of it. The form's
+   * "variance or special exception?" answer is restated from the approval route, so an administrator
+   * exception is never answered as a variance or special exception, and the download says the same.
+   */
+  const plan = useMemo<ApplicationPlan | null>(() => {
+    if (!evaluable) return null;
+    const p = buildApplicationPlan(lot, findings, ruleSet, triage, proforma, comps, typology);
+    return {
+      ...p,
+      purchaseForm: p.purchaseForm.map((f) => (f.label === VARIANCE_QUESTION ? { ...f, value: approval.formAnswer } : f)),
+    };
+  }, [evaluable, typology, lot, findings, ruleSet, triage, proforma, comps, approval]);
 
   // The server rebuilds the description with default assumptions; show its suggestion only when
   // that matches what this panel shows.
@@ -120,10 +128,14 @@ export default function ApplicationPlanner({ selected, onChangeType, onFlash, wi
       ) : (
         <>
           <p className="flex items-start gap-2 text-[13px] leading-snug text-ink">
-            <span aria-hidden className="mt-[6px] h-2 w-2 shrink-0 rounded-full" style={{ background: VERDICT_COLOR[finding?.verdict ?? "unknown"] }} />
+            <span aria-hidden className="mt-[6px] h-2 w-2 shrink-0 rounded-full" style={{ background: VERDICT_COLOR[approval.kind === "unresolved" ? "unknown" : (finding?.verdict ?? "unknown")] }} />
             <span>
               For a <span className="font-medium">{TYPOLOGY_LABEL[typology].toLowerCase()}</span>
-              {finding && <span className="text-muted">, {verdictLabel(finding).charAt(0).toLowerCase() + verdictLabel(finding).slice(1)}</span>}
+              {finding && (
+                <span className="text-muted">
+                  , {approval.kind === "unresolved" ? approval.phrase : verdictLabel(finding).charAt(0).toLowerCase() + verdictLabel(finding).slice(1)}
+                </span>
+              )}
               {proforma && <span className="text-muted">, land {LAND_WORD[proforma.landSource]}</span>}{" "}
               <button onClick={onChangeType} className="text-[12px] text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent">
                 Change in Pays
@@ -133,7 +145,7 @@ export default function ApplicationPlanner({ selected, onChangeType, onFlash, wi
 
           {plan && (
             <p className="font-serif text-[20px] leading-tight text-ink">
-              {packetHeadline(plan, districtUnconfirmed(lot))}
+              {filingHeadline(plan.steps.filter((st) => st.id !== "bill").length, approval)}
             </p>
           )}
         </>
@@ -190,21 +202,6 @@ export default function ApplicationPlanner({ selected, onChangeType, onFlash, wi
       <ReviewChecklist />
     </div>
   );
-}
-
-/** "3 filings · staff zoning review" or "4 filings · Zoning Board hearing required (§ 922.09.E)" */
-function packetHeadline(
-  plan: ApplicationPlan,
-  districtUnconfirmed = false,
-): string {
-  const filings = plan.steps.filter((s) => s.id !== "bill").length;
-  const base = `${filings} filing${filings === 1 ? "" : "s"}`;
-  if (districtUnconfirmed) return `${base} · confirm the zoning district first`;
-  if (plan.verdict === "by-right") return `${base} · staff zoning review; other standards not checked`;
-  if (plan.verdict === "review") return `${base} · staff approval needed`;
-  if (plan.verdict === "variance")
-    return `${base} · Zoning Board hearing likely (§\u00a0922.09.E)`;
-  return `${base} · confirm the path with the Zoning Administrator`;
 }
 
 function ReviewChecklist() {

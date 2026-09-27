@@ -39,18 +39,15 @@ interface Props {
   /** Set when the finance data file failed to load; distinct from a neighborhood with no series. */
   compsError?: string | null;
   onRetryComps?: () => void;
-  /** Why the answer card carries no finance line (use or fit fails, not for sale); the numbers below are then hypothetical. */
+  /** Why finance was not screened ("House: permission unresolved: …"); null when it was. */
   blocked?: string | null;
+  /** The lib's labeled hypothetical for an unscreened proposal; null means no numbers are shown at all. */
+  hypothetical?: Proforma | null;
 }
 
-/** The Pays headline for a blocked proposal: why the cost-and-return screen did not run. */
+/** The Pays headline for a blocked proposal: the gate's reason without the home type. */
 function blockedHeadline(blocked: string): string {
-  if (/not for sale|not a disposition candidate/.test(blocked))
-    return "lot not offered for sale";
-  if (/district unconfirmed/.test(blocked))
-    return "zoning district unconfirmed";
-  if (/zoning not checked/.test(blocked)) return "zoning not checked";
-  return "proposal not buildable as checked";
+  return blocked.replace(/^[^:]+:\s*/, "");
 }
 
 export const NO_COMPS = "No Zillow comps for this neighborhood; finance not assessed";
@@ -82,6 +79,7 @@ export default function ProForma({
   compsError,
   onRetryComps,
   blocked = null,
+  hypothetical = null,
 }: Props) {
   // Controlled by the selected case: every edit rebuilds the case synchronously, so the headline,
   // the evidence row and these numbers always come from the same inputs. The app batches edits
@@ -176,7 +174,7 @@ export default function ProForma({
             <Tooltip content={<CompsTip comps={comps} mode={r.mode} />}>
               {r.mode === "rent"
                 ? "Value as a rental (rent ÷ cap rate)"
-                : "Value at today's prices"}
+                : "Value from neighborhood index"}
             </Tooltip>
           }
           swatch={r.pencils ? "var(--accent)" : "#d9a441"}
@@ -224,15 +222,15 @@ export default function ProForma({
 
   return (
     <div className="space-y-4">
-      {r && blocked ? (
+      {blocked ? (
         <div>
           <p className="font-serif text-[22px] leading-tight text-ink">
             Not screened: {blockedHeadline(blocked)}
           </p>
           <p className="mt-1 text-[13px] leading-snug text-muted">
-            {TYPOLOGY_LABEL[typology]}: {blocked.replace(/^[^:]+:\s*/, "")}. The
-            cost-and-return screen only runs on a proposal that passes the
-            checks above.
+            The cost-and-return screen runs only on a proposal whose use is permitted and fit does not fail, in a confirmed
+            district, on a lot recorded Available for Sale. No margin or shortfall is reported for this{" "}
+            {TYPOLOGY_LABEL[typology].toLowerCase()}.
           </p>
         </div>
       ) : r ? (
@@ -287,7 +285,8 @@ export default function ProForma({
         )}
       </div>
 
-      {r && blocked ? (
+      {blocked ? (
+        hypothetical && (
         <details className="group/hyp text-[13px]">
           <summary className="cursor-pointer text-accent select-none">
             Show hypothetical numbers
@@ -298,6 +297,7 @@ export default function ProForma({
           </p>
           {ladderView}
         </details>
+        )
       ) : (
         r && ladderView
       )}
@@ -317,8 +317,8 @@ export default function ProForma({
               value={r?.mode ?? mode}
               onChange={(m) => update({ ...a, mode: m })}
               options={[
-                { value: "sale", label: "Sell at today's prices", disabled: !hasSale },
-                { value: "rent", label: "Rent it out", disabled: !hasRent },
+                { value: "sale", label: "Sale scenario", disabled: !hasSale },
+                { value: "rent", label: "Rent scenario", disabled: !hasRent },
               ]}
             />
             {(!hasSale || !hasRent) && (

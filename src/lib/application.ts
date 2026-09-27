@@ -1,8 +1,8 @@
-import type { Check, Comps, Finding, Lot, RuleSet, TriageResult, Typology, Verdict } from "./types";
+import type { Check, Comps, Finding, Lot, PermissionQuestion, RuleSet, TriageResult, Typology, Verdict } from "./types";
 import { TYPOLOGY_LABEL, verdictLabel } from "./types";
 import { evaluateLot, lookupDistrict } from "./rules";
 import { buildingSf, fmtUsd, UNIT_PLAN, type Proforma } from "./proforma";
-import { districtAction, districtUnconfirmed } from "./evidence";
+import { deriveEvidence, districtAction, districtUnconfirmed, financeResult } from "./evidence";
 
 /*
  * Application planner: turns structured findings into the filings a lot needs, pre-fills the
@@ -366,6 +366,26 @@ function purchaseAddress(lot: Lot, zip: string | null): PrefilledField {
   };
 }
 
+/** The first thing to establish when the use permission turns on a missing fact. */
+function permissionEstablish(q: PermissionQuestion): string {
+  return q.kind === "lot-width"
+    ? `Which use route applies? ${q.question}. Attach a survey showing the lot width.`
+    : `Which use route applies? ${q.question}. Ask zoning staff whether the lot is inside an adopted ADU Overlay District.`;
+}
+
+/** What each answer to the permission question means for the route. */
+function permissionBranches(q: PermissionQuestion, lot: Lot, ruleSet: RuleSet): string {
+  if (q.kind === "lot-width") {
+    const w = q.question.match(/≤ (\d+) ft/)?.[1] ?? "35";
+    return `If the lot is ${w} ft or narrower, attached units are allowed by right; if it is wider, they need a Special Exception (§ 922.07) with a Zoning Board hearing. Measure the width with a survey before choosing a route.`;
+  }
+  const adu = lookupDistrict(ruleSet, lot.zone)?.adu.value;
+  const limits = adu
+    ? `up to ${adu.maxPerLot} ADU of at most ${fmt(adu.maxSizeSqFt)} sq ft${adu.ownerOccupancyRequired ? ", with the owner living on site" : ""}`
+    : "an ADU";
+  return `If the lot is inside an adopted ADU Overlay District, ${limits} is a permitted accessory use (§ 912.08); outside one, today's code does not permit the ADU. Zoning staff confirm which applies.`;
+}
+
 function districtQuestion(lot: Lot): string {
   const map = lot.zoneMap ? `the City zoning map says ${lot.zoneMap}` : "no City zoning map district contains the inventory point";
   return `Which district governs this lot? The inventory says ${lot.zone || "no district"}; ${map}. Get zoning staff's determination before relying on anything below.`;
@@ -382,6 +402,7 @@ const NONCONFORMING_QUESTIONS = [
 ];
 
 function worksheet(lot: Lot, finding: Finding, byRight: Typology[], zoneName: string | null): ZbaFinding[] {
+  const q = finding.permissionQuestion;
   const dims = failingDimensional(finding);
   const letter = letterOf(finding);
   const hazards = hazardList(lot);
@@ -420,6 +441,7 @@ function worksheet(lot: Lot, finding: Finding, byRight: Typology[], zoneName: st
       record: [zoneFact, areaFact, frontageFact, ...standardFacts, hazardFact],
       establish: [
         ...(districtUnconfirmed(lot) ? [districtQuestion(lot)] : []),
+        ...(q ? [permissionEstablish(q)] : []),
         "What physical condition (narrowness, shallowness, irregular shape, topography) is peculiar to this lot rather than common in the district? Attach a survey.",
         ...(hazards.length ? [`Does the flagged ${hazards.join(" and ")} affect this parcel? Attach a site survey or engineer's letter.`] : []),
         "Is this a lot of record? Attach the deed and recorded plat.",
@@ -492,7 +514,9 @@ export function buildApplicationPlan(
   const verdict = finding.verdict;
   const zoneName = lookupDistrict(ruleSet, lot.zone)?.name ?? null;
   const byRight = findings.filter((f) => f.verdict === "by-right").map((f) => f.typology);
-  const pf = proforma && proforma.typology === typology ? proforma : null;
+  // One financial result: the description quotes a cost only when financeResult screens this proposal.
+  const offered = proforma && proforma.typology === typology ? proforma : null;
+  const pf = financeResult(lot, finding, deriveEvidence(lot, finding, null, offered, comps), offered).screened ? offered : null;
   const needsRelief = verdict === "variance" || verdict === "review" || verdict === "prohibited";
   const relief = reliefChecks(finding);
   const letter = letterOf(finding);
@@ -510,13 +534,32 @@ export function buildApplicationPlan(
   const adminOnly = letter === "A" && !dimsFail;
 
   const disputed = districtUnconfirmed(lot);
-  const districtLead = disputed
-    ? [
-        `${districtAction(lot)}. The City zoning map ${lot.zoneMap ? `names ${lot.zoneMap}` : "names no district"} at the inventory point, not the inventory's ${lot.zone || "district"}. Ask zoning staff which district governs before filing; everything below assumes the inventory district.`,
-      ]
-    : [];
+  const q = finding.permissionQuestion ?? null;
+  const districtLead = [
+    ...(disputed
+      ? [
+          `${districtAction(lot)}. The City zoning map ${lot.zoneMap ? `names ${lot.zoneMap}` : "names no district"} at the inventory point, not the inventory's ${lot.zone || "district"}. Ask zoning staff which district governs before filing; everything below assumes the inventory district.`,
+        ]
+      : []),
+    // An unresolved permission leads: no route is chosen until the missing fact is known.
+    ...(q ? [`${q.action}. ${q.question}.`, permissionBranches(q, lot, ruleSet)] : []),
+  ];
 
-  if (verdict === "by-right") {
+  if (q && verdict === "unknown") {
+    steps.push({
+      id: "zoning",
+      title: disputed ? "Zoning review: confirm the district first" : "Zoning review: resolve permission first",
+      body: [
+        ...districtLead,
+        "Then file a Building and Development Application (BDA) on OneStopPGH; zoning staff confirm the route.",
+        ...(rsNote ? [rsNote] : []),
+      ],
+      chips: [
+        { label: "Base zoning review fees", tone: "fee" },
+        { label: "OneStopPGH", tone: "place" },
+      ],
+    });
+  } else if (verdict === "by-right") {
     steps.push({
       id: "zoning",
       title: disputed ? "Zoning review: confirm the district first" : "Zoning review",
@@ -549,11 +592,7 @@ export function buildApplicationPlan(
     const body: string[] = [...districtLead];
     if (verdict === "prohibited") {
       body.push(
-        `${
-          typology === "single_adu" && finding.checks.find((c) => c.id === "use")?.citation.section === "§ 912.08"
-            ? "Under today's code an ADU is allowed only inside an ADU Overlay District (§ 912.08)"
-            : "Use is not listed in this district"
-        }; a use variance is required, which has a much higher bar. ${
+        `Use is not listed in this district; a use variance is required, which has a much higher bar. ${
           byRight.length
             ? `Consider a typology that is by right here instead: ${byRight.map((t) => TYPOLOGY_LABEL[t]).join(", ")}.`
             : "No small-home type we screened is by right here."
@@ -639,7 +678,13 @@ export function buildApplicationPlan(
     { label: "Will you need to seek a building permit?", value: "Yes", who: "prefilled" },
     {
       label: "Will you need to seek a variance or special exception?",
-      value: disputed ? DISTRICT_FIRST_ANSWER : needsRelief && seekItems.length ? `Yes: ${seekItems.join("; ")}` : BY_RIGHT_VARIANCE_ANSWER,
+      value: disputed
+        ? DISTRICT_FIRST_ANSWER
+        : q && verdict === "unknown"
+          ? `Not yet known: ${q.question}. Zoning staff confirm.`
+          : needsRelief && seekItems.length
+            ? `Yes: ${seekItems.join("; ")}${q ? `; use route not yet known (${q.question})` : ""}`
+            : BY_RIGHT_VARIANCE_ANSWER,
       who: "prefilled",
     },
     {

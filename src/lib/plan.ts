@@ -4,7 +4,6 @@ import {
   fmtNum,
   fmtUsd,
   NEW_CONSTRUCTION_PREMIUM,
-  PREMIUM_LABEL,
   UNIT_PLAN,
   ZILLOW_DATA_URL,
   type FinanceAssumptions,
@@ -15,6 +14,7 @@ import { todayET } from "./dates";
 import { hasHazardFlag, isAvailable, isDispositionEligible } from "./ranking";
 import {
   districtUnconfirmed,
+  financeResult,
   firstOpenItem,
   fmtUsdShort,
   MIN_PRACTICAL_LOT_SQFT,
@@ -61,6 +61,8 @@ export const CSV_COLUMNS = [
   "rule_citations", "cost_basis",
   // Appended in cycle 3: the City zoning map district at the inventory point, and the new-construction premium case.
   "zone_map", "zone_agrees", "shortfall_at_1_3x_value",
+  // Appended in cycle 4: whether the row's money is a screen result (financeResult); when false every money column is blank.
+  "finance_screened", "finance_reason",
 ] as const;
 
 export type CsvColumn = (typeof CSV_COLUMNS)[number];
@@ -119,8 +121,10 @@ export interface GapScenario {
 export interface Gap extends GapScenario {
   /** Projects asked for (one project per parcel). */
   n: number;
-  /** Candidate projects with a modeled shortfall that went into the total (≤ n). */
+  /** Candidate projects with a screened financial result that went into the total (≤ n). */
   projects: number;
+  /** Shortlisted candidates with no screened financial result (district or permission unresolved, no comps): listed, never totaled. */
+  notScreened: number;
   /** Dwellings those projects deliver (a duplex is one project, two dwellings). */
   dwellings: number;
   hardCostPerSf: number;
@@ -136,8 +140,24 @@ export interface Gap extends GapScenario {
   valueBasis: { label: string; value: number; date: string | null; mode: RevenueMode }[];
 }
 
+/** Open-item groups the brief counts on candidates, in the order staff clear them. */
+export type OpenGroupId = "district" | "permission" | "width" | "fit" | "site" | "finance-short" | "finance-unscreened" | "parking";
+
+export const OPEN_GROUP_LABEL: Record<OpenGroupId, string> = {
+  district: "District unconfirmed (inventory vs zoning map)",
+  permission: "Permission unresolved (width or ADU overlay)",
+  width: "Width not in the record (survey)",
+  fit: "Fit not checked (setbacks, height, coverage)",
+  site: "Site access, water/sewer, soils not checked",
+  "finance-short": "Finance: modeled shortfall to target return",
+  "finance-unscreened": "Finance not screened",
+  parking: "Parking to verify on the site plan",
+};
+
 export interface Plan {
   scopeLabel: string;
+  /** The Home type filter the plan screened; null screens each lot's default proposal (DEFAULT_PROPOSAL_RULE). */
+  typology: Typology | null;
   ruleSet: RuleSet;
   /** YYYY-MM-DD, the Pittsburgh calendar date (todayET) unless PlanOptions supplies one. */
   generatedAt: string;
@@ -163,6 +183,8 @@ export interface Plan {
   rows: PlanRow[];
   /** Unknown and not-checked evidence and unverified requirements (parking) on candidates, verbatim, with counts. */
   openItems: { label: string; state: EvidenceState; detail: string; count: number }[];
+  /** Candidates carrying each open-item group (zero groups omitted), for the brief. */
+  openGroups: { id: OpenGroupId; label: string; count: number }[];
   sources: { name: string; url: string; vintage: string }[];
 }
 
@@ -205,7 +227,10 @@ function lotSizeReliefOnly(fs: Finding[], typology: Typology | null): boolean {
 /** Relief-only lots where every lot-size-only option also carries a use approval (Hillside). */
 function lotSizeReliefKeepsApproval(fs: Finding[], typology: Typology | null): boolean {
   const pool = typology ? fs.filter((f) => f.typology === typology) : fs;
-  const reliefOnly = pool.filter((f) => f.verdict === "variance" && f.checks.every((c) => c.passed !== false || LOT_SIZE_IDS.has(c.id)));
+  // An option whose permission is itself unresolved (width, ADU overlay) says nothing about which approval remains.
+  const reliefOnly = pool.filter(
+    (f) => f.verdict === "variance" && !f.permissionQuestion && f.checks.every((c) => c.passed !== false || LOT_SIZE_IDS.has(c.id)),
+  );
   return reliefOnly.length > 0 && reliefOnly.every((f) => f.reviewKind !== null);
 }
 
@@ -263,9 +288,10 @@ const lowerFirst = (x: string) => x.charAt(0).toLowerCase() + x.slice(1);
  * channel <recorded channel>". Never an instruction to offer the lot.
  */
 function nextAction(lot: Lot, f: Finding, ev: Evidence, pf: Proforma | null, triage: TriageResult | null): string {
-  if (f.verdict === "unknown" || f.verdict === "prohibited" || triage?.triage === "red") return "";
+  if ((f.verdict === "unknown" && !f.permissionQuestion) || f.verdict === "prohibited" || triage?.triage === "red") return "";
   const first = firstOpenItem(lot, f, ev, pf);
-  if (first?.id === "district-conflict") return first.label;
+  // An unconfirmed district or an unresolved permission is the whole next action: nothing else can be routed first.
+  if (first?.id === "district-conflict" || first?.id === "permission") return first.label;
   return `Staff review${first ? `: ${lowerFirst(first.label)}` : ""}; channel ${channelOf(lot)}`;
 }
 
@@ -394,6 +420,7 @@ export function buildPlan(
   const readyByRuleSet: Record<RuleSet, number> = { current: 0, "bill-2025-1545": 0 };
   const rows: PlanRow[] = [];
   const open = new Map<string, { label: string; state: EvidenceState; detail: string; count: number }>();
+  const groups: Record<OpenGroupId, number> = { district: 0, permission: 0, width: 0, fit: 0, site: 0, "finance-short": 0, "finance-unscreened": 0, parking: 0 };
 
   for (let i = 0; i < lots.length; i++) {
     const lot = lots[i];
@@ -448,6 +475,15 @@ export function buildPlan(
           .map((c) => ({ label: c.label, state: c.state, detail: c.detail })),
         ...(ev.unresolved ?? []).map((u) => ({ label: u.label, state: "unknown" as EvidenceState, detail: u.detail })),
       ];
+      const st = (id: EvidenceId) => ev.checks.find((c) => c.id === id)?.state;
+      if (disputed) groups.district++;
+      if (f.permissionQuestion) groups.permission++;
+      if (st("width") === "unknown") groups.width++;
+      if (st("fit") !== "fail") groups.fit++;
+      groups.site++; // a passing Site check still leaves access, utilities and soils unchecked
+      if (st("finance") === "fail") groups["finance-short"]++;
+      else if (st("finance") !== "pass") groups["finance-unscreened"]++;
+      if ((ev.unresolved ?? []).some((u) => u.id === "parking")) groups.parking++;
       for (const c of items) {
         const key = `${c.label}|${c.detail}`;
         const o = open.get(key);
@@ -459,7 +495,9 @@ export function buildPlan(
     const land = opts.landOverrides?.[lot.id];
     const a = land == null ? assumptions : { ...assumptions, landOverride: land };
     const priced = f.verdict !== "unknown" && f.verdict !== "prohibited";
-    const pf = priced ? proformaFor(lot, f.typology, comps[i], a) : null;
+    // One financial result: money is published only when financeResult screens it.
+    const fin = financeResult(lot, f, ev, priced ? proformaFor(lot, f.typology, comps[i], a) : null);
+    const pf = fin.screened ? fin.proforma : null;
     const pf150 = pf ? proformaFor(lot, f.typology, comps[i], { ...a, hardCostPerSf: 150 }) : null;
     const pf215 = pf ? proformaFor(lot, f.typology, comps[i], { ...a, hardCostPerSf: 215 }) : null;
     const pfPremium = pf ? proformaFor(lot, f.typology, comps[i], { ...a, valuePremium: NEW_CONSTRUCTION_PREMIUM }) : null;
@@ -539,6 +577,8 @@ export function buildPlan(
       zone_map: lot.zoneMap ?? "",
       zone_agrees: lot.zoneAgrees == null ? "" : String(lot.zoneAgrees),
       shortfall_at_1_3x_value: round(pfPremium?.gap),
+      finance_screened: String(fin.screened),
+      finance_reason: fin.reason ?? "",
     } as PlanRow;
     for (const x of ev.checks) row[EVIDENCE_COL[x.id]] = STATE_CSV[x.state];
     rows.push(row);
@@ -580,6 +620,7 @@ export function buildPlan(
     gap = {
       n,
       projects: priced.length,
+      notScreened: shortlist.length - priced.length,
       dwellings,
       hardCostPerSf: assumptions.hardCostPerSf,
       ...scen((f) => f.gap),
@@ -596,6 +637,7 @@ export function buildPlan(
 
   return {
     scopeLabel: scopeLabel(scope),
+    typology,
     ruleSet,
     generatedAt,
     assumptions,
@@ -611,6 +653,7 @@ export function buildPlan(
     rows,
     // The district leads: every other item rests on it.
     openItems: [...open.values()].sort((a, b) => Number(b.label === DISTRICT_OPEN_ITEM.label) - Number(a.label === DISTRICT_OPEN_ITEM.label) || b.count - a.count),
+    openGroups: (Object.keys(groups) as OpenGroupId[]).filter((id) => groups[id] > 0).map((id) => ({ id, label: OPEN_GROUP_LABEL[id], count: groups[id] })),
     sources: opts.sources ?? [],
   };
 }
@@ -644,9 +687,19 @@ function basisText(b: Gap["valueBasis"][number]): string {
 
 const plural = (n: number, one: string, many: string) => `${fmtNum(n)} ${n === 1 ? one : many}`;
 
+/** " 8 more shortlisted candidates have no screened financial result …": what the total leaves out. */
+function notScreenedLine(n: number): string {
+  if (!n) return "";
+  return ` ${fmtNum(n)} more shortlisted ${n === 1 ? "candidate has" : "candidates have"} no screened financial result (district or permission unresolved, or no comps) and ${n === 1 ? "is" : "are"} not in the total.`;
+}
+
 export function gapSentence(plan: Plan): string {
   const g = plan.gap;
-  if (!g) return "No candidate in scope has comps, so the shortfall was not modeled.";
+  if (!g) {
+    return plan.shortlist.length
+      ? `None of the ${fmtNum(plan.shortlist.length)} shortlisted candidates has a screened financial result (district or permission unresolved, or no comps), so no shortfall is totaled.`
+      : "No candidate in scope has comps, so the shortfall was not modeled.";
+  }
   const dwellings = g.projects === g.dwellings ? "" : ` (${plural(g.dwellings, "dwelling", "dwellings")})`;
   const who =
     g.projects === 1
@@ -654,7 +707,7 @@ export function gapSentence(plan: Plan): string {
       : `The ${fmtNum(g.projects)} lowest-shortfall candidates are ${plural(g.projects, "project", "projects")}${dwellings}`;
   const per = g.projects === g.dwellings ? `${fmtUsdShort(g.perProject)} per project` : `${fmtUsdShort(g.perProject)} per project, ${fmtUsdShort(g.perDwelling)} per dwelling`;
   const basis = g.valueBasis.map(basisText).join(", ");
-  return `${who}. Modeled shortfall about ${fmtUsdShort(g.total)} at $${g.hardCostPerSf}/sf (${per}). Target ${VALUE_WORD[g.valueMode]} ${fmtUsdShort(g.targetValueAvg)} per project, cost plus the ${plan.assumptions.targetMarginPct}% target return${basis ? `; ${basis}` : ""}.`;
+  return `${who}. Modeled shortfall about ${fmtUsdShort(g.total)} at $${g.hardCostPerSf}/sf (${per}). Target ${VALUE_WORD[g.valueMode]} ${fmtUsdShort(g.targetValueAvg)} per project, cost plus the ${plan.assumptions.targetMarginPct}% target return${basis ? `; ${basis}` : ""}.${notScreenedLine(g.notScreened)}`;
 }
 
 /** "4 pass · 1 fail · 1 not checked" from a row's count columns. */
@@ -671,75 +724,74 @@ export function reliefSentence(plan: Pick<Plan, "needsRelief" | "needsReliefWith
   return `${plural(plan.needsRelief, "lot fails", "lots fail")} only lot size; ${fmtNum(n)} of them also ${n === 1 ? "needs" : "need"} a use approval (Hillside) that relief does not remove.`;
 }
 
-function districtLine(n: number): string {
-  if (!n) return "";
-  return ` ${fmtNum(n)} of them ${n === 1 ? "has" : "have"} an unresolved district (inventory and zoning map disagree); ${n === 1 ? "its" : "their"} first action is to resolve it.`;
+const ZONING_SOURCES = "Pittsburgh Zoning Code, Title Nine, read 2026-09-26; Bill 2025-1545 substitute, corrected 2026-07-24.";
+
+/** "City of Pittsburgh 25% or Greater Slope, 2026-09-23": the source name without its qualifiers, and its first date. */
+function sourceLine(src: { name: string; url: string; vintage: string }): string {
+  const name = src.name.split(/ \(|: /)[0].replace(/, class 'Vacant Land'$/, "");
+  const date = src.vintage.match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? src.vintage;
+  return `${name}, ${date}. ${src.url}`;
 }
 
+/**
+ * The short review brief (≤ 350 words): scope and assumptions, the funnel, candidates by channel, the
+ * financial hurdle for N projects with the four scenarios, open items grouped with counts, a pointer to
+ * the CSV for per-lot detail, sources with vintages, the disclaimer. Stage definitions and the per-lot
+ * list live in the CSV and README.
+ */
 export function toBrief(plan: Plan): string {
   const L: string[] = [];
-  const f = plan.funnel;
   const date = plan.generatedAt.slice(0, 10);
   const a = plan.assumptions;
+  const type = plan.typology ? TYPE_NAME[plan.typology] : "any (lowest-shortfall allowed type per lot)";
+  const mode = a.mode === "sale" ? "sale" : `rent (${a.capRate}% cap rate)`;
   L.push(`# Disposition review: ${plan.scopeLabel}`, "");
-  L.push(`_${date} · ${RULESET_LABEL[plan.ruleSet]} · ByRight PGH screening at $${a.hardCostPerSf}/sf hard cost, ${a.softCostPct}% soft, ${a.devFeePct}% fee, ${a.targetMarginPct}% target return, ${a.mode === "sale" ? "sale" : `rent (${a.capRate}% cap rate, ${a.opexPct}% expenses)`} mode._`, "");
-
-  L.push("## Funnel", "", funnelLine(f), "", FUNNEL_STAGES, "");
-  L.push(`${fmtNum(plan.needsRelief)} need relief (lot size) · ${fmtNum(plan.hillsideReview)} Hillside exception · ${fmtNum(plan.notEvaluated)} not evaluated`, "");
-
-  L.push("## Candidates for staff review", "");
+  L.push(`_${date} · ${RULESET_LABEL[plan.ruleSet]} · Home type: ${type} · $${a.hardCostPerSf}/sf, ${a.softCostPct}% soft, ${a.devFeePct}% fee, ${a.targetMarginPct}% target return, ${mode} mode._`, "");
+  L.push(`**Funnel.** ${funnelLine(plan.funnel)}`, "");
+  const c = plan.candidates;
+  const unconfirmed = c.districtUnconfirmed
+    ? ` ${fmtNum(c.districtUnconfirmed)} ${c.districtUnconfirmed === 1 ? "has" : "have"} an unconfirmed district; resolve it first.`
+    : "";
   L.push(
-    `${fmtNum(plan.candidates.total)} lots are candidates for staff review: a small home type is allowed by the use table and lot-size standards under the inventory district (other standards not checked), the lot is recorded Available for Sale and not a protected-purpose record, no hazard flag at the inventory point, and at least 1,000 sf. This is a review queue, not a disposition list; each row's next action names its first open item.${districtLine(plan.candidates.districtUnconfirmed)}`,
+    `**Candidates for staff review: ${fmtNum(c.total)}.** ${CHANNELS.filter((x) => x !== "Other").map((x) => `${x} ${fmtNum(c.byChannel[x])}`).join(" · ")}. A review queue, not a disposition list.${unconfirmed}`,
     "",
   );
-  L.push(`- By recorded channel: ${CHANNELS.map((c) => `${c} ${fmtNum(plan.candidates.byChannel[c])}`).join(" · ")}`);
-  const types = TYPOLOGY_ORDER.filter((t) => plan.candidates.byType[t]);
-  L.push(`- By screened type: ${types.length ? types.map((t) => `${TYPE_NAME[t]} ${fmtNum(plan.candidates.byType[t]!)}`).join(" · ") : "none"}`, "");
+  L.push(plan.billLine, "");
 
-  L.push(`## Modeled shortfall for ${plan.gap?.n ?? 0} projects`, "", gapSentence(plan), "");
-  if (plan.gap) {
-    const g = plan.gap;
-    L.push("| Hard cost | Total shortfall | Per project | Per dwelling |", "|---|---:|---:|---:|");
-    L.push(`| $${g.hardCostPerSf}/sf (displayed) | ${fmtUsd(g.total)} | ${fmtUsd(g.perProject)} | ${fmtUsd(g.perDwelling)} |`);
-    L.push(`| $150/sf | ${fmtUsd(g.at150.total)} | ${fmtUsd(g.at150.perProject)} | ${fmtUsd(g.at150.perDwelling)} |`);
-    L.push(`| $215/sf | ${fmtUsd(g.at215.total)} | ${fmtUsd(g.at215.perProject)} | ${fmtUsd(g.at215.perDwelling)} |`);
-    L.push(`| ${PREMIUM_LABEL} | ${fmtUsd(g.atPremium.total)} | ${fmtUsd(g.atPremium.perProject)} | ${fmtUsd(g.atPremium.perDwelling)} |`, "");
+  const g = plan.gap;
+  L.push(`## Financial hurdle for ${g?.n ?? 0} projects`, "");
+  if (!g) {
+    L.push(gapSentence(plan), "");
+  } else {
+    const basis = g.valueBasis.map(basisText).join(", ");
+    const dwellings = g.projects === g.dwellings ? "" : `, ${plural(g.dwellings, "dwelling", "dwellings")}`;
     L.push(
-      `Shortfall to the target return against an aggregate reference value; not a subsidy award, eligibility finding, or parcel appraisal. The premium row values new homes at ${NEW_CONSTRUCTION_PREMIUM}× the index at $${g.hardCostPerSf}/sf; the URA would calibrate this against actual gap awards.`,
+      `Each project needs about ${fmtUsdShort(g.targetValueAvg)} of value (cost plus the ${a.targetMarginPct}% target return) against ${basis || "the reference index"}. Shortfall for the ${plural(g.projects, "lowest-shortfall project", "lowest-shortfall projects")}${dwellings}:${notScreenedLine(g.notScreened)}`,
       "",
     );
+    L.push("| Scenario | Shortfall | Per project |", "|---|---:|---:|");
+    const row = (label: string, x: GapScenario) => `| ${label} | ${fmtUsd(x.total)} | ${fmtUsd(x.perProject)} |`;
+    L.push(row(`$${g.hardCostPerSf}/sf`, g), row("$150/sf", g.at150), row("$215/sf", g.at215), row(`${NEW_CONSTRUCTION_PREMIUM}× index, $${g.hardCostPerSf}/sf`, g.atPremium), "");
+    L.push("Scenarios against an aggregate index: not a subsidy award or appraisal.", "");
   }
 
-  L.push("## Needs relief", "");
-  L.push(
-    `${reliefSentence(plan)} Consolidation or a § 921.04 exception may address the size standard only, if eligible and approved; status, site and finance would still need review. Adjacent City lots are not computed.`,
-    "",
-  );
-
-  L.push("## Scenario", "", plan.billLine, "");
-
-  if (plan.shortlist.length) {
-    L.push(`## Shortlist (top ${plan.shortlist.length})`, "");
-    L.push("| Address | Parcel | Channel | Type | Checks | Shortfall | Next action |", "|---|---|---|---|---|---:|---|");
-    for (const r of plan.shortlist) {
-      const sf = r.shortfall_to_target === "" ? "n/a" : fmtUsd(Number(r.shortfall_to_target));
-      const type = r.best_type ? TYPE_NAME[r.best_type as Typology] : "";
-      L.push(`| ${r.address || "(no address)"} | ${r.parcel_id} | ${r.channel} | ${type} | ${rowChecks(r)} | ${sf} | ${r.next_action} |`);
-    }
+  if (plan.openGroups.length) {
+    L.push(`## Open items on the ${fmtNum(c.total)} candidates`, "");
+    for (const o of plan.openGroups) L.push(`- ${o.label}: ${fmtNum(o.count)}`);
     L.push("");
   }
-
-  if (plan.openItems.length) {
-    L.push("## Open items on candidates", "");
-    for (const o of plan.openItems) L.push(`- **${o.label}, ${o.state === "notChecked" ? "not checked" : "not verified"}** (${fmtNum(o.count)}): ${o.detail}`);
-    L.push("");
-  }
+  L.push("Per-lot detail (checks, next action, citations, cost basis) is in the CSV, one row per lot in scope.", "");
 
   L.push("## Sources", "");
-  for (const s of plan.sources) L.push(`- ${s.name}. ${s.vintage}. ${s.url}`);
-  L.push("- Rule citations for every lot (code section and ecode360 link): CSV column rule_citations.");
-  L.push(`- ${COST_BASIS_NOTE} Per-lot inputs: CSV column cost_basis.`, "");
-
-  L.push("---", "", `_${DISCLAIMER}_`, "");
+  const seen = new Set<string>();
+  for (const src of plan.sources) {
+    const line = sourceLine(src);
+    const key = line.split(",")[0];
+    if (seen.has(key)) continue;
+    seen.add(key);
+    L.push(`- ${line}`);
+  }
+  L.push(`- ${ZONING_SOURCES} Section links per lot: CSV rule_citations.`, "");
+  L.push(`_${DISCLAIMER}_`, "");
   return L.join("\n");
 }

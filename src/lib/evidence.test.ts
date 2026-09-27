@@ -4,7 +4,7 @@ import type { Comps, CompsFile, Lot, LotsFile, RuleSet, Typology } from "./types
 import { evaluateLot } from "./rules";
 import { triageLot } from "./triage";
 import { compsFor, DEFAULT_FINANCE, proformaWithFallback } from "./finance";
-import { deriveEvidence, evidenceForLot, summary, yellowReason } from "./evidence";
+import { deriveEvidence, evidenceForLot, financeResult, firstOpenItem, summary, yellowReason } from "./evidence";
 
 function lot(overrides: Partial<Lot> = {}): Lot {
   return {
@@ -183,6 +183,44 @@ describe("deriveEvidence", () => {
 
 const LOTS = "public/data/lots.json";
 const COMPS = "public/data/comps.json";
+describe.runIf(existsSync(LOTS) && existsSync(COMPS))("financeResult on real records", () => {
+  const lots = existsSync(LOTS) ? (JSON.parse(readFileSync(LOTS, "utf8")) as LotsFile).lots : [];
+  const file = existsSync(COMPS) ? (JSON.parse(readFileSync(COMPS, "utf8")) as CompsFile) : null;
+  const gate = (id: string, typology: Typology) => {
+    const l = lots.find((x) => x.id === id)!;
+    const c = compsFor(l, file);
+    const findings = evaluateLot(l, "current");
+    const f = findings.find((x) => x.typology === typology)!;
+    const pf = proformaWithFallback(l, typology, c);
+    const ev = evidenceForLot(l, findings, null, c, DEFAULT_FINANCE, typology);
+    return { r: financeResult(l, f, ev, pf), ev };
+  };
+
+  it("0 Forbes Av triplex fails FAR: not screened, no proforma", () => {
+    const { r } = gate("0086L00500000000", "triplex");
+    expect(r).toEqual({ screened: false, reason: "building does not fit (FAR)", proforma: null });
+  });
+
+  it("0 Warren St (Hillside) house needs an administrator exception: permission unresolved, figures hypothetical only", () => {
+    const { r, ev } = gate("0046S00371000000", "single");
+    expect(r.screened).toBe(false);
+    expect(r.reason).toBe("permission unresolved");
+    expect(r.proforma).not.toBeNull();
+    expect(ev.checks.find((x) => x.id === "finance")!.detail).toBe("Not screened: permission unresolved");
+  });
+
+  it("3336 Oregon St (Esplen; inventory R1D-H, map RIV-RM): district unconfirmed, not screened", () => {
+    const { r } = gate("0043R00172000000", "single");
+    expect(r).toMatchObject({ screened: false, reason: "district unconfirmed" });
+  });
+
+  it("126 Carrington as a duplex is not permitted: not screened, no margin anywhere", () => {
+    const { r } = gate("0023F00165000000", "duplex");
+    expect(r).toEqual({ screened: false, reason: "use not permitted", proforma: null });
+    expect(gate("0023F00165000000", "townhome").r.screened).toBe(true);
+  });
+});
+
 describe.runIf(existsSync(LOTS) && existsSync(COMPS))("deriveEvidence on real records", () => {
   it("0 Forbes Av (259 sf LNC): the triplex fails Fit, so Finance is not screened rather than showing a margin", () => {
     const l = (JSON.parse(readFileSync(LOTS, "utf8")) as LotsFile).lots.find((x) => x.id === "0086L00500000000")!;
@@ -194,7 +232,7 @@ describe.runIf(existsSync(LOTS) && existsSync(COMPS))("deriveEvidence on real re
     expect(ev.checks.find((x) => x.id === "fit")!.state).toBe("fail");
     expect(ev.checks.find((x) => x.id === "finance")).toMatchObject({
       state: "notChecked",
-      detail: "Not screened: proposal not buildable as checked",
+      detail: "Not screened: building does not fit (FAR)",
     });
   });
 
@@ -211,6 +249,59 @@ describe.runIf(existsSync(LOTS) && existsSync(COMPS))("deriveEvidence on real re
       "Inventory says RM-M; City zoning map says R1D-L at this point. Confirm district before relying on this.",
     );
     expect(triage.triage).toBe("yellow");
+  });
+});
+
+describe("unresolved permission in the evidence row", () => {
+  it("R1D townhouse with no width in the record: Use unknown with the question, Finance not screened, first open item resolves permission", () => {
+    const l = lot({ zone: "R1D-M", frontageFt: null });
+    const { evidence } = evidenceFor(l, RICH, "townhome");
+    expect(check(evidence, "use")).toMatchObject({ state: "unknown" });
+    expect(check(evidence, "use").detail).toContain("P if lot width ≤ 35 ft, else S; width not in the record");
+    expect(check(evidence, "finance")).toMatchObject({ state: "notChecked", detail: "Not screened: permission unresolved" });
+    expect(evidence.needsApproval).toBe(false);
+    const f = evaluateLot(l, "current").find((x) => x.typology === "townhome")!;
+    expect(firstOpenItem(l, f, evidence)).toEqual({ id: "permission", label: "Resolve permission: confirm lot width (§ 911.04.A.69A)" });
+  });
+
+  it("House + ADU under current code: Use unknown pending the overlay question, not a use-variance failure", () => {
+    const l = lot({ zone: "R1D-H" });
+    const { evidence } = evidenceFor(l, RICH, "single_adu");
+    expect(check(evidence, "use").state).toBe("unknown");
+    expect(check(evidence, "use").detail).toMatch(/ADU overlay applicability unknown/);
+    const f = evaluateLot(l, "current").find((x) => x.typology === "single_adu")!;
+    expect(firstOpenItem(l, f, evidence)?.label).toBe("Resolve permission: confirm ADU overlay (§ 912.08)");
+  });
+});
+
+describe("financeResult: one screened / not-screened answer", () => {
+  const result = (l: Lot, typology: Typology, c: Comps | null = RICH) => {
+    const findings = evaluateLot(l, "current");
+    const f = findings.find((x) => x.typology === typology)!;
+    const pf = c ? proformaWithFallback(l, typology, c) : null;
+    const ev = deriveEvidence(l, f, null, pf, c);
+    return financeResult(l, f, ev, pf);
+  };
+
+  it("screens a permitted proposal on a lot recorded for sale", () => {
+    const r = result(lot(), "single");
+    expect(r.screened).toBe(true);
+    expect(r.reason).toBeUndefined();
+    expect(r.proforma?.pencils).toBe(true);
+  });
+
+  it("does not screen a lot that is not recorded Available for Sale, but keeps the hypothetical", () => {
+    const r = result(lot({ status: "Hold for Study", inventoryType: "Hold For Study" }), "single");
+    expect(r).toMatchObject({ screened: false, reason: "not recorded Available for Sale" });
+    expect(r.proforma).not.toBeNull();
+  });
+
+  it("does not screen a protected-purpose record", () => {
+    expect(result(lot({ inventoryType: "Greenway" }), "single")).toMatchObject({ screened: false, reason: "not a disposition-eligible record" });
+  });
+
+  it("does not screen without comps", () => {
+    expect(result(lot(), "single", null)).toMatchObject({ screened: false, reason: "no value comps for this lot", proforma: null });
   });
 });
 

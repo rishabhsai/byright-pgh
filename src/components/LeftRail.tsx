@@ -238,19 +238,22 @@ function LeftRail({
     const rows: (TriageRanked & { i: number })[] = [];
     for (let i = 0; i < lots.length; i++) {
       if (!matches[i]) continue;
+      // Unscreened finance never orders the list: only a screened margin or shortfall counts.
+      const fin = evidence?.[i]?.checks.find((c) => c.id === "finance")?.state;
+      const screened = fin === "pass" || fin === "fail";
       rows.push({
         i,
         score: scoreLot(lots[i], e.findings[i]),
         lot: lots[i],
         triage: tr.results[i].triage,
-        margin: tr.margin[i],
+        margin: screened ? tr.margin[i] : null,
         byRight: typIdx < 0 ? e.best[i] === "by-right" : e.findings[i][typIdx].verdict === "by-right",
-        gap: tr.results[i].gap,
+        gap: screened ? tr.results[i].gap : null,
       });
     }
     rows.sort(compareTriageRanked);
     return { rows: rows.slice(0, LIST_LIMIT), total: rows.length };
-  }, [evals, triages, ruleSet, lots, matches, typIdx]);
+  }, [evals, triages, ruleSet, lots, matches, typIdx, evidence]);
 
   const set = <K extends keyof Filters>(k: K, v: Filters[K]) => onFilters({ ...filters, [k]: v });
   const toggleHood = (name: string) =>
@@ -297,7 +300,7 @@ function LeftRail({
   return (
     <aside className="flex w-[344px] shrink-0 flex-col border-r border-hairline bg-panel">
       <div className="space-y-2 px-4 pt-3 pb-2">
-        <SearchBox lots={lots} onPick={onSelect} triage={searchTriage} matches={matches} />
+        <SearchBox lots={lots} onPick={onSelect} onScope={(h) => set("neighborhoods", [h])} triage={searchTriage} matches={matches} />
         <Segmented<Tab>
           kind="tabs"
           label="Rail view"

@@ -2,7 +2,7 @@
 // assumptions (with this lot's land figure) and results. Nothing downstream recomputes a proposal.
 import type { Comps, Finding, Lot, RuleSet, TriageResult, Typology } from "./types";
 import { triageLot } from "./triage";
-import { evidenceForLot, firstOpenItem, pickFinding, type Evidence, type OpenItem } from "./evidence";
+import { evidenceForLot, financeResult, firstOpenItem, pickFinding, type Evidence, type FinanceResult, type OpenItem } from "./evidence";
 import { proformaWithFallback, type FinanceAssumptions, type Proforma } from "./finance";
 
 /** Where the selected proposal came from. */
@@ -27,7 +27,13 @@ export interface SelectedCase {
   /** Shared assumptions with this lot's land figure applied. */
   assumptions: FinanceAssumptions;
   landOverride: number | null;
+  /**
+   * The screened pro forma, or null when finance was not screened (finance.screened === false). Every money
+   * line (answer, memo, application description) reads this, so an unscreened proposal publishes no figure.
+   */
   proforma: Proforma | null;
+  /** The one financial result: screened or not, why not, and (for unresolved district/permission or not for sale) a hypothetical to show labeled. */
+  finance: FinanceResult;
   evidence: Evidence;
   /** The shared first open item for this proposal (evidence.ts firstOpenItem): what the memo names first after the headline. */
   firstOpenItem: OpenItem | null;
@@ -53,8 +59,11 @@ export function buildSelectedCase(args: {
   const typologySource: TypologySource = filterTypology ? "filter" : pickedTypology ? "picked" : "best";
   const triage = typology === bestTriage.bestTypology ? bestTriage : triageLot(lot, fs, comps, assumptions, typology);
   const finding = fs.find((f) => f.typology === typology) ?? null;
-  const proforma = proformaWithFallback(lot, typology, comps, assumptions);
   const evidence = evidenceForLot(lot, fs, triage, comps, assumptions, typology);
+  const finance: FinanceResult = finding
+    ? financeResult(lot, finding, evidence, proformaWithFallback(lot, typology, comps, assumptions))
+    : { screened: false, reason: "zoning not evaluated", proforma: null };
+  const proforma = finance.screened ? finance.proforma : null;
   return {
     lot,
     ruleSet,
@@ -68,6 +77,7 @@ export function buildSelectedCase(args: {
     assumptions,
     landOverride,
     proforma,
+    finance,
     evidence,
     firstOpenItem: finding ? firstOpenItem(lot, finding, evidence, proforma) : null,
     comps,

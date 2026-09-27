@@ -32,9 +32,9 @@ export const FRONTAGE_SOURCE = "parsed from the County legal description; approx
 export const caveats: string[] = [
   "Screening only. Verdicts come from encoded tables, not from the Zoning Administrator; overlays, setbacks, height, lot coverage, FAR outside LNC, steep-slope (§ 915) and riverfront/IPOD rules are not evaluated, so building fit is never established.",
   "A failed lot-size check needs relief: a dimensional variance, or the § 921.04 nonconforming-lot exception if the lot qualifies; zoning staff determine the path.",
-  "Current-code ADU verdicts assume the lot is outside any ADU Overlay District (§ 912.08); the prototype has no overlay layer.",
+  "Under current code an ADU is allowed only inside an ADU Overlay District (§ 912.08); the prototype has no overlay layer, so the house + ADU permission is unresolved (not prohibited) until staff confirm.",
   `Lot area comes from the City inventory. Frontage is ${FRONTAGE_SOURCE}. When either is missing, the check is marked 'needs survey', does not change the verdict, and keeps the lot out of Green.`,
-  "Frontage is used as lot width for the § 911.04.A.69A 35 ft attached-unit test in R1D; the code measures Lot Width, which can differ from street frontage.",
+  "Frontage is used as lot width for the § 911.04.A.69A 35 ft attached-unit test in R1D; the code measures Lot Width, which can differ from street frontage. With no frontage in the record, the attached-unit permission is unresolved (P if ≤ 35 ft, else S), not a Special Exception.",
   "Parking minimums are reported, not checked against lot geometry.",
   "H (Hillside) single-unit uses need Administrator Exception review under § 911.04.A.69(a); those site conditions are not encoded.",
   "§ 903.03.E lists no minimum lot size for VH subdistricts; the engine treats VH as having none.",

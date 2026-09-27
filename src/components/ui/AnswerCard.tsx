@@ -32,6 +32,7 @@ export default function AnswerCard({
   indexNote,
   useRoute,
   prototype,
+  notScreened = null,
 }: {
   headline: string;
   tone: AnswerTone;
@@ -52,6 +53,8 @@ export default function AnswerCard({
   indexNote?: boolean;
   /** The approval route an exception use needs; the Use pill shows it instead of "Unknown". */
   useRoute?: { short: string; full: string } | null;
+  /** Why this proposal's finance was not screened; shown instead of any dollar figure. */
+  notScreened?: string | null;
   /** Why this prototype suits (or strains) the lot's frontage. */
   prototype?: string | null;
 }) {
@@ -72,6 +75,11 @@ export default function AnswerCard({
             </>
           )}
         </p>
+        {!financeLine && notScreened && (
+          <p className="mt-1 text-[13px] leading-snug text-muted">
+            Finance not screened: {notScreened}.
+          </p>
+        )}
         {!blocker && financeLine && indexNote && (
           <p className="mt-1 text-[12px] leading-snug text-muted">Index-based value; confirm comps before relying on this margin.</p>
         )}

@@ -43,8 +43,11 @@ export const USE_ROW_TITLE: Record<UseRow, string> = {
 };
 
 export interface AduRule {
-  /** P: ADU is a permitted accessory use on this lot; N: only inside an ADU overlay district (none in the data). */
-  permitted: UseLetter;
+  /**
+   * P: ADU is a permitted accessory use on this lot. "overlay": permitted only inside an adopted ADU Overlay
+   * District (§ 912.08); the prototype has no overlay layer, so applicability stays an open question.
+   */
+  permitted: UseLetter | "overlay";
   maxPerLot: number;
   ownerOccupancyRequired: boolean;
   maxSizeSqFt: number;
@@ -114,7 +117,7 @@ const USE_LETTERS: Record<DistrictFamily, Record<UseRow, UseEntry>> = {
 const USE_NOTE: Partial<Record<DistrictFamily, Partial<Record<UseRow, string>>>> = {
   R1D: {
     townhome:
-      "§911.04.A.69A: by right on lots 35 ft wide or narrower; Special Exception (§922.07) on wider lots.",
+      "§911.04.A.69A: by right on lots 35 ft wide or narrower; Special Exception (§922.07) on wider lots. With no width in the record the permission is unresolved, not a Special Exception.",
   },
   H: {
     single:
@@ -126,7 +129,7 @@ const USE_NOTE: Partial<Record<DistrictFamily, Partial<Record<UseRow, string>>>>
 /** §914.02.A Schedule A minimums (current, last amended Ord. 4-2024 eff. 2-27-2024). */
 const PARKING_CURRENT: Record<UseRow, number> = { single: 1, townhome: 0, duplex: 1, triplex: 1 };
 
-const ADU_CURRENT: AduRule = { permitted: "N", maxPerLot: 1, ownerOccupancyRequired: true, maxSizeSqFt: 800 };
+const ADU_CURRENT: AduRule = { permitted: "overlay", maxPerLot: 1, ownerOccupancyRequired: true, maxSizeSqFt: 800 };
 const ADU_BILL: AduRule = { permitted: "P", maxPerLot: 2, ownerOccupancyRequired: false, maxSizeSqFt: 1000 };
 
 function buildUseStandards(ruleSet: RuleSet, family: DistrictFamily): Record<UseRow, Standard<UseEntry>> {
@@ -171,7 +174,7 @@ function aduStandard(ruleSet: RuleSet): Standard<AduRule> {
         value: ADU_CURRENT,
         citation: cite("current", "§ 912.08", "Accessory Dwelling Unit Overlay District (Ord. 32-2018)", ADU_URL),
         note:
-          "ADUs are allowed only inside an adopted ADU Overlay District; max 1 per lot, under 800 sq ft, owner must live on site. This prototype has no overlay layer and assumes the lot is outside one.",
+          "ADUs are allowed only inside an adopted ADU Overlay District; max 1 per lot, under 800 sq ft, owner must live on site. The City's overlay map is not in our data, so whether this lot is inside one is unresolved: staff confirm.",
       }
     : {
         value: ADU_BILL,

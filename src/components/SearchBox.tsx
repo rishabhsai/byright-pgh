@@ -26,14 +26,20 @@ const SUFFIX: Record<string, string> = {
   sq: "square",
 };
 
-/** Lowercase, drop punctuation, and spell out street suffixes so "5118 Ladora Way" finds "5118 Ladora Wy". */
+/** Spelled-out street suffixes: a query may add one the inventory address leaves off. */
+const SUFFIX_WORDS = new Set(Object.values(SUFFIX));
+
+/**
+ * Lowercase, drop punctuation, spell out street suffixes, and drop leading zeros from house numbers,
+ * so "5118 Ladora Way" finds "5118 Ladora Wy" and "110 Roup Ave" finds "0110 Roup Av" ("0" stays "0").
+ */
 export function normalizeAddress(s: string): string {
   return s
     .toLowerCase()
     .replace(/[.,#]/g, " ")
     .split(/\s+/)
     .filter(Boolean)
-    .map((w) => SUFFIX[w] ?? w)
+    .map((w) => SUFFIX[w] ?? (/^\d+$/.test(w) ? w.replace(/^0+(?=\d)/, "") : w))
     .join(" ");
 }
 
@@ -68,8 +74,15 @@ export interface SearchEntry {
 function tokenScore(r: SearchEntry, tokens: string[], whole: string): number {
   const words = r.addr.split(" ");
   const hood = r.hood ? r.hood.split(" ") : [];
+  // The inventory often omits the suffix ("126 Carrington"): a trailing suffix in the query that the
+  // address lacks is tolerated rather than failing the match.
+  const addrHasSuffix = SUFFIX_WORDS.has(words[words.length - 1] ?? "");
+  const last = tokens.length - 1;
+  const extraSuffix = tokens.length > 1 && SUFFIX_WORDS.has(tokens[last]) && !addrHasSuffix && !words.includes(tokens[last]);
+  const scored = extraSuffix ? tokens.slice(0, last) : tokens;
+  if (extraSuffix) whole = scored.join(" ");
   let score = 0;
-  for (const t of tokens) {
+  for (const t of scored) {
     const numeric = /^\d+$/.test(t);
     if (words.includes(t)) score += numeric && words[0] === t ? 16 : 10;
     else if (!numeric && words.some((w) => w.startsWith(t))) score += 6;
@@ -141,14 +154,28 @@ export function searchLots(
   return ranked.slice(0, limit).map((h) => h.i);
 }
 
+/** Neighborhoods a query names: an exact name, or a prefix of at least four letters. At most two. */
+export function matchNeighborhoods(hoods: string[], q: string): string[] {
+  const whole = normalizeAddress(q);
+  if (whole.length < 4 || /^\d/.test(whole)) return [];
+  const exact = hoods.filter((h) => normalizeAddress(h) === whole);
+  if (exact.length) return exact.slice(0, 1);
+  return hoods.filter((h) => normalizeAddress(h).startsWith(whole)).slice(0, 2);
+}
+
+type Option = { kind: "hood"; name: string } | { kind: "lot"; i: number };
+
 function SearchBox({
   lots,
   onPick,
+  onScope,
   triage,
   matches,
 }: {
   lots: Lot[];
   onPick: (i: number) => void;
+  /** Scope the plan (the neighborhood filter) to one neighborhood the query names. */
+  onScope?: (neighborhood: string) => void;
   /** Triage per lot, to label lots the screen does not evaluate. */
   triage?: Triage[];
   /** Filter matches per lot, to label lots outside the current filters. */
@@ -172,6 +199,14 @@ function SearchBox({
     [lots, triage],
   );
   const results = useMemo(() => searchLots(index, q), [index, q]);
+  const hoodNames = useMemo(() => [...new Set(lots.map((l) => l.neighborhood).filter(Boolean))].sort(), [lots]);
+  const options = useMemo<Option[]>(
+    () => [
+      ...(onScope ? matchNeighborhoods(hoodNames, q).map((name) => ({ kind: "hood" as const, name })) : []),
+      ...results.map((i) => ({ kind: "lot" as const, i })),
+    ],
+    [onScope, hoodNames, q, results],
+  );
 
   // ⌘K / Ctrl-K focuses the field from anywhere.
   useEffect(() => {
@@ -203,8 +238,16 @@ function SearchBox({
     input.current?.blur();
   };
 
+  const scope = (name: string) => {
+    onScope?.(name);
+    setOpen(false);
+    setQ("");
+    input.current?.blur();
+  };
+  const choose = (o: Option) => (o.kind === "hood" ? scope(o.name) : pick(o.i));
+
   const show = open && q.trim().length > 0;
-  const active = Math.min(cursor, Math.max(results.length - 1, 0));
+  const active = Math.min(cursor, Math.max(options.length - 1, 0));
 
   return (
     <div ref={root} className="relative">
@@ -220,7 +263,7 @@ function SearchBox({
           aria-expanded={show}
           aria-controls={listId}
           aria-autocomplete="list"
-          aria-activedescendant={show && results.length ? `${listId}-${active}` : undefined}
+          aria-activedescendant={show && options.length ? `${listId}-${active}` : undefined}
           aria-label="Search address or parcel ID"
           placeholder="Address, block-lot or parcel ID"
           autoComplete="off"
@@ -236,14 +279,14 @@ function SearchBox({
             if (e.key === "ArrowDown") {
               e.preventDefault();
               setOpen(true);
-              setCursor((c) => Math.min(c + 1, results.length - 1));
+              setCursor((c) => Math.min(c + 1, options.length - 1));
             } else if (e.key === "ArrowUp") {
               e.preventDefault();
               setCursor((c) => Math.max(c - 1, 0));
             } else if (e.key === "Enter") {
-              if (results.length) {
+              if (options.length) {
                 e.preventDefault();
-                pick(results[active]);
+                choose(options[active]);
               }
             } else if (e.key === "Escape") {
               // Keep the app's Esc (which clears the selection) from firing.
@@ -267,8 +310,25 @@ function SearchBox({
           aria-label="Matching lots"
           className="pop absolute top-[calc(100%+4px)] right-0 left-0 z-30 overflow-hidden rounded-lg border border-hairline bg-white py-1 shadow-[0_12px_32px_-12px_rgba(23,33,30,.35)]"
         >
-          {results.length === 0 && <li className="px-3 py-2 text-[12px] text-muted">No lot matches “{q.trim()}”. Try a street name, a block-lot like 56-N-203, or a parcel ID.</li>}
-          {results.map((i, k) => {
+          {options.length === 0 && <li className="px-3 py-2 text-[12px] text-muted">No lot matches “{q.trim()}”. Try a street name, a block-lot like 56-N-203, or a parcel ID.</li>}
+          {options.map((o, k) => {
+            if (o.kind === "hood")
+              return (
+                <li
+                  key={`hood-${o.name}`}
+                  id={`${listId}-${k}`}
+                  role="option"
+                  aria-selected={k === active}
+                  onMouseEnter={() => setCursor(k)}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => scope(o.name)}
+                  className={`cursor-pointer border-b border-hairline px-3 py-1.5 ${k === active ? "bg-accent-soft" : ""}`}
+                >
+                  <span className="block truncate text-[13px] font-medium text-ink">Scope the plan to {o.name}</span>
+                  <span className="block text-[11px] text-muted">Sets the neighborhood filter; the Plan tab follows it</span>
+                </li>
+              );
+            const i = o.i;
             const l = lots[i];
             return (
               <li

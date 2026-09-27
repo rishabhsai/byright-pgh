@@ -75,10 +75,28 @@ describe.skipIf(!haveData)("selected case", () => {
     expect(state(duplex, "finance")).not.toBe("pass");
     expect(blockerLine(duplex.lot, duplex.typology, duplex.finding, duplex.evidence)?.text).toBe("Duplex: not allowed here (use)");
 
+    // No money for a prohibited proposal: not in the case, so not in the memo or the packet.
+    expect(duplex.finance).toEqual({ screened: false, reason: "use not permitted", proforma: null });
+    expect(duplex.proforma).toBeNull();
+    expect(any.finance.screened).toBe(true);
+    expect(any.proforma).toBe(any.finance.proforma);
+
     // Switching back leaves no residue from the duplex.
     const back = caseFor(id, null);
     expect(head(back)).toBe(head(any));
     expect(back.evidence).toEqual(any.evidence);
     expect(back.triage).toEqual(any.triage);
+  });
+
+  it("0 Warren St (Hillside exception): figures are a labeled hypothetical, never the case's screened proforma", () => {
+    const c = caseFor("0046S00371000000", null);
+    expect(c.typology).toBe("single");
+    expect(c.finance.screened).toBe(false);
+    expect(c.finance.reason).toBe("permission unresolved");
+    expect(c.finance.proforma).not.toBeNull();
+    expect(c.proforma).toBeNull();
+    expect(c.triage.gap).toBeNull();
+    const plan = buildApplicationPlan(c.lot, c.findings.current, "current", c.triage, c.finance.proforma, c.comps, c.typology);
+    expect(plan.description).not.toMatch(/\$/);
   });
 });

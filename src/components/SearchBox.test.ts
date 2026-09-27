@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeAddress, parcelPrefix, searchLots } from "./SearchBox";
+import { matchNeighborhoods, normalizeAddress, parcelPrefix, searchLots } from "./SearchBox";
 
 const index = [
   { addr: normalizeAddress("5118 Ladora Wy"), id: "0056n00203000000" },
@@ -90,6 +90,31 @@ describe("search", () => {
     expect(searchLots(idx, "126 Carrington")[0]).toBe(8);
     expect(searchLots(idx, "L00500")).toEqual([7]);
     expect(searchLots(idx, "Forbes").at(-1)).toBe(4);
+  });
+
+  it("tolerates leading zeros and a suffix the inventory omits", () => {
+    const idx = [
+      { addr: normalizeAddress("126 Carrington"), id: "0023f00165000000" },
+      { addr: normalizeAddress("0110 Roup Av"), id: "0083a00001000000" },
+      { addr: normalizeAddress("0 Forbes Av"), id: "0086l00500000000" },
+      { addr: normalizeAddress("126 Carrington Way"), id: "0023f00999000000" },
+    ];
+    expect(normalizeAddress("0110 Roup Av")).toBe("110 roup avenue");
+    expect(normalizeAddress("0 Forbes Av")).toBe("0 forbes avenue");
+    expect(searchLots(idx, "126 Carrington St")).toEqual([0]);
+    expect(searchLots(idx, "126 Carrington")[0]).toBe(0);
+    expect(searchLots(idx, "110 Roup Ave")).toEqual([1]);
+    expect(searchLots(idx, "0110 roup")).toEqual([1]);
+    expect(searchLots(idx, "0 forbes")).toEqual([2]);
+  });
+
+  it("offers a neighborhood scope when the query names one", () => {
+    const hoods = ["Hazelwood", "Central Northside", "Central Business District", "Glen Hazel"];
+    expect(matchNeighborhoods(hoods, "Hazelwood")).toEqual(["Hazelwood"]);
+    expect(matchNeighborhoods(hoods, "hazel")).toEqual(["Hazelwood"]);
+    expect(matchNeighborhoods(hoods, "central")).toEqual(["Central Northside", "Central Business District"]);
+    expect(matchNeighborhoods(hoods, "126 Carrington")).toEqual([]);
+    expect(matchNeighborhoods(hoods, "haz")).toEqual([]);
   });
 
   it("finds nothing for nonsense", () => {

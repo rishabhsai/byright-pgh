@@ -126,8 +126,7 @@ describe.runIf(haveData)("buildPlan: Hazelwood", () => {
     expect(g.atPremium.total).toBeLessThan(g.total);
     // At 1.3x a $83,082 index the 1,200 sf house is valued at $92,577 against a ~$331k target: the gap narrows, it does not close.
     expect(Math.round(g.atPremium.total)).toBe(2_380_059);
-    expect(toBrief(plan)).toMatch(/\| New-construction premium \(1\.3× index\) \| \$[\d,]+ \|/);
-    expect(toBrief(plan)).toMatch(/URA would calibrate/);
+    expect(toBrief(plan)).toMatch(/\| 1\.3× index, \$185\/sf \| \$[\d,]+ \|/);
   });
 });
 
@@ -144,6 +143,48 @@ describe.runIf(haveData)("buildPlan: citywide eligibility", () => {
   }, 60_000);
 });
 
+const MONEY_COLUMNS = [
+  "est_total_cost", "est_value", "value_basis", "value_basis_date", "shortfall_to_target", "break_even_value",
+  "shortfall_at_150psf", "shortfall_at_215psf", "shortfall_at_1_3x_value", "effective_land_cost", "revenue_mode", "land_source", "cost_basis",
+] as const;
+
+describe.runIf(haveData)("plan exports: one financial result", () => {
+  it("citywide, no row publishes money its Finance check did not screen, and every blank says why", () => {
+    const file = JSON.parse(readFileSync(LOTS, "utf8")) as LotsFile;
+    const compsFile = JSON.parse(readFileSync(COMPS, "utf8")) as CompsFile;
+    const plan = wire(file.lots, file.lots.map((l) => compsFor(l, compsFile)));
+    for (const r of plan.rows) {
+      if (r.finance_screened === "true") {
+        expect(["pass", "fail"]).toContain(r.check_finance);
+        expect(r.finance_reason).toBe("");
+        expect(r.est_total_cost).not.toBe("");
+      } else {
+        expect(r.finance_screened, String(r.parcel_id)).toBe("false");
+        expect(r.finance_reason, String(r.parcel_id)).not.toBe("");
+        expect(r.finance).toBeNull();
+        for (const k of MONEY_COLUMNS) expect(r[k], `${r.parcel_id} ${k}`).toBe("");
+      }
+    }
+    const forbes = plan.rows.find((r) => r.parcel_id === "0086L00500000000")!;
+    expect(forbes).toMatchObject({ finance_screened: "false", finance_reason: "building does not fit (FAR)", est_value: "", shortfall_to_target: "" });
+    const murray = plan.rows.find((r) => r.parcel_id === "0085K00296000000")!;
+    expect(murray).toMatchObject({ finance_reason: "district unconfirmed", est_value: "" });
+  }, 120_000);
+
+  it("Esplen: candidates with an unresolved district stay in the queue but out of the shortfall total", () => {
+    const file = JSON.parse(readFileSync(LOTS, "utf8")) as LotsFile;
+    const compsFile = JSON.parse(readFileSync(COMPS, "utf8")) as CompsFile;
+    const lots = file.lots.filter((l) => l.neighborhood === "Esplen");
+    const plan = wire(lots, lots.map((l) => compsFor(l, compsFile)));
+    expect(plan.candidates.total).toBe(11);
+    expect(plan.candidates.districtUnconfirmed).toBe(9);
+    expect(plan.shortlist).toHaveLength(10);
+    expect(plan.gap!.projects).toBe(2);
+    expect(plan.gap!.notScreened).toBe(8);
+    expect(gapSentence(plan)).toMatch(/8 more shortlisted candidates have no screened financial result/);
+  });
+});
+
 describe.runIf(haveData)("plan exports", () => {
   it("writes the CSV with the 47 section 4 columns first, then the appended evidence, assumption and citation columns", () => {
     const { plan, lots } = hazelwood();
@@ -152,9 +193,10 @@ describe.runIf(haveData)("plan exports", () => {
     expect(lines[0]).toBe(
       "parcel_id,address,neighborhood,ward,council_district,status,inventory_type,channel,zone,zone_name,lot_area_sf,frontage_ft_approx,assessed_land_value,best_type,best_verdict,by_right_types,relief_sections,review_kind,check_use,check_lot_size,check_width,check_fit,check_site,check_finance,checks_passed_of_6,unresolved_notes,flag_slope_25,flag_undermined,flag_flood,hazard_test_method,est_total_cost,est_value,value_basis,value_basis_date,shortfall_to_target,break_even_value,shortfall_at_150psf,shortfall_at_215psf,adjacent_city_lots_150ft,triage,next_action,rule_set,hard_cost_psf,soft_pct,fee_pct,target_margin_pct,generated_at" +
         ",staff_review_candidate,checks_unknown,checks_not_checked,units,revenue_mode,effective_land_cost,land_source,typical_home_sf,cap_rate_pct,opex_pct,default_land_cost,rule_citations,cost_basis" +
-        ",zone_map,zone_agrees,shortfall_at_1_3x_value",
+        ",zone_map,zone_agrees,shortfall_at_1_3x_value" +
+        ",finance_screened,finance_reason",
     );
-    expect(CSV_COLUMNS).toHaveLength(63);
+    expect(CSV_COLUMNS).toHaveLength(65);
     expect(lines).toHaveLength(lots.length + 1);
     const first = plan.rows[0];
     expect(first.adjacent_city_lots_150ft).toBe("");
@@ -162,17 +204,37 @@ describe.runIf(haveData)("plan exports", () => {
     expect(["pass", "fail", "unknown", "not_checked"]).toContain(first.check_fit);
   });
 
-  it("writes a one-page brief with the funnel, the gap, sources and the disclaimer", () => {
+  it("writes a short brief: scope, funnel, channels, the financial hurdle, grouped open items, sources and the disclaimer", () => {
     const { plan } = hazelwood();
     const md = toBrief(plan);
     expect(md).toMatch(/^# Disposition review: Hazelwood/);
+    expect(md).toMatch(/Home type: any \(lowest-shortfall allowed type per lot\)/);
     expect(md).toContain("797 lots → 754 encoded → 285 use table → 123 for sale, no flag → 106 ≥ 1,000 sf → 0 clear cost screen");
-    expect(md).toContain("pass the use table and lot-size standards");
+    expect(md).toContain("Public Sale 8 · URA Transfer 98 · PLB Transfer 0");
+    // The hurdle: the value each project needs against the index it is compared with.
+    expect(md).toMatch(/needs about \$331k of value \(cost plus the 10% target return\) against Hazelwood ZHVI \$83k/);
+    expect(md).toContain("| $185/sf | $2,593,699 | $259,370 |");
+    expect(md).toContain("| $150/sf | $1,969,999 | $197,000 |");
+    expect(md).toContain("| $215/sf | $3,128,299 | $312,830 |");
+    expect(md).toContain("| 1.3× index, $185/sf | $2,380,059 | $238,006 |");
+    expect(md).toContain("- Fit not checked (setbacks, height, coverage): 106");
+    expect(md).toContain("- Site access, water/sewer, soils not checked: 106");
+    expect(md).toContain("- Parking to verify on the site plan: 41");
+    expect(md).toMatch(/Per-lot detail .* CSV/);
     expect(md).toContain("Zillow Home Value Index");
     expect(md).toContain("Not a zoning determination or legal advice");
-    expect(md).toMatch(/\$150\/sf/);
-    expect(md).toContain("241 lots fail only lot size; 211 of them also need a use approval (Hillside) that relief does not remove.");
   });
+
+  it("the brief stays at or under 350 words, for a neighborhood and for the city", () => {
+    const words = (md: string) => md.split(/\s+/).filter((w) => /[A-Za-z0-9]/.test(w)).length;
+    const { plan } = hazelwood();
+    expect(words(toBrief(plan))).toBeLessThanOrEqual(350);
+    const file = JSON.parse(readFileSync(LOTS, "utf8")) as LotsFile;
+    const compsFile = JSON.parse(readFileSync(COMPS, "utf8")) as CompsFile;
+    const city = wire(file.lots, file.lots.map((l) => compsFor(l, compsFile)));
+    expect(words(toBrief(city))).toBeLessThanOrEqual(350);
+    expect(toBrief(city)).toMatch(/- District unconfirmed \(inventory vs zoning map\): 14/);
+  }, 120_000);
 
   it("brief and CSV never use readiness, release, no-hearing, subsidy-need or pays-for-itself wording", () => {
     const { plan } = hazelwood();
@@ -181,17 +243,15 @@ describe.runIf(haveData)("plan exports", () => {
     // "by right" overstates a use-table and lot-size screen. Only the legacy column name and the bill's
     // own wording (the bill permits ADUs by right) keep it.
     expect(text.replace(/by_right_types/g, "").replace(plan.billLine, "")).not.toMatch(/by right/i);
-    expect(toBrief(plan)).toMatch(/may address the size standard only, if eligible and approved/);
   });
 
   it("the brief calls the list candidates for staff review and never promises readiness", () => {
     const { plan } = hazelwood();
     const md = toBrief(plan);
-    expect(md).toContain("## Candidates for staff review");
-    expect(md).toContain("## Modeled shortfall for 10 projects");
+    expect(md).toContain("**Candidates for staff review: 106.**");
+    expect(md).toContain("## Financial hurdle for 10 projects");
     expect(md).not.toMatch(/ready|can be offered|Offer through/i);
     expect(md).toMatch(/Parking/);
-    expect(md).toMatch(/\| 4 pass · 1 fail · 1 not checked \|/);
   });
 });
 
@@ -232,9 +292,7 @@ describe("buildPlan: relief and Hillside counts", () => {
     expect(plan.hillsideReview).toBe(1);
     expect(plan.candidates.total).toBe(1);
     expect(plan.gap).toBeNull();
-    const md = toBrief(plan);
     expect(reliefSentence(plan)).toBe("2 lots fail only lot size; 1 of them also needs a use approval (Hillside) that relief does not remove.");
-    expect(md).toContain(reliefSentence(plan));
   });
 
   it("a protected-purpose record (Greenway) stays searchable and exportable but never enters the candidate cohort", () => {
@@ -258,7 +316,8 @@ describe("buildPlan: zoning map cross-check and the bill line", () => {
     expect(row("off")).toMatchObject({ zone: "R1D-H", zone_map: "RM-M", zone_agrees: "false", check_use: "unknown" });
     expect(row("on")).toMatchObject({ zone_map: "R2-M", zone_agrees: "true", check_use: "pass" });
     const csv = toCsv(plan.rows).split("\n");
-    expect(csv[0].endsWith(",zone_map,zone_agrees,shortfall_at_1_3x_value")).toBe(true);
+    expect(csv[0].endsWith(",zone_map,zone_agrees,shortfall_at_1_3x_value,finance_screened,finance_reason")).toBe(true);
+    expect(row("off")).toMatchObject({ finance_screened: "false", finance_reason: "district unconfirmed", est_total_cost: "", shortfall_to_target: "" });
   });
 
   it("leaves the zone columns blank when the lot was not compared", () => {

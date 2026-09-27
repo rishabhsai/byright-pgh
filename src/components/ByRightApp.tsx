@@ -8,7 +8,6 @@ import { TYPOLOGY_LABEL } from "@/lib/types";
 import { isParkOrGreenway, statusGroup } from "@/lib/ranking";
 import { yellowReason, pickFinding, type Evidence } from "@/lib/evidence";
 import { buildPlan, type Plan } from "@/lib/plan";
-import { acceptedValue, FINANCE_RANGES } from "@/lib/proforma";
 import { RULE_SETS, type Evaluations, type Triages, type TriageInput } from "@/lib/evalCompute";
 import { useCityEval } from "@/lib/useCityEval";
 import TopBar from "./TopBar";
@@ -18,8 +17,10 @@ import AboutDrawer from "./AboutDrawer";
 import PlanView from "./PlanView";
 import PlanReader from "./PlanReader";
 import { TYPOLOGIES } from "./verdict";
+import { DEFAULT_PROJECTS, financeDiffers, parseUrlState, serializeUrlState, type UrlState } from "./urlState";
 import type { HoverInfo, FitBounds } from "./MapView";
 import { blockerLine, money, reasonText, verdictLabel } from "./ui/answer";
+import { financeGate, NO_COMPS_REASON } from "./ui/financeGate";
 import { compsFor, countTriage, DEFAULT_FINANCE, FALLBACK_COMPS, type FinanceAssumptions } from "@/lib/finance";
 
 const MapView = dynamic(() => import("./MapView"), {
@@ -101,81 +102,21 @@ function boundsOf(lots: Lot[], keep: (l: Lot, i: number) => boolean): FitBounds 
   return Number.isFinite(w) ? [w, s, e, n] : null;
 }
 
-/**
- * URL state (history.replaceState, no router):
- * ?lot=<id>&type=duplex&filterType=townhome&hoods=a,b&scenario=bill&tab=plan&n=12&hc=195
- * `type` is the proposal picked for the selected lot; `filterType` is the Home type filter. Finance
- * assumptions appear only where they differ from the defaults.
- */
-interface UrlState {
-  lot: string | null;
-  /** The proposal picked for the selected lot, when the user picked one. */
-  type: Typology | null;
-  /** The Home type filter. */
-  filterType: Typology | null;
-  hoods: string[];
-  bill: boolean;
-  tab: Tab;
-  /** Projects to plan for. */
-  projects: number;
-  /** Shared finance assumptions (never a lot's land figure). */
-  finance: FinanceAssumptions;
-}
-
-type RangedKey = keyof typeof FINANCE_RANGES;
-/** Short URL keys for the ranged finance inputs. */
-const FIN_KEYS: [string, RangedKey][] = [
-  ["hc", "hardCostPerSf"],
-  ["soft", "softCostPct"],
-  ["dev", "devFeePct"],
-  ["ret", "targetMarginPct"],
-  ["sf", "typicalHomeSf"],
-  ["cap", "capRate"],
-  ["opex", "opexPct"],
-];
-
-const DEFAULT_PROJECTS = 10;
-
-const asTypology = (v: string | null): Typology | null => ((TYPOLOGIES as string[]).includes(v ?? "") ? (v as Typology) : null);
-
+/** URL state (history.replaceState, no router); the codec lives in urlState.ts. */
 function readUrl(): UrlState {
-  const p = new URLSearchParams(window.location.search);
-  const finance: FinanceAssumptions = { ...DEFAULT_FINANCE };
-  for (const [q, k] of FIN_KEYS) {
-    const raw = p.get(q);
-    if (raw != null && raw.trim() !== "") finance[k] = acceptedValue(k, Number(raw));
-  }
-  if (p.get("mode") === "rent") finance.mode = "rent";
-  const n = Number(p.get("n"));
-  return {
-    lot: p.get("lot"),
-    type: asTypology(p.get("type")),
-    filterType: asTypology(p.get("filterType")),
-    hoods: (p.get("hoods") ?? "").split(",").map((h) => h.trim()).filter(Boolean),
-    bill: p.get("scenario") === "bill",
-    tab: p.get("tab") === "plan" ? "plan" : "lots",
-    projects: Number.isInteger(n) && n >= 1 && n <= 9999 ? n : DEFAULT_PROJECTS,
-    finance,
-  };
+  return parseUrlState(window.location.search);
 }
 function writeUrl(s: UrlState) {
-  const p = new URLSearchParams();
-  if (s.lot) p.set("lot", s.lot);
-  if (s.lot && s.type) p.set("type", s.type);
-  if (s.filterType) p.set("filterType", s.filterType);
-  if (s.hoods.length) p.set("hoods", s.hoods.join(","));
-  if (s.bill) p.set("scenario", "bill");
-  if (s.tab === "plan") p.set("tab", "plan");
-  if (s.projects !== DEFAULT_PROJECTS) p.set("n", String(s.projects));
-  for (const [q, k] of FIN_KEYS) if (s.finance[k] !== DEFAULT_FINANCE[k]) p.set(q, String(s.finance[k]));
-  if (s.finance.mode !== DEFAULT_FINANCE.mode) p.set("mode", s.finance.mode);
-  const q = p.toString().replace(/%2C/g, ",");
+  const q = serializeUrlState(s);
   const url = `${window.location.pathname}${q ? `?${q}` : ""}${window.location.hash}`;
   if (url !== `${window.location.pathname}${window.location.search}${window.location.hash}`) window.history.replaceState(window.history.state, "", url);
 }
 
 /** Assumption edits reach the city-wide triage this long after the last change (or at once on blur). */
 const COMMIT_DELAY_MS = 500;
+/** The plan rebuilds this long after the last scope or count change, then in an idle callback. */
+const PLAN_DEBOUNCE_MS = 150;
+const PLAN_IDLE_TIMEOUT_MS = 400;
 
 export default function ByRightApp() {
   const [file, setFile] = useState<LotsFile | null>(null);
@@ -220,13 +161,24 @@ export default function ByRightApp() {
     if (u.lot && u.type) setPickedTypology(u.type);
     if (u.bill) setRuleSet("bill-2025-1545");
     if (u.tab === "plan") setTab("plan");
-    if (u.hoods.length || u.filterType)
-      setFilters((f) => ({ ...f, neighborhoods: u.hoods, typology: u.filterType ?? f.typology }));
+    setFilters((f) => ({
+      ...f,
+      neighborhoods: u.hoods,
+      typology: u.filterType ?? f.typology,
+      status: u.status,
+      triage: u.triage,
+      minArea: u.minArea,
+      onlyByRight: u.onlyByRight,
+      includeParks: u.includeParks,
+    }));
+    if (u.reading) setPlanReading(true);
     if (u.projects !== DEFAULT_PROJECTS) setProjects(u.projects);
-    if (FIN_KEYS.some(([, k]) => u.finance[k] !== DEFAULT_FINANCE[k]) || u.finance.mode !== DEFAULT_FINANCE.mode) {
-      setAssumptions(u.finance);
-      setCommitted((c) => ({ ...c, assumptions: u.finance }));
-    }
+    // Assumptions and land figures go straight to the committed pass, so the first city-wide run uses them.
+    const land = Object.keys(u.land).length ? u.land : null;
+    if (land) setLandOverrides(land);
+    if (financeDiffers(u.finance)) setAssumptions(u.finance);
+    if (land || financeDiffers(u.finance))
+      setCommitted((c) => ({ assumptions: financeDiffers(u.finance) ? u.finance : c.assumptions, landOverrides: land ?? c.landOverrides }));
     setUrlRead(true);
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
@@ -436,8 +388,15 @@ export default function ByRightApp() {
       tab,
       projects,
       finance: committed.assumptions,
+      land: committed.landOverrides,
+      status: filters.status,
+      triage: filters.triage,
+      minArea: filters.minArea,
+      onlyByRight: filters.onlyByRight,
+      includeParks: filters.includeParks,
+      reading: planReading,
     });
-  }, [urlRead, lots.length, selectedLot, pickedTypology, filterTypology, filters.neighborhoods, ruleSet, tab, projects, committed.assumptions]);
+  }, [urlRead, lots.length, selectedLot, pickedTypology, filterTypology, filters, ruleSet, tab, projects, committed, planReading]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -521,9 +480,13 @@ export default function ByRightApp() {
         line = (t.reasons[0] ?? "").replace(/^(Zoning|Topography): /, "");
       } else {
         const blocker = pick.verdict !== "unknown" ? blockerLine(l, pick.typology, pick, ev) : null;
+        // Proforma is not needed here: the triage already carries only screened money.
+        const gate = financeGate({ lot: l, finding: pick, evidence: ev, proforma: null });
         if (blocker) {
           const prefix = `${TYPOLOGY_LABEL[pick.typology]}: `;
           line = `${typeName}: ${blocker.text.startsWith(prefix) ? blocker.text.slice(prefix.length) : blocker.text}`;
+        } else if (!gate.screened && gate.code !== NO_COMPS_REASON) {
+          line = `${says} · not screened: ${gate.reason}`;
         } else {
           const reason = ev ? reasonText(yellowReason(t, ev, l)) : null;
           const money_ = t.pencils
@@ -550,24 +513,62 @@ export default function ByRightApp() {
     tab === "plan" ||
     planReading ||
     (selectedIdx == null && filters.neighborhoods.length > 0);
-  const plan = useMemo<Plan | null>(
+  // The plan is derived off the input path: after a short pause and in an idle callback, so typing in the
+  // neighborhood picker or the project count never waits on a city-wide rebuild. Until the rebuild lands,
+  // the previous plan stays on screen marked stale, and exports stay disabled.
+  const planArgs = useMemo(
     () =>
       planOpen && evals && triages && evidence
-        ? buildPlan(
-            lots,
+        ? {
             evals,
-            triages[ruleSet].results,
+            results: triages[ruleSet].results,
             evidence,
-            cityComps,
-            cityAssumptions,
-            { neighborhoods: filters.neighborhoods, typology: cityTypology },
+            comps: cityComps,
+            assumptions: cityAssumptions,
+            scope: { neighborhoods: filters.neighborhoods, typology: cityTypology },
             ruleSet,
             projects,
-            { sources, landOverrides: cityLandOverrides },
-          )
+            opts: { sources, landOverrides: cityLandOverrides },
+          }
         : null,
-    [planOpen, lots, evals, triages, evidence, cityComps, cityAssumptions, filters.neighborhoods, cityTypology, ruleSet, projects, sources, cityLandOverrides],
+    [planOpen, evals, triages, evidence, cityComps, cityAssumptions, filters.neighborhoods, cityTypology, ruleSet, projects, sources, cityLandOverrides],
   );
+  const [planState, setPlanState] = useState<{ args: NonNullable<typeof planArgs>; plan: Plan } | null>(null);
+  useEffect(() => {
+    if (!planArgs) return;
+    const a = planArgs;
+    let idle: number | null = null;
+    const run = () =>
+      setPlanState({
+        args: a,
+        plan: buildPlan(lots, a.evals, a.results, a.evidence, a.comps, a.assumptions, a.scope, a.ruleSet, a.projects, a.opts),
+      });
+    const ric = typeof window.requestIdleCallback === "function";
+    const t = window.setTimeout(() => {
+      idle = ric ? window.requestIdleCallback(run, { timeout: PLAN_IDLE_TIMEOUT_MS }) : window.setTimeout(run, 0);
+    }, PLAN_DEBOUNCE_MS);
+    return () => {
+      window.clearTimeout(t);
+      if (idle != null) {
+        if (ric) window.cancelIdleCallback(idle);
+        else window.clearTimeout(idle);
+      }
+    };
+  }, [planArgs, lots]);
+  const plan = planArgs ? (planState?.plan ?? null) : null;
+  const planStale = !!planArgs && planState?.args !== planArgs;
+
+  // Share of inventory records whose district the City zoning map confirms: qualifies inventory-based permission.
+  const mapAgreement = useMemo(() => {
+    let compared = 0,
+      agree = 0;
+    for (const l of lots) {
+      if (l.zoneAgrees == null) continue;
+      compared++;
+      if (l.zoneAgrees) agree++;
+    }
+    return compared ? { agree, compared } : null;
+  }, [lots]);
 
   const retry = useCallback(() => {
     setLoadError(null);
@@ -604,7 +605,8 @@ export default function ByRightApp() {
                 projects={projects}
                 onProjects={setProjects}
                 ruleSet={ruleSet}
-                stale={recomputing}
+                stale={recomputing || planStale}
+                mapAgreement={mapAgreement}
                 onSelect={selectFromList}
               />
             ) : null
@@ -620,7 +622,7 @@ export default function ByRightApp() {
               changed={ruleSet === "bill-2025-1545" && changed.length ? changed : null}
               ringNote={
                 ruleSet === "bill-2025-1545" && stats && !filters.typology && stats["bill-2025-1545"].lotsGaining > 0
-                  ? `${stats["bill-2025-1545"].lotsGaining.toLocaleString("en-US")} lots gain a backyard unit; pick +ADU under Home type to ring them.`
+                  ? `${stats["bill-2025-1545"].lotsGaining.toLocaleString("en-US")} lots gain an encoded ADU permission result; pick +ADU under Home type to ring them.`
                   : null
               }
               selectedIdx={selectedIdx}
@@ -686,7 +688,8 @@ export default function ByRightApp() {
                 projects={projects}
                 onProjects={setProjects}
                 ruleSet={ruleSet}
-                stale={recomputing}
+                stale={recomputing || planStale}
+                mapAgreement={mapAgreement}
                 onSelect={(i) => {
                   setPlanReading(false);
                   selectFromList(i);

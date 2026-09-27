@@ -57,6 +57,20 @@ export interface Check {
 
 export type ReviewKind = "administrator" | "special";
 
+/**
+ * A permission that hinges on a fact the data does not hold: the R1D attached-unit width test with no
+ * frontage in the record, or ADU Overlay District applicability with no overlay layer. The use stays
+ * unresolved (never a definite exception route or prohibition) until someone answers the question.
+ */
+export interface PermissionQuestion {
+  kind: "lot-width" | "adu-overlay";
+  /** "P if lot width ≤ 35 ft, else S; width not in the record". */
+  question: string;
+  /** The open item and next action: "Resolve permission: confirm lot width (§ 911.04.A.69A)". */
+  action: string;
+  citation: Citation;
+}
+
 export interface Finding {
   typology: Typology;
   verdict: Verdict;
@@ -66,6 +80,8 @@ export interface Finding {
   unresolved: string[];
   /** Which exception the use needs: Administrator Exception (§ 922.08) or Special Exception (§ 922.07). */
   reviewKind: ReviewKind | null;
+  /** Set when the use permission turns on a fact the data lacks; the verdict is then `unknown` (or `variance` if a lot standard fails). */
+  permissionQuestion?: PermissionQuestion | null;
 }
 
 export const TYPOLOGY_LABEL: Record<Typology, string> = {
@@ -102,7 +118,12 @@ export const REVIEW_KIND_LABEL: Record<ReviewKind, string> = {
 const REVIEW_KIND_SHORT: Record<ReviewKind, string> = { administrator: "Staff approval", special: "Board approval" };
 
 /** What verdictLabel reads: the verdict, the approval route, and (for relief) which checks failed. Slim findings work. */
-export type LabelInput = Pick<Finding, "verdict"> & Partial<Pick<Finding, "reviewKind" | "checks">>;
+export type LabelInput = Pick<Finding, "verdict"> & Partial<Pick<Finding, "reviewKind" | "checks" | "permissionQuestion">>;
+
+const PERMISSION_LABEL: Record<PermissionQuestion["kind"], string> = {
+  "lot-width": "Permission unresolved (lot width not in the record)",
+  "adu-overlay": "Permission unresolved (ADU overlay not in our data)",
+};
 
 const failedStandards = (f: LabelInput) =>
   (f.checks ?? []).filter((c) => c.passed === false && c.id !== "use" && c.id !== "adu-eligibility");
@@ -112,6 +133,7 @@ const failedStandards = (f: LabelInput) =>
  * special exception, FAR relief vs lot-size relief, and a use approval that remains after dimensional relief.
  */
 export function verdictLabel(f: LabelInput): string {
+  if (f.verdict === "unknown" && f.permissionQuestion) return PERMISSION_LABEL[f.permissionQuestion.kind];
   if (f.verdict === "review") return f.reviewKind ? REVIEW_KIND_LABEL[f.reviewKind] : VERDICT_LABEL.review;
   if (f.verdict === "variance") {
     const failed = failedStandards(f);
@@ -126,6 +148,7 @@ export function verdictLabel(f: LabelInput): string {
 /** Chip-length label: "Staff approval", "Board approval", "Relief needed", "Allowed". */
 export function verdictShort(f: LabelInput): string {
   if (f.verdict === "review" && f.reviewKind) return REVIEW_KIND_SHORT[f.reviewKind];
+  if (f.verdict === "unknown" && f.permissionQuestion) return "Unresolved";
   return VERDICT_SHORT_LABEL[f.verdict];
 }
 

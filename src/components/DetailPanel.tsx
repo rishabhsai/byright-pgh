@@ -29,11 +29,12 @@ import {
 } from "./ui/answer";
 import { districtUnconfirmed, MIN_PRACTICAL_LOT_SQFT } from "@/lib/evidence";
 import { prototypeNote } from "@/lib/proforma";
+import { financeGate } from "./ui/financeGate";
 import { FunnelBars, FunnelSentence, type FunnelStats } from "./ui/Funnel";
 import type { Funnel } from "@/lib/plan";
 
-/** 5118 Ladora Wy, Hazelwood: R1A-VH, URA Transfer, a 19.5 ft lot screened for the attached prototype. */
-export const DEMO_LOT_ID = "0056N00203000000";
+/** 4623 Chatsworth St, Hazelwood: the demo script's lot (a detached house; Finance fails, Fit not checked). */
+export const DEMO_LOT_ID = "0055P00008000000";
 
 interface Props {
   /** The selected lot as one case; null shows the empty state. */
@@ -162,7 +163,7 @@ function EmptyState({
             onClick={() => onSelectId(DEMO_LOT_ID)}
             className="mt-1.5 text-left text-[13px] text-accent underline decoration-accent/30 underline-offset-[3px] hover:decoration-accent"
           >
-            Try a demo lot: 5118 Ladora Wy, Hazelwood
+            Try a demo lot: 4623 Chatsworth St, Hazelwood
           </button>
         )}
       </div>
@@ -226,7 +227,7 @@ function ScopeEmptyState({
             onClick={() => onSelectId(DEMO_LOT_ID)}
             className="mt-1.5 text-left text-[13px] text-accent underline decoration-accent/30 underline-offset-[3px] hover:decoration-accent"
           >
-            Try a demo lot: 5118 Ladora Wy, Hazelwood
+            Try a demo lot: 4623 Chatsworth St, Hazelwood
           </button>
         )}
       </div>
@@ -277,12 +278,16 @@ function LotDetail({
   // --- The answer: the selected proposal's triage, finance and evidence, all from the case.
   const chosen = c.finding;
   const pf = c.proforma;
-  const head = answerHeadline(c.triage, chosen, pf, lot);
+
   const status = cityStatus(lot);
   const evidence = c.evidence;
   // No money line for a proposal that fails Fit or Use, on a lot that is not for sale, or one zoning did not evaluate.
   const blocker = chosen && chosen.verdict !== "unknown" ? blockerLine(lot, typology, chosen, evidence) : null;
-  const fin = blocker || (chosen && (chosen.verdict === "prohibited" || chosen.verdict === "unknown")) ? null : financeLine(pf);
+  // One publication rule for money (the card, Pays, the brief): unscreened proposals show why, not dollars.
+  const gate = financeGate({ lot, finding: chosen, evidence, proforma: pf });
+  const fin = gate.screened ? financeLine(pf) : null;
+  // The headline reads money only when it was screened.
+  const head = answerHeadline(c.triage, chosen, gate.screened ? pf : null, lot);
   const indexNote = !!fin && !!pf?.pencils && pf.marginPct > HIGH_MARGIN_PCT;
   const changes = whatWouldChange(lot, findings, chosen, fin ? pf : null);
   const typeLine = typologyPhrase(typology, chosen);
@@ -315,7 +320,7 @@ function LotDetail({
     el.scrollTo({ top: offset, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   };
 
-  const memo = () => buildMemo(c, { headline: head.text, districtName: dName, changes });
+  const memo = () => buildMemo(c, { headline: head.text, districtName: dName, changes, finance: gate });
   const downloadBrief = () => {
     const blob = new Blob([memo()], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
@@ -441,6 +446,7 @@ function LotDetail({
             </>
           }
           financeLine={fin}
+          notScreened={gate.screened ? null : gate.reason}
           blocker={blocker}
           onWhyNot={goTo}
           indexNote={indexNote}
@@ -534,7 +540,8 @@ function LotDetail({
             onCommit={onCommit}
             compsError={compsError}
             onRetryComps={onRetryComps}
-            blocked={blocker?.text ?? (chosen && chosen.verdict === "unknown" ? `${TYPOLOGY_LABEL[typology]}: zoning not checked` : null)}
+            blocked={gate.screened ? null : `${TYPOLOGY_LABEL[typology]}: ${gate.reason}`}
+            hypothetical={gate.hypothetical}
           />
         </Section>
 
@@ -649,7 +656,7 @@ function fitChecks(lot: Lot, f: Finding): FitItem[] {
     out.push({
       key: "floor",
       label: `Below ${MIN_PRACTICAL_LOT_SQFT.toLocaleString()}\u00a0sf screening floor (not a code minimum)`,
-      value: "Consolidation candidate",
+      value: "Below screening floor; investigate options",
       required: null,
       state: "fail",
       word: "Below floor",

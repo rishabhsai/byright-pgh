@@ -1,5 +1,7 @@
 "use client";
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
+
+const FOCUSABLE = 'a[href], button, input, select, textarea, summary, [tabindex]:not([tabindex="-1"])';
 
 /**
  * The plan in reading view: the same overlay surface the lot panel expands into, over the map area,
@@ -7,15 +9,39 @@ import { useEffect, useRef, type ReactNode } from "react";
  */
 export default function PlanReader({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   const closeBtn = useRef<HTMLButtonElement>(null);
+  const dialog = useRef<HTMLDivElement>(null);
+  // Focus moves in on open and back to whatever opened the view on close.
   useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     closeBtn.current?.focus({ preventScroll: true });
+    return () => {
+      if (opener?.isConnected) opener.focus({ preventScroll: true });
+    };
   }, []);
+  // Tab and Shift-Tab cycle inside the dialog.
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Tab" || !dialog.current) return;
+    const items = [...dialog.current.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => !el.hasAttribute("disabled") && el.offsetParent !== null);
+    if (!items.length) return;
+    const first = items[0];
+    const last = items[items.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
   return (
     <div className="absolute inset-0 z-30 flex justify-center">
       <div aria-hidden onClick={onClose} className="backdrop-in absolute inset-0 bg-[#17211e]/25" />
       <div
+        ref={dialog}
         role="dialog"
+        aria-modal="true"
         aria-label="Disposition plan, reading view"
+        onKeyDown={onKeyDown}
         className="expand-in relative flex h-full w-[1040px] max-w-[min(94%,100%)] flex-col border-x border-hairline bg-panel shadow-[0_20px_60px_-20px_rgba(23,33,30,.45)]"
       >
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-hairline px-10 pt-5 pb-3">

@@ -1,6 +1,7 @@
 import type { Check, Citation, Comps, Finding, Lot, TriageResult, Typology, Verdict } from "./types";
 import { lookupDistrict } from "./rules";
 import { DEFAULT_FINANCE, fmtNum, fmtUsd, runProforma, type FinanceAssumptions, type Proforma } from "./proforma";
+import { isAvailable, isDispositionEligible } from "./ranking";
 
 /*
  * The evidence row: six screening checks for one proposal on one lot, each Pass, Fail, Unknown or
@@ -130,6 +131,10 @@ function permittedUseCheck(lot: Lot, f: Finding): EvidenceCheck {
   const c = find(f, "use");
   const conflict = zoneConflict(lot);
   if (conflict) return { ...base, state: "unknown", detail: conflict, ...(c ? { citation: c.citation } : {}) };
+  const q = f.permissionQuestion;
+  if (q && c?.passed !== false) {
+    return { ...base, state: "unknown", detail: `Permission unresolved: ${q.question} · ${q.citation.section}. Answer this before choosing a route.`, citation: q.citation };
+  }
   if (f.verdict === "unknown" || !c) return { ...base, state: "unknown", detail: f.summary };
   const name = PROPOSAL[f.typology];
   const sec = c.citation.section;
@@ -161,7 +166,7 @@ function permittedUseCheck(lot: Lot, f: Finding): EvidenceCheck {
 function lotSizeCheck(lot: Lot, f: Finding): EvidenceCheck {
   const base = { id: "lotSize" as const, label: EVIDENCE_LABEL.lotSize, belowFloor: false };
   const c = find(f, "lot-area");
-  if (f.verdict === "unknown" || !c) return { ...base, state: "unknown", detail: "District not encoded; lot size not evaluated." };
+  if (!c) return { ...base, state: "unknown", detail: "District not encoded; lot size not evaluated." };
   if (lot.lotAreaSqFt === null) return { ...base, state: "unknown", detail: "Area not in the County record. Survey needed.", citation: c.citation };
   const area = `${fmtNum(lot.lotAreaSqFt)} sf`;
   const sec = c.citation.section;
@@ -206,7 +211,7 @@ function widthThreshold(lot: Lot, f: Finding): number | null {
 function widthCheck(lot: Lot, f: Finding): EvidenceCheck {
   const base = { id: "width" as const, label: EVIDENCE_LABEL.width };
   const c = find(f, "lot-width");
-  if (f.verdict === "unknown" || !c) return { ...base, state: "unknown", detail: "District not encoded; width not evaluated." };
+  if (!c) return { ...base, state: "unknown", detail: "District not encoded; width not evaluated." };
   if (lot.frontageFt === null) {
     return { ...base, state: "unknown", detail: "Frontage not in the County legal description; survey needed", citation: c.citation };
   }
@@ -276,17 +281,66 @@ function siteCheck(lot: Lot, f: Finding): EvidenceCheck {
   };
 }
 
-export const FINANCE_NOT_BUILDABLE = "Not screened: proposal not buildable as checked";
+/** Why a proposal's finance is not screened. The first four keep the hypothetical figures; the last four have none. */
+export type FinanceReason =
+  | "district unconfirmed"
+  | "permission unresolved"
+  | "not recorded Available for Sale"
+  | "not a disposition-eligible record"
+  | "zoning not evaluated"
+  | "use not permitted"
+  | "building does not fit (FAR)"
+  | "no value comps for this lot";
 
 /**
- * Finance is screened only for a proposal the other checks let stand: when Fit fails, or Use fails or is
- * Unknown (not permitted, needs an exception, district unconfirmed, not evaluated), it is Not checked.
+ * The one financial result every publisher reads (triage, plan rows and CSV, brief, memo, application,
+ * selected case). `screened` is true only when the proposal's Use passes, Fit does not fail, the district
+ * is confirmed, the lot is recorded Available for Sale and disposition-eligible, and comps exist. When it is
+ * false, `reason` names the blocker and `proforma` is either a labeled hypothetical (unresolved district or
+ * permission, not for sale) or null (not permitted, does not fit, not evaluated, no comps). A hypothetical
+ * never enters a total, a margin, a gap, a pencil count or a dollar figure in an export.
  */
-function financeCheck(lot: Lot, pf: Proforma | null, comps: Comps | null, use: EvidenceCheck, fit: EvidenceCheck): EvidenceCheck {
+export interface FinanceResult {
+  screened: boolean;
+  reason?: FinanceReason;
+  proforma: Proforma | null;
+}
+
+const HYPOTHETICAL_OK = new Set<FinanceReason>(["district unconfirmed", "permission unresolved", "not recorded Available for Sale", "not a disposition-eligible record"]);
+
+type GateFinding = Pick<Finding, "verdict"> & Partial<Pick<Finding, "permissionQuestion">>;
+
+/** The blocker, in the order it is decided; null when finance can be screened. Reads states, so slim inputs work. */
+function financeBlocker(lot: Lot, f: GateFinding, use: EvidenceState | undefined, fit: EvidenceState | undefined): FinanceReason | null {
+  if (f.verdict === "unknown" && !f.permissionQuestion) return "zoning not evaluated";
+  if (use === "fail") return "use not permitted";
+  if (fit === "fail") return "building does not fit (FAR)";
+  if (districtUnconfirmed(lot)) return "district unconfirmed";
+  if (use !== "pass") return "permission unresolved";
+  if (!isAvailable(lot)) return "not recorded Available for Sale";
+  if (!isDispositionEligible(lot)) return "not a disposition-eligible record";
+  return null;
+}
+
+export function financeResult(lot: Lot, finding: GateFinding, evidence: Pick<Evidence, "checks">, proforma: Proforma | null): FinanceResult {
+  const state = (id: EvidenceId) => evidence.checks.find((c) => c.id === id)?.state;
+  const reason = financeBlocker(lot, finding, state("use"), state("fit"));
+  if (reason) return { screened: false, reason, proforma: HYPOTHETICAL_OK.has(reason) ? proforma : null };
+  if (!proforma) return { screened: false, reason: "no value comps for this lot", proforma: null };
+  return { screened: true, proforma };
+}
+
+/** "Not screened: permission unresolved". */
+export const financeNotScreened = (reason: FinanceReason) => `Not screened: ${reason}`;
+
+/**
+ * Finance is screened only for a proposal the other checks and the City's record let stand (financeBlocker):
+ * otherwise it is Not checked and names the blocker.
+ */
+function financeCheck(lot: Lot, f: Finding, pf: Proforma | null, comps: Comps | null, use: EvidenceCheck, fit: EvidenceCheck): EvidenceCheck {
   const base = { id: "finance" as const, label: EVIDENCE_LABEL.finance };
-  if (fit.state === "fail" || use.state === "fail" || use.state === "unknown") {
-    return { ...base, state: "notChecked", detail: FINANCE_NOT_BUILDABLE };
-  }
+  const reason = financeBlocker(lot, f, use.state, fit.state);
+  if (reason) return { ...base, state: "notChecked", detail: financeNotScreened(reason) };
   if (!pf || !comps) {
     return { ...base, state: "unknown", detail: `No Zillow series for ${lot.neighborhood || "this lot"}; finance not screened.` };
   }
@@ -350,7 +404,7 @@ export function deriveEvidence(
   };
   const use = permittedUseCheck(lot, finding);
   const fit = fitCheck(lot, finding);
-  const checks = [use, lotSizeCheck(lot, finding), widthCheck(lot, finding), fit, siteCheck(lot, finding), financeCheck(lot, proforma, comps, use, fit)];
+  const checks = [use, lotSizeCheck(lot, finding), widthCheck(lot, finding), fit, siteCheck(lot, finding), financeCheck(lot, finding, proforma, comps, use, fit)];
   const counts: EvidenceCounts = { pass: 0, fail: 0, unknown: 0, notChecked: 0 };
   for (const c of checks) counts[c.state]++;
   const needsApproval =
@@ -365,6 +419,7 @@ export function deriveEvidence(
 export type OpenItemId =
   | "district-conflict"
   | "status"
+  | "permission"
   | "use-approval"
   | "relief"
   | "survey-area"
@@ -396,13 +451,13 @@ export function districtAction(lot: Pick<Lot, "zone" | "zoneMap">): string {
 
 /**
  * Open review items for one proposal, in the order staff clear them: the district first (every other
- * result rests on it), then recorded channel and status, use approval, failed standards, missing survey
+ * result rests on it), then recorded channel and status, an unresolved permission (width, ADU overlay), use approval, failed standards, missing survey
  * data, the screening floor, site flags, finance, fit, and requirements outside the six checks (parking).
  * Reads only fields the worker's slimmed findings and evidence keep. `proforma` supplies the shortfall figure.
  */
 export function openItems(
   lot: Lot,
-  finding: Pick<Finding, "reviewKind" | "checks">,
+  finding: Pick<Finding, "reviewKind" | "checks"> & Partial<Pick<Finding, "permissionQuestion">>,
   evidence: Pick<Evidence, "checks" | "unresolved">,
   proforma?: Pick<Proforma, "gap"> | null,
 ): OpenItem[] {
@@ -413,6 +468,7 @@ export function openItems(
     items.push({ id: "status", label: `Confirm disposition channel (inventory type ${lot.inventoryType || "not recorded"})` });
   }
   if (lot.status !== "Available for Sale") items.push({ id: "status", label: `Confirm status (${lot.status || "not recorded"})` });
+  if (finding.permissionQuestion) items.push({ id: "permission", label: finding.permissionQuestion.action });
   if (finding.reviewKind) items.push({ id: "use-approval", label: REVIEW_ROUTE[finding.reviewKind] });
   const failed = new Set(finding.checks.filter((c) => c.passed === false).map((c) => c.id));
   if (failed.has("lot-area") || failed.has("lot-area-per-unit")) items.push({ id: "relief", label: "Lot-size relief (variance or § 921.04 exception)" });
@@ -440,7 +496,7 @@ export function openItems(
 /** The one open item a lot's next action names: the district when it is unconfirmed, else the first of openItems. */
 export function firstOpenItem(
   lot: Lot,
-  finding: Pick<Finding, "reviewKind" | "checks">,
+  finding: Pick<Finding, "reviewKind" | "checks"> & Partial<Pick<Finding, "permissionQuestion">>,
   evidence: Pick<Evidence, "checks" | "unresolved">,
   proforma?: Pick<Proforma, "gap"> | null,
 ): OpenItem | null {

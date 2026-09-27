@@ -8,12 +8,16 @@ import { todayET } from "@/lib/dates";
 import type { SelectedCase } from "@/lib/selectedCase";
 import { evidenceSummary } from "./ui/evidenceText";
 import { approvalRoute } from "./ui/answer";
+import { financeGate } from "./ui/financeGate";
 
 /**
  * The lot brief: the selected case as shown in the panel (proposal, rule set, this lot's land
  * figure and the finance assumptions), then every check with its citation.
  */
-export function buildMemo(c: SelectedCase, shown: { headline: string; districtName: string | null; changes: string[] }): string {
+export function buildMemo(
+  c: SelectedCase,
+  shown: { headline: string; districtName: string | null; changes: string[]; finance?: { screened: boolean; reason: string | null } },
+): string {
   const { lot, ruleSet, typology, finding, proforma: pf, evidence } = c;
   const findings = c.findings[ruleSet];
   const otherRs: RuleSet = ruleSet === "current" ? "bill-2025-1545" : "current";
@@ -83,9 +87,14 @@ export function buildMemo(c: SelectedCase, shown: { headline: string; districtNa
   L.push("");
 
   L.push(`## Finance scenario for the ${name.toLowerCase()}`);
-  if (!pf) {
+  const gate = shown.finance ?? financeGate({ lot, finding, evidence, proforma: pf });
+  const screened = gate.screened;
+  if (!pf && screened) {
     L.push("Not screened: no comparable value series for this lot.");
-  } else {
+  } else if (!screened) {
+    // An unscreened proposal publishes no margin or shortfall; the reason is the finding.
+    L.push(`Not screened: ${gate.reason ?? "the proposal does not stand as checked"}. No margin or shortfall is reported until that is resolved.`);
+  } else if (pf) {
     L.push(pf.pencils ? `Modeled margin ${fmtUsd(pf.margin)} (${Math.round(pf.marginPct)}%).` : `Modeled shortfall ${fmtUsd(pf.gap)} to the target return.`);
     L.push("");
     L.push("| Line | Amount |", "|---|---:|");
