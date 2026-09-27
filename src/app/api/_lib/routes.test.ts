@@ -12,7 +12,7 @@ const post = (body: unknown) =>
     body: typeof body === "string" ? body : JSON.stringify(body),
   });
 
-const CREDS = ["OPENAI_API_KEY", "AI_GATEWAY_API_KEY", "VERCEL_OIDC_TOKEN"] as const;
+const CREDS = ["OPENROUTER_API_KEY", "OPENAI_API_KEY", "AI_GATEWAY_API_KEY", "VERCEL_OIDC_TOKEN"] as const;
 let saved: Record<string, string | undefined> = {};
 beforeEach(() => {
   saved = Object.fromEntries(CREDS.map((k) => [k, process.env[k]]));

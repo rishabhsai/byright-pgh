@@ -9,7 +9,7 @@ import { TYPOLOGY_ORDER } from "@/lib/rules";
  */
 
 export const MAX_BODY_BYTES = 4096;
-export const PROVIDER_TIMEOUT_MS = 8000;
+export const PROVIDER_TIMEOUT_MS = 15000;
 
 const RULE_SETS: readonly RuleSet[] = ["current", "bill-2025-1545"];
 
@@ -85,6 +85,13 @@ interface Provider {
 }
 
 function provider(): Provider | null {
+  if (process.env.OPENROUTER_API_KEY) {
+    return {
+      url: "https://openrouter.ai/api/v1/chat/completions",
+      model: process.env.MEMO_MODEL ?? "openai/gpt-4.1-mini",
+      token: process.env.OPENROUTER_API_KEY,
+    };
+  }
   if (process.env.OPENAI_API_KEY) {
     return {
       url: "https://api.openai.com/v1/chat/completions",
@@ -105,7 +112,7 @@ function provider(): Provider | null {
 
 export type Completion = { text: string; model: string } | { text: null; error: string };
 
-/** One chat completion with an 8 s timeout. Never throws. */
+/** One chat completion with an 15 s timeout. Never throws. */
 export async function complete(system: string, user: string, maxTokens: number): Promise<Completion> {
   const p = provider();
   if (!p) return { text: null, error: "no-llm-credentials" };
