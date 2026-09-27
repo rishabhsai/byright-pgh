@@ -90,11 +90,14 @@ Full list of encoded standards, with section numbers and access dates: [`docs/ru
 
 ## Limitations
 
+Also in [`LIMITATIONS.md`](LIMITATIONS.md).
+
 - **City of Pittsburgh only.** Allegheny County has 130 municipalities with their own codes.
 - **Only residential districts, LNC, and Hillside are encoded.** Lots in other districts (Parks, industrial, downtown, planned developments) show *not evaluated*.
 - **Not all standards are encoded.** Setbacks, height, lot coverage, overlay districts (riverfront, IPOD, historic), steep-slope overlay rules, and subdivision requirements are out of scope. A by-right verdict here means the use is permitted and no encoded lot-size, lot-width or (in LNC) floor-area check fails. Missing lot area, width, flood screening or zoning-map agreement is marked unknown and keeps the lot out of Green. Fit is never a pass, and Fit *not checked* does not block Green. Parking is reported, not verified: where the code requires spaces, the item stays open for the site plan and does not block Green. It is not a zoning determination.
 - **Assessed land value is not market value.** The pro forma is a screen with editable assumptions.
 - **Lots under 1,000 sq ft can't be Green.** That floor is our screening assumption, not code; LNC and VH districts set no minimum. Such lots likely need consolidation.
+- **Rental mode is a capitalized-value screen, not underwriting.** The next test to add is PHFA's 1.15 debt-service coverage standard; it is not modeled.
 - **Comps are neighborhood and ZIP aggregates,** not parcel-level sales. Zillow's public research files are used under their attribution terms; where a neighborhood has no Zillow value the pro forma falls back to the ZIP's rent index, and a lot with neither is marked "not assessed" and can't be Green.
 - **Frontage is parsed from the legal description** when present and is approximate. A survey governs.
 - **The zoning district comes from the City inventory, cross-checked at one point.** The engine evaluates the inventory's `zoned_as`. We compare it with the City zoning map at the lot's inventory point; where they disagree (or no map district contains the point) the Use check is Unknown, Finance is not screened, the lot cannot be Green, and resolving the district is its first open item, but the engine does not re-evaluate the lot under the map's district. A lot that straddles a boundary is compared at one point only.
