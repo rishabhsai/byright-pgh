@@ -253,7 +253,7 @@ export default function PlanView({
       </p>
       <p className="border-t border-hairline pt-2 text-ink">
         <span className="text-[12px] text-[#6b5200]">If Bill 2025-1545 passes: </span>
-        {capitalize(plan.billLine.replace(/^If Bill 2025-1545 passes:\s*/, ""))}
+        {plan.billLine.replace(/^If Bill 2025-1545 passes:\s*/, "")}
       </p>
     </section>
   );
@@ -375,5 +375,3 @@ function premiumOf(g: Plan["gap"]): GapScenario | null {
   const p = (g as (Gap & { atPremium?: GapScenario }) | null)?.atPremium;
   return p && Number.isFinite(p.total) ? p : null;
 }
-
-const capitalize = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
