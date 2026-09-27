@@ -12,7 +12,7 @@ Now the financial hurdle. At two hundred twenty-five dollars per square foot, pl
 
 **⌘K, paste 0086L00500000000.** It also catches hard stops. This Forbes parcel is two hundred fifty-nine square feet; its floor-area limit is five hundred eighteen, so the triplex prototype fails and finance is withheld. **⌘K, 5724 Murray Hill.** Here the inventory and the zoning map disagree. Staff resolve the district first.
 
-**Close the card. Reform tab, click the "Minimum lot size L 3,000 → 1,800" row, scroll the right panel to Where it moves.** Reform asks which rule binds. Lower the low-density lot minimum from three thousand to eighteen hundred square feet: five hundred eighty-seven more public lots pass the encoded screen, one hundred seventy-five join the review cohort, Homewood North gains one hundred seventy-eight. None clears the default cost screen. **Click Bill 2025-1545.** The bill unlocks no additional lot; it adds home-type options on lots already allowed, a different benefit.
+**Close the card. ⌘K, type "Hazelwood lots where a duplex passes if the L minimum drops to 1,800", Enter.** Ask ByRight turns that sentence into three filters you can see and undo; the model only chooses filters and levers, every number is the engine's. **Click the "Minimum lot size L 3,000 → 1,800" lever row, scroll to Where it moves.** Reform asks which rule binds. Lower the low-density lot minimum from three thousand to eighteen hundred square feet: five hundred eighty-seven more public lots pass the encoded screen, one hundred seventy-five join the review cohort, Homewood North gains one hundred seventy-eight. None clears the default cost screen. **Click Bill 2025-1545.** The bill unlocks no additional lot; it adds home-type options on lots already allowed, a different benefit.
 
 **Plan tab, add Hazelwood: Export CSV, Download brief.** Staff leave with a CSV of checks, citations, assumptions and next actions, plus a short review brief.
 
@@ -25,5 +25,5 @@ Now the financial hurdle. At two hundred twenty-five dollars per square foot, pl
 - In the construction field, select all (⌘A) and type "250" in one motion; wait about 2.5 s. Clicking and typing appends.
 - Use the full parcel ID for 0 Forbes Av. 259 sq ft is on the Fits tab; 518 is on Allowed.
 - Hold a beat on the Reform and About screens; the narration alone runs about 2:40, the take lands near 3:15.
-- Close any open lot card and let the map fit citywide before the Reform beat; click the lever row (or open `?tab=reform&preset=min-lot-L-1800`) rather than hand-dragging the slider.
+- Close any open lot card before the Ask beat; the question takes 1–3 s to apply; then click the lever row (or open `?tab=reform&preset=min-lot-L-1800`) rather than hand-dragging the slider.
 - Never say: "98.3% accurate", "587 homes unlocked", "3,619 ADUs will be built", "zero feasible lots", "$3.69M required subsidy".
