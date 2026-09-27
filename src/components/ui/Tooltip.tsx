@@ -96,7 +96,7 @@ export default function Tooltip({ content, children, side = "top", asChild = fal
           <span
             id={id}
             role="tooltip"
-            className="tip-in pointer-events-none fixed z-[70] w-max max-w-[280px] rounded-lg bg-ink px-3 py-2 text-[12px] leading-snug font-normal text-white shadow-[0_8px_24px_-8px_rgba(23,33,30,.5)]"
+            className="tip-in pointer-events-none fixed z-[70] w-max max-w-[280px] rounded-tooltip bg-ink px-3 py-2 text-caption font-normal text-white shadow-overlay"
             style={{
               left: pos.x,
               top: pos.y,

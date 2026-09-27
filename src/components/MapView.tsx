@@ -18,18 +18,6 @@ setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 const STYLE_URL = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
 const TSORT: Record<Triage, number> = { green: 5, yellow: 4, red: 3, gray: 1 };
 
-const TRIAGE_PAINT: ExpressionSpecification = [
-  "match",
-  ["get", "t"],
-  "green",
-  TRIAGE_COLOR.green,
-  "yellow",
-  TRIAGE_COLOR.yellow,
-  "red",
-  TRIAGE_COLOR.red,
-  TRIAGE_COLOR.gray,
-];
-
 /** [west, south, east, north] */
 export type FitBounds = [number, number, number, number];
 
@@ -124,6 +112,15 @@ function MapView({
 
   useEffect(() => {
     if (!el.current) return;
+    const palette = getComputedStyle(document.documentElement);
+    const color = (name: string) => palette.getPropertyValue(`--color-${name}`).trim();
+    const triagePaint: ExpressionSpecification = [
+      "match", ["get", "t"],
+      "green", color("v-byright"),
+      "yellow", color("v-variance"),
+      "red", color("v-prohibited"),
+      color("v-unknown"),
+    ];
     const map = new MLMap({
       container: el.current,
       style: STYLE_URL,
@@ -156,7 +153,7 @@ function MapView({
         source: "lots",
         filter: ["!", MATCHED],
         paint: {
-          "circle-color": "#8a938e",
+          "circle-color": color("faint"),
           "circle-radius": ["interpolate", ["linear"], ["zoom"], 9, 1, 11.5, 1.8, 14, 3, 18, 6],
           "circle-opacity": 0.18,
         },
@@ -168,10 +165,10 @@ function MapView({
         filter: MATCHED,
         layout: { "circle-sort-key": ["get", "k"] },
         paint: {
-          "circle-color": TRIAGE_PAINT,
+          "circle-color": triagePaint,
           "circle-radius": RADIUS,
           "circle-opacity": 0.85,
-          "circle-stroke-color": ["case", RINGED, "#e0a800", "#ffffff"],
+          "circle-stroke-color": ["case", RINGED, color("v-variance"), color("panel")],
           "circle-stroke-width": [
             "interpolate",
             ["linear"],
@@ -194,9 +191,9 @@ function MapView({
         source: "sel",
         paint: {
           "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 9, 14, 14, 18, 24],
-          "circle-color": "#0d5c5a",
+          "circle-color": color("accent"),
           "circle-opacity": 0.14,
-          "circle-stroke-color": "#0d5c5a",
+          "circle-stroke-color": color("accent"),
           "circle-stroke-width": 2,
         },
       });
@@ -206,9 +203,9 @@ function MapView({
         type: "circle",
         source: "sel",
         paint: {
-          "circle-color": TRIAGE_PAINT,
+          "circle-color": triagePaint,
           "circle-radius": RADIUS,
-          "circle-stroke-color": "#ffffff",
+          "circle-stroke-color": color("panel"),
           "circle-stroke-width": 1.5,
         },
       });
@@ -289,18 +286,18 @@ function MapView({
   const above = hover != null && hover.h > 0 && hover.y > hover.h - 150;
 
   return (
-    <div className="absolute inset-0">
+    <div className="map-overlays">
       <div ref={el} className="h-full w-full" />
       {info && hover && (
         <div
-          className="pointer-events-none absolute z-20 w-max max-w-[300px] rounded-lg border border-hairline bg-panel/95 px-3 py-2 shadow-[0_6px_20px_-6px_rgba(23,33,30,.25)] backdrop-blur"
+          className="pointer-events-none absolute z-20 w-max max-w-[300px] surface-card px-4 py-3 shadow-overlay"
           style={{
             ...(flip ? { right: width - hover.x + 14 } : { left: hover.x + 14 }),
             ...(above ? { bottom: hover.h - hover.y + 14 } : { top: hover.y + 14 }),
           }}
         >
-          <div className="text-[13px] leading-snug font-medium text-ink">{info.lot.address || info.lot.id}</div>
-          <div className="mt-0.5 flex items-center gap-2 text-[12px] text-muted">
+          <div className="text-callout font-medium text-ink">{info.lot.address || info.lot.id}</div>
+          <div className="mt-0.5 flex items-center gap-2 text-caption text-muted">
             <span className="tabular-nums">{info.lot.zone || "No zone"}</span>
             {info.triage && (
               <span className="inline-flex items-center gap-1 font-medium" style={{ color: TRIAGE_INK[info.triage] }}>
@@ -310,16 +307,16 @@ function MapView({
             )}
           </div>
           {info.line ? (
-            <div className="mt-1 text-[12px] leading-4 text-ink">{info.line}</div>
+            <div className="mt-1 text-caption text-ink">{info.line}</div>
           ) : (
-            <div className="mt-1 text-[12px] text-faint">Evaluating…</div>
+            <div className="mt-1 text-caption text-faint">Evaluating…</div>
           )}
-          {info.note && <div className="mt-1 text-[12px] leading-4 text-[#7a5400]">{info.note}</div>}
+          {info.note && <div className="mt-1 text-caption text-warning-ink">{info.note}</div>}
         </div>
       )}
       {changed && !loading && (changedCount > 0 || ringNote) && (
-        <div className="fade-in absolute bottom-[52px] left-3 z-10 flex max-w-[calc(100%-24px)] items-center gap-1.5 rounded-md border border-gold/50 bg-gold-soft/95 px-2 py-1 text-[11px] text-[#6b5200] shadow-sm">
-          <span aria-hidden className="h-2.5 w-2.5 rounded-full border-2 border-[#e0a800]/70" />
+        <div className="fade-in map-scenario z-10 flex items-center gap-2 px-4 py-3 text-caption text-warning-ink">
+          <span aria-hidden className="h-2.5 w-2.5 rounded-full border-2 border-v-variance/70" />
           <span>
             {changedCount > 0
               ? `Gold ring: ${colorBy ? `${TYPOLOGY_LABEL[colorBy].toLowerCase()} verdict` : "best verdict"} or triage changes if the bill passes (${changedCount.toLocaleString("en-US")} lots)`
@@ -328,16 +325,16 @@ function MapView({
         </div>
       )}
       <div
-        className="absolute bottom-3 left-3 z-10 flex max-w-[calc(100%-64px)] flex-wrap items-center gap-x-3 gap-y-0.5 rounded-lg border border-hairline bg-panel/95 px-3 py-1.5 shadow-sm backdrop-blur"
+        className="map-legend z-10 flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3"
         title={`Triage for ${colorBy ? `a ${TYPOLOGY_LABEL[colorBy].toLowerCase()} (Home type filter)` : "each lot's best home type"}; ${ruleSet === "current" ? "today's code" : "with Bill 2025-1545"}`}
       >
-        <span className="shrink-0 text-[11px] font-medium text-ink">{colorBy ? TYPOLOGY_LABEL[colorBy] : "Best home type"}</span>
+        <span className="shrink-0 text-caption font-medium text-ink">{colorBy ? TYPOLOGY_LABEL[colorBy] : "Best home type"}</span>
         {loading ? (
-          <span className="text-[12px] text-muted">Evaluating 11,000+ lots…</span>
+          <span className="text-caption text-muted">Evaluating 11,000+ lots…</span>
         ) : (
           <ul
             aria-label="Legend"
-            className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-muted"
+            className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-caption text-muted"
           >
             {TRIAGE_ORDER.map((t) => (
               <li

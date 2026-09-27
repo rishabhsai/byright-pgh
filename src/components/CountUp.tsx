@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 
-export default function CountUp({ value, duration = 700 }: { value: number; duration?: number }) {
+export default function CountUp({ value, duration = 200 }: { value: number; duration?: number }) {
   const [shown, setShown] = useState(value);
   const from = useRef(value);
   useEffect(() => {
@@ -9,7 +9,7 @@ export default function CountUp({ value, duration = 700 }: { value: number; dura
     const a = from.current;
     let raf = 0;
     const tick = (t: number) => {
-      const p = Math.min(1, (t - start) / duration);
+      const p = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 1 : Math.min(1, (t - start) / duration);
       const e = 1 - Math.pow(1 - p, 3);
       const v = Math.round(a + (value - a) * e);
       setShown(v);

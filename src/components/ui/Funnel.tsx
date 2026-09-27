@@ -34,7 +34,7 @@ export function funnelSteps(s: FunnelStats) {
 }
 
 const N = ({ v }: { v: number }) => (
-  <span className="font-semibold text-ink">
+  <span className="funnel-number font-semibold text-ink">
     <CountUp value={v} />
   </span>
 );
@@ -71,7 +71,7 @@ export function FunnelLine({ s }: { s: FunnelStats | null }) {
   const steps = funnelSteps(s);
   const short = ["", "evaluated", "pass use table", GREEN_NEEDS_SALE ? "clear cost screen, for sale" : "clear cost screen"];
   return (
-    <ol aria-label="Lot funnel" className="flex items-center gap-1.5 text-[12px] whitespace-nowrap text-muted">
+    <ol aria-label="Lot funnel" className="flex flex-wrap items-center gap-1.5 text-caption text-muted">
       {steps.map((st, i) => (
         <li key={st.key} className="flex items-center gap-1.5">
           {i > 0 && <Arrow />}
@@ -95,15 +95,15 @@ export function FunnelBars({
   if (!steps.length) return null;
   const max = steps[0].n || 1;
   return (
-    <ol aria-label="Lot funnel" className="space-y-2.5">
+    <ol aria-label="Lot funnel" className="space-y-5">
       {steps.map((st, i) => {
         const pct = Math.max((st.n / max) * 100, 0.8);
         const last = i === steps.length - 1;
         return (
           <li key={st.key}>
-            <div className="flex items-baseline justify-between gap-3 text-[12px]">
+            <div className="flex items-baseline justify-between gap-3 text-caption">
               <span className={last ? "font-medium text-ink" : "text-muted"}>{st.label}</span>
-              <span className="font-medium text-ink tabular-nums">
+              <span className="shrink-0 text-display text-ink tabular-nums">
                 <CountUp value={st.n} />
               </span>
             </div>
@@ -112,8 +112,8 @@ export function FunnelBars({
                 className="funnel-grow h-full rounded-full"
                 style={{
                   width: `${pct}%`,
-                  background: last ? "var(--accent)" : i === 2 ? "#5f8d86" : "#b9c2bd",
-                  animationDelay: `${i * 90}ms`,
+                  background: last ? "var(--color-v-byright)" : i === 2 ? "var(--color-faint)" : "var(--color-control-edge)",
+                  animationDelay: `${i * 20}ms`,
                 }}
               />
             </div>
@@ -126,8 +126,8 @@ export function FunnelBars({
 
 function Arrow() {
   return (
-    <svg width="12" height="8" viewBox="0 0 12 8" aria-hidden className="text-faint">
-      <path d="M0 4h10M7.5 1.5L10 4 7.5 6.5" stroke="currentColor" fill="none" strokeWidth="1.2" strokeLinecap="round" />
+    <svg width="16" height="16" viewBox="0 0 12 8" aria-hidden className="text-faint">
+      <path d="M0 4h10M7.5 1.5L10 4 7.5 6.5" stroke="currentColor" fill="none" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }

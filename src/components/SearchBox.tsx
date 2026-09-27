@@ -264,10 +264,10 @@ function SearchBox({
 
   return (
     <div ref={root} className="relative">
-      <div className="flex h-8 items-center gap-2 rounded-[6px] border border-hairline bg-white px-2.5 focus-within:border-accent/60 focus-within:ring-2 focus-within:ring-accent/15">
-        <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden className="shrink-0 text-faint">
-          <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.6" fill="none" />
-          <path d="M11 11l3.5 3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <div className="input-shell flex h-9 items-center gap-2 px-3">
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden className="shrink-0 text-faint">
+          <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.5" fill="none" />
+          <path d="M11 11l3.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
         <input
           ref={input}
@@ -309,10 +309,10 @@ function SearchBox({
               else input.current?.blur();
             }
           }}
-          className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-ink placeholder:text-faint [&::-webkit-search-cancel-button]:hidden"
+          className="h-full min-w-0 flex-1 bg-transparent text-callout text-ink placeholder:text-faint [&::-webkit-search-cancel-button]:hidden"
           style={{ outline: "none" }}
         />
-        <kbd className="shrink-0 rounded border border-hairline px-1 font-sans text-[11px] leading-4 text-faint" aria-hidden>
+        <kbd className="shrink-0 rounded border border-hairline px-1 font-sans text-caption text-faint" aria-hidden>
           ⌘K
         </kbd>
       </div>
@@ -321,9 +321,9 @@ function SearchBox({
           id={listId}
           role="listbox"
           aria-label="Matching lots"
-          className="pop absolute top-[calc(100%+4px)] right-0 left-0 z-30 overflow-hidden rounded-lg border border-hairline bg-white py-1 shadow-[0_12px_32px_-12px_rgba(23,33,30,.35)]"
+          className="pop surface-card absolute top-[calc(100%+8px)] right-0 left-0 z-30 overflow-hidden py-2 shadow-overlay"
         >
-          {options.length === 0 && <li className="px-3 py-2 text-[12px] text-muted">No lot matches “{q.trim()}”. Try a street name, a block-lot like 56-N-203, or a parcel ID.</li>}
+          {options.length === 0 && <li className="px-3 py-2 text-caption text-muted">No lot matches “{q.trim()}”. Try a street name, a block-lot like 56-N-203, or a parcel ID.</li>}
           {options.map((o, k) => {
             if (o.kind === "hood")
               return (
@@ -335,10 +335,10 @@ function SearchBox({
                   onMouseEnter={() => setCursor(k)}
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => scope(o.name)}
-                  className={`cursor-pointer border-b border-hairline px-3 py-1.5 ${k === active ? "bg-accent-soft" : ""}`}
+                  className={`cursor-pointer border-b border-hairline px-4 py-3 ${k === active ? "bg-accent-soft" : ""}`}
                 >
-                  <span className="block truncate text-[13px] font-medium text-ink">Scope the plan to {o.name}</span>
-                  <span className="block text-[11px] text-muted">Sets the neighborhood filter; the Plan tab follows it</span>
+                  <span className="block truncate text-callout font-medium text-ink">Scope the plan to {o.name}</span>
+                  <span className="block text-caption text-muted">Sets the neighborhood filter; the Plan tab follows it</span>
                 </li>
               );
             const i = o.i;
@@ -352,18 +352,18 @@ function SearchBox({
                 onMouseEnter={() => setCursor(k)}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => pick(i)}
-                className={`cursor-pointer px-3 py-1.5 ${k === active ? "bg-accent-soft" : ""}`}
+                className={`cursor-pointer px-4 py-3 ${k === active ? "bg-accent-soft" : ""}`}
               >
                 <span className="flex items-center gap-2">
                   {triage?.[i] && <TriageDot triage={triage[i]} size={8} title={TRIAGE_SHORT[triage[i]]} />}
-                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">{l.address || "No street address"}</span>
+                  <span className="min-w-0 flex-1 truncate text-callout font-medium text-ink">{l.address || "No street address"}</span>
                   {triage?.[i] === "gray" ? (
-                    <span className="shrink-0 text-[11px] text-muted">not evaluated</span>
+                    <span className="shrink-0 text-caption text-muted">not evaluated</span>
                   ) : matches && !matches[i] ? (
-                    <span className="shrink-0 text-[11px] text-muted">outside filters</span>
+                    <span className="shrink-0 text-caption text-muted">outside filters</span>
                   ) : null}
                 </span>
-                <span className={`block truncate text-[11px] text-muted tabular-nums ${triage?.[i] ? "pl-4" : ""}`}>
+                <span className={`block truncate text-caption text-muted tabular-nums ${triage?.[i] ? "pl-4" : ""}`}>
                   {l.neighborhood || "Neighborhood n/a"}, {l.zone || "no zone"}, parcel {l.id}
                 </span>
               </li>

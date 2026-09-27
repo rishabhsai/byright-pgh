@@ -29,7 +29,7 @@ interface Props {
   /** Inputs changed and the city-wide pass has not caught up: exports wait. */
   stale?: boolean;
   onSelect: (i: number) => void;
-  /** "rail": one column in the 344 px rail. "reading": two columns in the expanded overlay. */
+  /** "rail": one column in the 360 px rail. "reading": two columns in the expanded overlay. */
   layout?: "rail" | "reading";
   /** Inventory records whose district the City zoning map confirms, of those compared. */
   mapAgreement?: { agree: number; compared: number } | null;
@@ -54,8 +54,8 @@ function fileBase(plan: Plan): string {
   return `byright-plan-${slug(plan.scopeLabel)}-${plan.generatedAt.slice(0, 10)}`;
 }
 
-const card = "rounded-lg border border-hairline bg-white px-3 py-3";
-const kicker = "text-[13px] font-semibold text-ink";
+const card = "surface-card p-card";
+const kicker = "text-headline text-ink";
 
 function FunnelRow({ plan, wide }: { plan: Plan; wide: boolean }) {
   const f = plan.funnel;
@@ -68,20 +68,20 @@ function FunnelRow({ plan, wide }: { plan: Plan; wide: boolean }) {
     { n: f.pencil, label: ["clear", "screen"], title: "Clear the cost-and-return screen under the displayed assumptions" },
   ];
   return (
-    <ol aria-label="Disposition funnel" className={wide ? "flex items-start" : "grid grid-cols-3 gap-y-2.5"}>
+    <ol aria-label="Disposition funnel" className="plan-funnel">
       {steps.map((s, i) => (
         <li key={s.title} title={s.title} className="flex min-w-0 flex-1 items-start">
           {(wide ? i > 0 : i % 3 !== 0) && (
-            <span aria-hidden className="mt-[3px] shrink-0 text-[11px] text-faint">
+            <span aria-hidden className="mt-[3px] shrink-0 text-caption text-faint">
               →
             </span>
           )}
           <span className="min-w-0 flex-1 text-center">
-            <span className={`block text-[15px] leading-5 font-medium tabular-nums ${i === 4 ? "text-accent" : "text-ink"}`}>
+            <span className={`block text-display tabular-nums ${i === 4 ? "text-accent" : "text-ink"}`}>
               {fmtNum(s.n)}
             </span>
             {s.label.map((t) => (
-              <span key={t} className="block text-[11px] leading-[13px] whitespace-nowrap text-muted first-of-type:mt-0.5">
+              <span key={t} className="block text-caption whitespace-nowrap text-muted first-of-type:mt-0.5">
                 {t}
               </span>
             ))}
@@ -94,14 +94,14 @@ function FunnelRow({ plan, wide }: { plan: Plan; wide: boolean }) {
 
 function SplitRow({ label, n, total }: { label: string; n: number; total: number }) {
   return (
-    <li className="relative flex items-center justify-between rounded px-1.5 py-0.5 text-[13px]">
+    <li className="relative flex items-center justify-between rounded-tooltip px-2 py-2 text-callout">
       <span
         aria-hidden
-        className="absolute inset-y-0.5 left-0 rounded-sm bg-accent/10"
+        className="absolute inset-y-0.5 left-0 rounded-tooltip bg-control"
         style={{ width: `${total ? (n / total) * 100 : 0}%` }}
       />
-      <span className="relative">{label}</span>
-      <span className="relative font-medium tabular-nums">{fmtNum(n)}</span>
+      <span className="relative min-w-0">{label}</span>
+      <span className="relative shrink-0 font-medium tabular-nums">{fmtNum(n)}</span>
     </li>
   );
 }
@@ -158,9 +158,9 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
   const reading = layout === "reading";
 
   const heading = (
-    <div className="flex items-baseline justify-between gap-2">
-      <h3 className={`font-serif leading-tight ${reading ? "text-[26px]" : "text-[21px]"}`}>{plan.scopeLabel}</h3>
-      <span className="truncate text-[12px] text-faint" title={RULESET_LABEL[ruleSet]}>
+    <div className="flex flex-wrap items-baseline justify-between gap-2">
+      <h3 className="text-title">{plan.scopeLabel}</h3>
+      <span className="text-caption text-muted" title={RULESET_LABEL[ruleSet]}>
         {ruleSet === "current" ? "Current code" : "If Bill 2025-1545 passes"}
       </span>
     </div>
@@ -169,23 +169,23 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
   const h = hurdleOf(plan);
   const hurdle = (
     <section aria-label="Financial hurdle" className={card}>
-      <div className="flex items-baseline justify-between gap-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h4 className={kicker}>Financial hurdle</h4>
-        <span className="text-[12px] text-faint">
+        <span className="text-caption text-faint">
           {h ? MODE_WORD[h.mode] : plan.assumptions.mode}, ${plan.assumptions.hardCostPerSf}/sf
         </span>
       </div>
       {h ? (
         <>
-          <p className={`mt-1 font-serif leading-snug text-ink ${reading ? "text-[22px]" : "text-[19px]"}`}>
+          <p className="mt-3 text-title text-ink">
             Target value {fmtUsdShort(h.target)} vs modeled value {fmtUsdShort(h.value)}
           </p>
           {g?.valueBasis.length === 1 && g.valueBasis[0].mode === "sale" && (
-            <p className="mt-0.5 text-[12px] text-muted">
+            <p className="mt-0.5 text-caption text-muted">
               Index: {g.valueBasis[0].label} {fmtUsdShort(g.valueBasis[0].value)}, scaled to the home&apos;s size
             </p>
           )}
-          <div className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 gap-y-1 text-[11px] text-muted" aria-hidden>
+          <div className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 gap-y-1 text-caption text-muted" aria-hidden>
             <span>Target</span>
             <div className="h-1.5 rounded-full bg-ink/80" />
             <span>Modeled</span>
@@ -193,14 +193,14 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
               <div className="h-full rounded-full bg-accent" style={{ width: `${Math.min(100, (h.value / h.target) * 100)}%` }} />
             </div>
           </div>
-          <p className="mt-1.5 text-[12px] leading-4 text-muted">
+          <p className="mt-1.5 text-caption text-muted">
             Mean of {h.n === 1 ? "the one screened project" : `${fmtNum(h.n)} screened projects`}: cost plus the {plan.assumptions.targetMarginPct}% target return, against the value modeled from{" "}
             {plan.gap?.valueBasis.length === 1 ? plan.gap.valueBasis[0].label : "aggregate Zillow indices"}. An index is not an appraisal
             of new construction; staff decide what evidence would support the target.
           </p>
         </>
       ) : (
-        <p className="mt-1 text-[13px] leading-5 text-muted">
+        <p className="mt-1 text-callout text-muted">
           Not screened: no candidate in this scope has a screened financial result.
         </p>
       )}
@@ -211,7 +211,7 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
     <section aria-label="Funnel">
       <div className={card}>
         <FunnelRow plan={plan} wide={reading} />
-        <p className="mt-2.5 border-t border-hairline pt-2 text-[12px] leading-[17px] text-muted">
+        <p className="mt-2.5 border-t border-hairline pt-2 text-caption text-muted">
           <span className="tabular-nums text-ink">{fmtNum(plan.needsRelief)}</span> need relief (lot size) ·{" "}
           <span className="tabular-nums text-ink">{fmtNum(plan.hillsideReview)}</span> Hillside exception ·{" "}
           <span className="tabular-nums text-ink">{fmtNum(plan.notEvaluated)}</span> not evaluated
@@ -223,21 +223,21 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
   const candidates = (
     <section aria-label="Candidates for staff review" className={card}>
       <h4 className={kicker}>Candidates for staff review</h4>
-      <p className="mt-1 text-[13px] leading-5">
+      <p className="mt-1 text-callout">
         <span className="font-medium tabular-nums">{fmtNum(plan.candidates.total)}</span> lots pass the use-table and lot-size screen
         under the inventory district{mapAgreement ? ` (${agreementPct(mapAgreement)} agree with the City map)` : ""}, are recorded for sale,
         unflagged and 1,000+ sf. A review queue: each has open items.
       </p>
-      <p className="mt-1 text-[13px] leading-5">
-        <span className={`font-medium tabular-nums ${plan.candidates.districtUnconfirmed ? "text-[#8a4b00]" : ""}`}>
+      <p className="mt-1 text-callout">
+        <span className={`font-medium tabular-nums ${plan.candidates.districtUnconfirmed ? "text-warning-ink" : ""}`}>
           {fmtNum(plan.candidates.districtUnconfirmed)}
         </span>{" "}
         {plan.candidates.districtUnconfirmed === 1 ? "has" : "have"} an unconfirmed district (inventory and City map disagree)
         {plan.candidates.districtUnconfirmed ? "; permission stays unresolved until staff confirm it." : "."}
       </p>
-      <div className="mt-2 grid grid-cols-2 gap-x-3">
+      <div className="plan-splits mt-4">
         <div>
-          <span className="text-[12px] text-faint">By recorded channel</span>
+          <span className="text-caption text-faint">By recorded channel</span>
           <ul className="mt-0.5 space-y-0.5">
             {CHANNELS.map((c) => (
               <SplitRow key={c} label={c} n={plan.candidates.byChannel[c]} total={plan.candidates.total} />
@@ -245,9 +245,9 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
           </ul>
         </div>
         <div>
-          <span className="text-[12px] text-faint">By screened type</span>
+          <span className="text-caption text-faint">By screened type</span>
           <ul className="mt-0.5 space-y-0.5">
-            {types.length === 0 && <li className="px-1.5 text-[13px] text-muted">None</li>}
+            {types.length === 0 && <li className="px-1.5 text-callout text-muted">None</li>}
             {types.map((t) => (
               <SplitRow
                 key={t}
@@ -264,26 +264,25 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
 
   const gap = (
     <section aria-label="Modeled shortfall for N projects" className={card}>
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h4 className={kicker}>Modeled shortfall for</h4>
-        <label className="flex items-center gap-1.5 text-[13px] text-muted">
+        <label className="flex items-center gap-1.5 text-callout text-muted">
           <input
             aria-label="Projects to plan for"
             inputMode="numeric"
             value={homesText}
             onChange={(e) => onHomes(e.target.value)}
             onBlur={() => setHomesText(String(projects))}
-            className="w-12 rounded border border-hairline bg-white px-1.5 py-0.5 text-right text-[13px] text-ink tabular-nums focus:border-accent/60 focus:ring-2 focus:ring-accent/15"
-            style={{ outline: "none" }}
+            className="input-field w-16 text-right tabular-nums"
           />
           projects
         </label>
       </div>
-      <p className="mt-1.5 text-[13px] leading-5">{nb(gapSentence(plan))}</p>
+      <p className="mt-1.5 text-callout">{nb(gapSentence(plan))}</p>
       {g && (
-        <table className="mt-2 w-full text-[13px] tabular-nums">
+        <table className="plan-table mt-4 w-full text-callout tabular-nums">
           <thead>
-            <tr className="text-[12px] text-faint">
+            <tr className="text-caption text-faint">
               <th className="text-left font-normal">Scenario</th>
               <th className="pl-3 text-right font-normal whitespace-nowrap">Total</th>
               <th className="pl-3 text-right font-normal whitespace-nowrap">Per project</th>
@@ -318,16 +317,16 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
                 key={r.label}
                 className={`${r.strong ? "font-medium text-ink" : "text-muted"} ${"premium" in r ? "border-t border-dashed border-hairline" : ""}`}
               >
-                <td className="py-0.5 pr-2 leading-tight">{r.label}</td>
-                <td className="py-0.5 pl-3 text-right align-top">{fmtUsd(r.s.total)}</td>
-                <td className="py-0.5 pl-3 text-right align-top">{fmtUsd(r.s.perProject)}</td>
-                {reading && <td className="py-0.5 pl-3 text-right align-top">{fmtUsd(r.s.perDwelling)}</td>}
+                <td className="py-2 pr-2">{r.label}</td>
+                <td className="py-2 pl-3 text-right align-top">{fmtUsd(r.s.total)}</td>
+                <td className="py-2 pl-3 text-right align-top">{fmtUsd(r.s.perProject)}</td>
+                {reading && <td className="py-2 pl-3 text-right align-top">{fmtUsd(r.s.perDwelling)}</td>}
               </tr>
             ))}
           </tbody>
         </table>
       )}
-      <p className="mt-1.5 text-[12px] leading-4 text-faint">
+      <p className="mt-1.5 text-caption text-faint">
         Shortfall to the target return against an aggregate reference value; a screen, not a subsidy award or appraisal.
         {premium && " The premium row values new homes at 1.3× the index; the URA would calibrate it against actual gap awards."}
       </p>
@@ -335,7 +334,7 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
   );
 
   const relief = (
-    <section aria-label="Needs relief, Hillside and the bill" className={`${card} space-y-2 text-[13px] leading-5`}>
+    <section aria-label="Needs relief, Hillside and the bill" className={`${card} space-y-2 text-callout`}>
       <p>
         {reliefSentence(plan)} Relief addresses the size standard only; adjacent
         City lots are not computed.
@@ -348,7 +347,7 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
         (§&nbsp;911.04.A.69); site conditions not checked.
       </p>
       <p className="border-t border-hairline pt-2 text-ink">
-        <span className="text-[12px] text-[#6b5200]">
+        <span className="text-caption text-warning-ink">
           If Bill 2025-1545 passes:{" "}
         </span>
         {nb(plan.billLine.replace(/^If Bill 2025-1545 passes:\s*/, ""))}
@@ -360,25 +359,25 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
     <section aria-label="Shortlist">
       <div className="flex items-baseline justify-between">
         <h4 className={kicker}>Top {plan.shortlist.length} candidates</h4>
-        <span className="text-[12px] text-faint">lowest shortfall first</span>
+        <span className="text-caption text-faint">lowest shortfall first</span>
       </div>
       {plan.shortlist.length === 0 ? (
-        <p className="mt-1.5 text-[13px] text-muted">No candidates in this scope.</p>
+        <p className="mt-1.5 text-callout text-muted">No candidates in this scope.</p>
       ) : (
-        <ol className="mt-1.5 border-t border-hairline text-[13px]">
+        <ol className="mt-1.5 border-t border-hairline text-callout">
           {plan.shortlist.map((r) => (
             <li key={r.parcel_id} className="border-b border-hairline/60">
               <button
                 type="button"
                 onClick={() => onSelect(r.lotIndex)}
                 title={String(r.next_action)}
-                className="group block w-full py-1.5 text-left hover:bg-surface focus-visible:bg-surface"
+                className="group block w-full rounded-tooltip py-4 text-left hover:bg-surface focus-visible:bg-surface"
               >
                 <span className="flex items-baseline gap-2">
                   <span className="min-w-0 flex-1 truncate font-medium text-ink group-hover:underline">
                     {r.address || r.parcel_id}
                   </span>
-                  <span className={`shrink-0 tabular-nums ${rowScreened(r) ? "" : "text-[12px] text-muted"}`}>
+                  <span className={`shrink-0 tabular-nums ${rowScreened(r) ? "" : "text-caption text-muted"}`}>
                     {!rowScreened(r)
                       ? "not screened"
                       : r.shortfall_to_target === ""
@@ -386,7 +385,7 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
                         : fmtUsdShort(Number(r.shortfall_to_target))}
                   </span>
                 </span>
-                <span className="mt-0.5 flex items-baseline gap-2 text-[12px] leading-4 text-muted">
+                <span className="mt-1 flex flex-wrap items-baseline gap-2 text-caption text-muted">
                   <span className="min-w-0 flex-1">
                     {[
                       r.neighborhood,
@@ -399,7 +398,7 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
                       .join(" · ")}
                   </span>
                   <span
-                    className="shrink-0 text-[11px] whitespace-nowrap tabular-nums"
+                    className="shrink-0 text-caption whitespace-nowrap tabular-nums"
                     title={rowChecks(r)}
                   >
                     {rowChecks(r)}
@@ -414,29 +413,29 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
   );
 
   const exportsRow = (
-    <div className="pt-1">
+    <div className="pt-2">
       <div className="grid grid-cols-2 gap-2">
         <button
           data-action="export-csv"
           disabled={stale}
           onClick={() => downloadText(`${fileBase(plan)}.csv`, toCsv(plan.rows), "text/csv;charset=utf-8")}
-          className="rounded-md bg-accent px-3 py-2 text-[13px] font-medium text-white hover:bg-accent/90 disabled:cursor-wait disabled:opacity-50"
+          className="button-primary flex-col text-center disabled:cursor-wait disabled:opacity-50"
         >
           Export CSV
-          <span className="block text-[12px] font-normal text-white/75">{fmtNum(plan.rows.length)} lots in scope</span>
+          <span className="block text-caption font-normal text-white/75">{fmtNum(plan.rows.length)} lots in scope</span>
         </button>
         <button
           data-action="download-brief"
           disabled={stale}
           onClick={() => downloadText(`${fileBase(plan)}.md`, toBrief(plan), "text/markdown;charset=utf-8")}
-          className="rounded-md border border-hairline bg-white px-3 py-2 text-[13px] font-medium text-ink hover:border-[#bfc4bd] disabled:cursor-wait disabled:opacity-50"
+          className="button-secondary flex-col text-center disabled:cursor-wait disabled:opacity-50"
         >
           Download brief
-          <span className="block text-[12px] font-normal text-muted">Markdown summary</span>
+          <span className="block text-caption font-normal text-muted">Markdown summary</span>
         </button>
       </div>
       {stale && (
-        <p aria-live="polite" className="mt-1.5 text-[12px] text-muted">
+        <p aria-live="polite" className="mt-1.5 text-caption text-muted">
           Updating for your latest inputs; exports are available once the plan catches up.
         </p>
       )}
@@ -445,15 +444,15 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
 
   if (reading)
     return (
-      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-6 px-10 pt-5 pb-8">
-        <div className="space-y-4">
+      <div className="plan-view grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-section px-10 py-section">
+        <div className="min-w-0 space-y-section">
           {heading}
           {hurdle}
           {funnel}
           {candidates}
           {relief}
         </div>
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-section">
           {gap}
           {shortlist}
           {exportsRow}
@@ -462,7 +461,7 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
     );
 
   return (
-    <div className="space-y-3 px-4 pt-3 pb-4">
+    <div className="plan-view space-y-section px-panel py-panel">
       {heading}
       {hurdle}
       {funnel}

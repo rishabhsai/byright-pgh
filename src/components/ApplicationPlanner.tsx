@@ -114,20 +114,20 @@ export default function ApplicationPlanner({ selected, onChangeType, onFlash, wi
   };
 
   return (
-    <div className="space-y-3">
-      <p className="flex gap-2 rounded-lg border border-accent/30 bg-accent-soft px-3 py-2.5 text-[12px] leading-snug text-accent">
+    <div className="space-y-section">
+      <p className="flex gap-2 rounded-card bg-control p-card text-callout text-muted">
         <HandIcon />
         <span>{NEVER_SUBMITS}</span>
       </p>
 
       {!evaluable ? (
-        <p className="rounded-lg border border-dashed border-hairline px-3 py-3 text-[12px] text-muted">
+        <p className="rounded-card bg-control p-card text-caption text-muted">
           Zoning was not evaluated for this district, so there is nothing to prepare yet. Ask the Zoning Administrator which
           filings apply.
         </p>
       ) : (
         <>
-          <p className="flex items-start gap-2 text-[13px] leading-snug text-ink">
+          <p className="flex items-start gap-2 text-callout text-ink">
             <span aria-hidden className="mt-[6px] h-2 w-2 shrink-0 rounded-full" style={{ background: VERDICT_COLOR[approval.kind === "unresolved" ? "unknown" : (finding?.verdict ?? "unknown")] }} />
             <span>
               For a <span className="font-medium">{TYPOLOGY_LABEL[typology].toLowerCase()}</span>
@@ -137,14 +137,14 @@ export default function ApplicationPlanner({ selected, onChangeType, onFlash, wi
                 </span>
               )}
               {proforma && <span className="text-muted">, land {LAND_WORD[proforma.landSource]}</span>}{" "}
-              <button onClick={onChangeType} className="text-[12px] text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent">
+              <button onClick={onChangeType} className="text-caption text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent">
                 Change in Pays
               </button>
             </span>
           </p>
 
           {plan && (
-            <p className="font-serif text-[20px] leading-tight text-ink">
+            <p className="text-title text-ink">
               {filingHeadline(plan.steps.filter((st) => st.id !== "bill").length, approval)}
             </p>
           )}
@@ -152,14 +152,14 @@ export default function ApplicationPlanner({ selected, onChangeType, onFlash, wi
       )}
 
       {plan && (
-        <details className="group rounded-lg border border-hairline bg-white" onToggle={(e) => onOpenPacket(e.currentTarget.open)}>
-          <summary className="flex cursor-pointer items-center justify-between gap-3 px-3 py-2 text-[13px] font-medium text-ink select-none">
+        <details className="surface-card group" onToggle={(e) => onOpenPacket(e.currentTarget.open)}>
+          <summary className="flex cursor-pointer items-center justify-between gap-3 p-card text-body font-semibold text-ink select-none">
             For an applicant
-            <span className="text-right text-[12px] font-normal text-muted">
+            <span className="text-right text-caption font-normal text-muted">
               Filing steps, purchase form pre-fill{plan.zba ? ", hearing worksheet" : ""}
             </span>
           </summary>
-          <div className="fade-in space-y-4 border-t border-hairline p-3">
+          <div className="fade-in space-y-section border-t border-hairline p-card">
             <Stepper steps={plan.steps} />
             <Attachments items={plan.attachments} />
             <PurchaseForm fields={plan.purchaseForm} acquisition={plan.acquisition} suggestion={shownSuggestion} suggesting={suggesting} wide={wide} />
@@ -167,18 +167,18 @@ export default function ApplicationPlanner({ selected, onChangeType, onFlash, wi
             <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={copy}
-                className="rounded-md bg-ink px-3 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-accent"
+                className="button-primary"
               >
                 Copy packet
               </button>
               <button
                 onClick={download}
-                className="rounded-md border border-hairline bg-white px-3 py-1.5 text-[12px] font-medium text-ink hover:bg-surface"
+                className="button-secondary"
               >
                 Download .md
               </button>
             </div>
-            <details className="text-[12px] text-muted">
+            <details className="text-caption text-muted">
               <summary className="cursor-pointer text-faint hover:text-muted">Sources ({plan.sources.length})</summary>
               <ul className="mt-1.5 space-y-1">
                 {plan.sources.map((s) => (
@@ -208,16 +208,16 @@ function ReviewChecklist() {
   const [checked, setChecked] = useState<boolean[]>(REVIEW_CHECKLIST.map(() => false));
   return (
     <section className="pt-1">
-      <h4 className="mb-1.5 text-[13px] font-semibold text-ink">Before you rely on this</h4>
+      <h4 className="mb-3 text-headline text-ink">Before you rely on this</h4>
       <ul className="space-y-1.5">
         {REVIEW_CHECKLIST.map((item, i) => (
           <li key={item}>
-            <label className="flex cursor-pointer items-start gap-2.5 text-[13px] leading-snug">
+            <label className="flex cursor-pointer items-start gap-2.5 text-callout">
               <input
                 type="checkbox"
                 checked={checked[i]}
                 onChange={() => setChecked((c) => c.map((x, j) => (j === i ? !x : x)))}
-                className="mt-0.5 h-3.5 w-3.5 accent-[var(--accent)]"
+                className="mt-1 h-4 w-4 shrink-0 accent-accent"
               />
               <span className={checked[i] ? "text-faint line-through" : "text-ink"}>{item}</span>
             </label>
@@ -229,10 +229,10 @@ function ReviewChecklist() {
 }
 
 const CHIP: Record<ChipTone, string> = {
-  fee: "bg-gold-soft text-[#6b5200]",
+  fee: "bg-warning-soft text-warning-ink",
   time: "bg-surface text-ink",
-  place: "border border-hairline text-muted",
-  warn: "bg-gold-soft text-[#6b5200] border border-gold/60",
+  place: "bg-control text-muted",
+  warn: "bg-warning-soft text-warning-ink",
 };
 
 function Stepper({ steps }: { steps: Step[] }) {
@@ -242,7 +242,7 @@ function Stepper({ steps }: { steps: Step[] }) {
         const last = i === steps.length - 1;
         const dashed = s.id === "bill";
         return (
-          <li key={s.id} className="relative flex gap-3 pb-4 last:pb-0">
+          <li key={s.id} className="relative flex gap-3 pb-section last:pb-0">
             {!last && (
               <span
                 aria-hidden
@@ -250,33 +250,33 @@ function Stepper({ steps }: { steps: Step[] }) {
               />
             )}
             <span
-              className={`relative z-[1] flex h-6 w-6 shrink-0 items-center justify-center rounded-full font-serif text-[13px] ${
-                dashed ? "border border-dashed border-gold bg-gold-soft text-[#6b5200]" : "bg-ink text-white"
+              className={`relative z-[1] flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-callout font-semibold ${
+                dashed ? "border border-dashed border-v-variance bg-warning-soft text-warning-ink" : "bg-ink text-white"
               }`}
             >
               {i + 1}
             </span>
             <div className="min-w-0 flex-1 pt-0.5">
-              <h4 className="text-[13px] font-semibold text-ink">{s.title}</h4>
+              <h4 className="text-headline text-ink">{s.title}</h4>
               {s.callout && (
                 <p
-                  className={`mt-1 rounded-md px-2 py-1 text-[12px] leading-snug ${
-                    s.callout.tone === "ok" ? "bg-[#e6f4ea] text-[#14532d]" : "bg-[#fdf0e1] text-[#8a4b00]"
+                  className={`mt-1 rounded-control px-2 py-1 text-caption ${
+                    s.callout.tone === "ok" ? "bg-success-soft text-success-ink" : "bg-warning-soft text-warning-ink"
                   }`}
                 >
                   {s.callout.text}
                 </p>
               )}
-              <ul className="mt-1.5 max-w-[70ch] space-y-1">
+              <ul className="mt-1.5 max-w-[70ch] space-y-2">
                 {s.body.map((b) => (
-                  <li key={b} className="text-[12px] leading-snug text-ink">
+                  <li key={b} className="text-caption text-ink">
                     {b}
                   </li>
                 ))}
               </ul>
               <div className="mt-2 flex flex-wrap gap-1">
                 {s.chips.map((c) => (
-                  <span key={c.label} className={`rounded-full px-2 py-0.5 text-[12px] font-medium ${CHIP[c.tone]}`}>
+                  <span key={c.label} className={`rounded-full px-2 py-0.5 text-caption font-medium ${CHIP[c.tone]}`}>
                     {c.label}
                   </span>
                 ))}
@@ -306,51 +306,51 @@ function PurchaseForm({
   const filled = fields.filter((f) => f.who === "prefilled");
   const blank = fields.filter((f) => f.who === "you");
   return (
-    <section className="overflow-hidden rounded-lg border border-hairline bg-white">
-      <header className="flex items-baseline justify-between gap-2 border-b border-hairline bg-[#fafaf8] px-3 py-2">
-        <h4 className="text-[13px] font-semibold text-ink">Pre-filled: Request to Purchase, page 2</h4>
-        <span className="text-[12px] text-faint">City form V. 1/2018</span>
+    <section className="overflow-hidden surface-card">
+      <header className="flex items-baseline justify-between gap-2 border-b border-hairline bg-surface px-3 py-2">
+        <h4 className="text-headline text-ink">Pre-filled: Request to Purchase, page 2</h4>
+        <span className="text-caption text-faint">City form V. 1/2018</span>
       </header>
       {acquisition !== "city-form" && (
-        <p className="border-b border-hairline bg-[#fdf0e1] px-3 py-1.5 text-[12px] leading-snug text-[#8a4b00]">
+        <p className="border-b border-hairline bg-warning-soft px-3 py-1.5 text-caption text-warning-ink">
           {acquisition === "ura"
             ? "This lot is listed for transfer to the URA; use this City form for reference only."
             : "Confirm with the Real Estate Division that this lot is for sale before you file this form."}
         </p>
       )}
       <dl
-        className={`grid text-[12px] ${wide ? "grid-cols-[240px_minmax(0,1fr)]" : "grid-cols-[minmax(0,0.9fr)_minmax(0,1.3fr)]"}`}
+        className={`grid text-caption ${wide ? "grid-cols-[240px_minmax(0,1fr)]" : "grid-cols-[minmax(0,0.9fr)_minmax(0,1.3fr)]"}`}
       >
         {filled.map((f) => (
           <div key={f.label} className="contents">
-            <dt className="border-b border-hairline px-3 py-2 leading-snug text-muted">{f.label}</dt>
-            <dd className="border-b border-hairline px-3 py-2 leading-snug text-ink">
-              <span className={`font-serif text-[13px] ${wide ? "block max-w-[70ch]" : ""}`}>{f.value}</span>
+            <dt className="border-b border-hairline px-3 py-2 text-muted">{f.label}</dt>
+            <dd className="border-b border-hairline px-3 py-2 text-ink">
+              <span className={`text-body ${wide ? "block max-w-[70ch]" : ""}`}>{f.value}</span>
               {f.label.startsWith("Detailed description") && suggesting && !suggestion && (
-                <span className="mt-1 block text-[12px] text-faint">Checking for suggested wording…</span>
+                <span className="mt-1 block text-caption text-faint">Checking for suggested wording…</span>
               )}
               {f.label.startsWith("Detailed description") && suggestion && (
                 <span className="mt-1.5 block rounded border border-dashed border-hairline px-2 py-1.5">
-                  <span className="block text-[12px] font-semibold text-[#8a4b00]">{SUGGESTION_LABEL}</span>
-                  <span className="mt-0.5 block text-[12px] leading-snug text-muted">{suggestion}</span>
+                  <span className="block text-caption font-semibold text-warning-ink">{SUGGESTION_LABEL}</span>
+                  <span className="mt-0.5 block text-caption text-muted">{suggestion}</span>
                 </span>
               )}
-              {f.note && <span className="mt-0.5 block text-[12px] text-faint">{f.note}</span>}
+              {f.note && <span className="mt-0.5 block text-caption text-faint">{f.note}</span>}
             </dd>
           </div>
         ))}
       </dl>
       <div className="px-3 pt-2.5 pb-3">
-        <p className="mb-1.5 text-[12px] font-semibold text-ink">You complete</p>
+        <p className="mb-1.5 text-caption font-semibold text-ink">You complete</p>
         <ul className={wide ? "grid grid-cols-2 gap-x-8 gap-y-2" : "space-y-1.5"}>
           {blank.map((f) => (
-            <li key={f.label} className="min-w-0 text-[12px]">
+            <li key={f.label} className="min-w-0 text-caption">
               {/* Label wraps in its own column; the fill-in rule takes the rest and never pushes past the edge. */}
               <div className="grid grid-cols-[minmax(0,1fr)_minmax(2.5rem,30%)] items-end gap-2">
                 <span className="min-w-0 text-muted [overflow-wrap:anywhere]">{f.label}</span>
-                <span aria-hidden className="mb-[3px] border-b border-dashed border-[#b9bfb8]" />
+                <span aria-hidden className="mb-[3px] border-b border-dashed border-control-edge" />
               </div>
-              {f.note && <p className="mt-0.5 text-[12px] text-[#8a4b00]">{f.note}</p>}
+              {f.note && <p className="mt-0.5 text-caption text-warning-ink">{f.note}</p>}
             </li>
           ))}
         </ul>
@@ -362,18 +362,18 @@ function PurchaseForm({
 function ZbaCard({ plan }: { plan: ApplicationPlan }) {
   const z = plan.zba!;
   return (
-    <section className="overflow-hidden rounded-lg border border-[#e7c9a0] bg-white">
-      <header className="flex items-baseline justify-between gap-2 border-b border-[#e7c9a0] bg-[#fdf6ec] px-3 py-2">
-        <h4 className="text-[13px] font-semibold text-ink">{z.label}</h4>
-        <span className="text-[12px] text-faint">Questions, not a completed justification</span>
+    <section className="overflow-hidden surface-card">
+      <header className="flex items-baseline justify-between gap-2 border-b border-hairline bg-warning-soft px-3 py-2">
+        <h4 className="text-headline text-ink">{z.label}</h4>
+        <span className="text-caption text-faint">Questions, not a completed justification</span>
       </header>
-      <div className="space-y-3 px-3 py-3 text-[12px]">
+      <div className="space-y-3 px-3 py-3 text-caption">
         <div>
-          <p className="text-[12px] text-muted">Request type</p>
+          <p className="text-caption text-muted">Request type</p>
           <p className="font-medium text-ink">{z.requestTypes.join("; ")}</p>
         </div>
         <div>
-          <p className="text-[12px] text-muted">Sections from which relief is requested</p>
+          <p className="text-caption text-muted">Sections from which relief is requested</p>
           <ul className="mt-0.5 space-y-1">
             {z.sections.map((s) => (
               <li key={s.text}>
@@ -391,7 +391,7 @@ function ZbaCard({ plan }: { plan: ApplicationPlan }) {
         </div>
         <div>
           {z.findings.length > 0 && (
-            <p className="text-[12px] text-muted">
+            <p className="text-caption text-muted">
               Criteria under{" "}
               <a href={z.criteria.url} target="_blank" rel="noreferrer" className="text-accent underline decoration-accent/30 underline-offset-2">
                 {z.criteria.section}
@@ -399,14 +399,14 @@ function ZbaCard({ plan }: { plan: ApplicationPlan }) {
               ({z.criteria.title}; mirrors {z.criteria.mirrors}). The Board must find all five; the burden of proof is yours.
             </p>
           )}
-          {z.note && <p className="mt-1 text-[12px] text-[#8a4b00]">{z.note}</p>}
+          {z.note && <p className="mt-1 text-caption text-warning-ink">{z.note}</p>}
           <ol className="mt-2 space-y-3">
             {z.findings.map((f) => (
               <li key={f.n} className="flex gap-2.5">
-                <span className="font-serif text-[18px] leading-none text-[#b45309] italic">{f.n}</span>
+                <span className="text-headline text-warning-ink">{f.n}</span>
                 <div className="min-w-0 max-w-[70ch]">
-                  <p className="text-[12px] font-semibold text-ink">{f.title}</p>
-                  <p className="mt-1 text-[12px] font-semibold tracking-wide text-muted uppercase">What the record shows</p>
+                  <p className="text-caption font-semibold text-ink">{f.title}</p>
+                  <p className="mt-1 text-caption font-semibold tracking-wide text-muted uppercase">What the record shows</p>
                   <ul className="mt-0.5 space-y-0.5">
                     {f.record.map((r) => (
                       <li key={r} className="leading-snug text-ink">
@@ -414,7 +414,7 @@ function ZbaCard({ plan }: { plan: ApplicationPlan }) {
                       </li>
                     ))}
                   </ul>
-                  <p className="mt-1.5 text-[12px] font-semibold tracking-wide text-[#8a4b00] uppercase">What you must establish</p>
+                  <p className="mt-1.5 text-caption font-semibold tracking-wide text-warning-ink uppercase">What you must establish</p>
                   <ul className="mt-0.5 space-y-0.5">
                     {f.establish.map((q) => (
                       <li key={q} className="leading-snug text-ink">
@@ -436,11 +436,11 @@ function Attachments({ items }: { items: string[] }) {
   const [done, setDone] = useState<Set<string>>(new Set());
   return (
     <section>
-      <h4 className="mb-1.5 text-[13px] font-semibold text-ink">Attachments to gather</h4>
+      <h4 className="mb-3 text-headline text-ink">Attachments to gather</h4>
       <ul className="space-y-1.5">
         {items.map((a) => (
           <li key={a}>
-            <label className="flex cursor-pointer items-start gap-2.5 text-[12px] leading-snug">
+            <label className="flex cursor-pointer items-start gap-2.5 text-caption">
               <input
                 type="checkbox"
                 checked={done.has(a)}
@@ -452,7 +452,7 @@ function Attachments({ items }: { items: string[] }) {
                     return n;
                   })
                 }
-                className="mt-0.5 h-3.5 w-3.5 accent-[var(--accent)]"
+                className="mt-1 h-4 w-4 shrink-0 accent-accent"
               />
               <span className={done.has(a) ? "text-faint line-through" : "text-ink"}>{a}</span>
             </label>
@@ -465,9 +465,9 @@ function Attachments({ items }: { items: string[] }) {
 
 function HandIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden className="mt-px shrink-0">
-      <rect x="2.5" y="1.5" width="9" height="11" rx="1.2" fill="none" stroke="currentColor" strokeWidth="1.2" />
-      <path d="M4.5 4.5h5M4.5 6.8h5M4.5 9.1h3" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+    <svg width="16" height="16" viewBox="0 0 14 14" aria-hidden className="mt-px shrink-0">
+      <rect x="2.5" y="1.5" width="9" height="11" rx="1.2" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M4.5 4.5h5M4.5 6.8h5M4.5 9.1h3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }

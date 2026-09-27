@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import type { LabelInput, Triage, Typology, Verdict } from "@/lib/types";
 import { TRIAGE_LABEL, VERDICT_SHORT_LABEL, verdictShort } from "@/lib/types";
 import { ALLOWED_TIP, nb, verdictLabel } from "./ui/answer";
@@ -15,11 +16,11 @@ export const TYPOLOGY_SHORT: Record<Typology, string> = {
 };
 
 export const VERDICT_COLOR: Record<Verdict, string> = {
-  "by-right": "#16a34a",
-  review: "#2563eb",
-  variance: "#d97706",
-  prohibited: "#e11d48",
-  unknown: "#9ca3af",
+  "by-right": "var(--color-v-byright)",
+  review: "var(--color-v-review)",
+  variance: "var(--color-v-variance)",
+  prohibited: "var(--color-v-prohibited)",
+  unknown: "var(--color-v-unknown)",
 };
 
 /** Generic short labels (legend). For one finding use verdictShort(finding), which names the approval route. */
@@ -96,11 +97,11 @@ export function VerdictDot({ verdict, size = 8, title }: { verdict: Verdict; siz
 
 /** Text-safe shade of each verdict color. */
 const VERDICT_INK: Record<Verdict, string> = {
-  "by-right": "#15803d",
-  review: "#1d4ed8",
-  variance: "#b45309",
-  prohibited: "#be123c",
-  unknown: "#5d6762",
+  "by-right": "var(--color-success-ink)",
+  review: "var(--color-review-ink)",
+  variance: "var(--color-warning-ink)",
+  prohibited: "var(--color-danger-ink)",
+  unknown: "var(--color-muted)",
 };
 
 /** Pass `finding` so the chip names the approval route (staff vs Board approval, FAR vs lot-size relief). */
@@ -109,8 +110,8 @@ export function VerdictChip({ verdict, full = false, finding }: { verdict: Verdi
   const f: LabelInput = finding ?? { verdict };
   return (
     <span
-      className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[12px] font-medium whitespace-nowrap"
-      style={{ background: `${c}14`, color: VERDICT_INK[verdict] }}
+      className="inline-flex max-w-full items-center gap-1.5 rounded-full px-2 py-0.5 text-caption font-medium [overflow-wrap:anywhere]"
+      style={{ background: `color-mix(in srgb, ${c} 10%, white)`, color: VERDICT_INK[verdict] }}
     >
       <VerdictDot verdict={verdict} size={6} />
       {full ? nb(verdictLabel(f)) : verdictShort(f)}
@@ -127,7 +128,7 @@ export function zoneLabel(zone: string): string {
 
 export function ZoneChip({ zone, tip = false }: { zone: string; tip?: boolean }) {
   const chip = (
-    <span className="inline-flex shrink-0 items-center rounded border border-hairline bg-white px-1.5 py-px text-[11px] font-medium whitespace-nowrap text-ink">
+    <span className="inline-flex shrink-0 items-center rounded-full bg-control px-2 py-0.5 text-caption font-medium text-ink">
       {zoneLabel(zone)}
     </span>
   );
@@ -137,7 +138,7 @@ export function ZoneChip({ zone, tip = false }: { zone: string; tip?: boolean })
 
 export function VerdictLegend() {
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-muted">
       {VERDICT_ORDER.map((v) => (
         <span key={v} className="inline-flex items-center gap-1.5">
           <VerdictDot verdict={v} size={7} />
@@ -149,18 +150,18 @@ export function VerdictLegend() {
 }
 
 export const TRIAGE_COLOR: Record<Triage, string> = {
-  green: "#16a34a",
-  yellow: "#f59e0b",
-  red: "#e11d48",
-  gray: "#9ca3af",
+  green: "var(--color-v-byright)",
+  yellow: "var(--color-v-variance)",
+  red: "var(--color-v-prohibited)",
+  gray: "var(--color-v-unknown)",
 };
 
 /** Text-safe shade of each triage color for words set on light backgrounds. */
 export const TRIAGE_INK: Record<Triage, string> = {
-  green: "#15803d",
-  yellow: "#a16207",
-  red: "#be123c",
-  gray: "#5d6762",
+  green: "var(--color-success-ink)",
+  yellow: "var(--color-warning-ink)",
+  red: "var(--color-danger-ink)",
+  gray: "var(--color-muted)",
 };
 
 export const TRIAGE_WORD: Record<Triage, string> = {
@@ -189,8 +190,8 @@ export function TriageChip({ triage }: { triage: Triage }) {
   return (
     <span
       title={TRIAGE_SHORT[triage]}
-      className="inline-flex w-[18px] items-center justify-center rounded-[4px] text-[10px] leading-[16px] font-bold text-white"
-      style={{ background: TRIAGE_COLOR[triage] }}
+      className="triage-chip"
+      style={{ "--triage-color": TRIAGE_COLOR[triage], background: `color-mix(in srgb, ${TRIAGE_COLOR[triage]} 10%, white)`, color: TRIAGE_INK[triage] } as CSSProperties}
     >
       {triage === "gray" ? "–" : TRIAGE_WORD[triage][0]}
       <span className="sr-only">{TRIAGE_WORD[triage]}</span>
@@ -200,7 +201,7 @@ export function TriageChip({ triage }: { triage: Triage }) {
 
 export function TriageLegend() {
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-muted">
       {TRIAGE_ORDER.map((t) => (
         <span key={t} className="inline-flex items-center gap-1.5">
           <TriageDot triage={t} size={7} />

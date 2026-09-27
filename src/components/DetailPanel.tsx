@@ -78,20 +78,20 @@ export default function DetailPanel(props: Props) {
   // The aside keeps its width in both modes so the map never resizes; expanded mode lifts the
   // same LotDetail (same tree position, so no state is lost) into an overlay over the map area.
   return (
-    <aside className="flex w-[360px] shrink-0 flex-col border-l border-hairline bg-panel min-[1440px]:w-[412px]">
+    <aside className="flex w-detail shrink-0 flex-col border-l border-hairline bg-surface min-[1440px]:w-detail-wide">
       {selected ? (
         <div className={expanded ? "absolute inset-0 z-30 flex justify-center" : "contents"}>
           <div
             aria-hidden
             onClick={() => onExpanded(false)}
-            className={expanded ? "backdrop-in absolute inset-0 bg-[#17211e]/25" : "hidden"}
+            className={expanded ? "backdrop-in absolute inset-0 bg-ink/25" : "hidden"}
           />
           <div
             role={expanded ? "dialog" : undefined}
             aria-label={expanded ? "Lot details, expanded" : undefined}
             className={
               expanded
-                ? "expand-in relative flex h-full w-[920px] max-w-[min(90vw,100%)] flex-col border-x border-hairline bg-panel shadow-[0_20px_60px_-20px_rgba(23,33,30,.45)]"
+                ? "expand-in relative flex h-full w-[920px] max-w-[min(90vw,100%)] flex-col bg-surface shadow-overlay"
                 : "flex min-h-0 flex-1 flex-col"
             }
           >
@@ -125,27 +125,27 @@ function EmptyState({
   if (scope) return <ScopeEmptyState scope={scope} onSelectId={onSelectId} />;
   if (stats === undefined)
     return (
-      <div className="flex flex-1 flex-col justify-center px-8">
-        <p className="font-serif text-[25px] leading-tight text-ink">Pick a lot on the map or in the list.</p>
-        <p className="mt-2 text-[13px] text-muted">See what the use table allows, whether it clears the cost-and-return screen, and what to file.</p>
+      <div className="flex flex-1 flex-col justify-center px-panel">
+        <p className="text-title text-ink">Pick a lot on the map or in the list.</p>
+        <p className="mt-2 text-callout text-muted">See what the use table allows, whether it clears the cost-and-return screen, and what to file.</p>
       </div>
     );
   return (
-    <div data-scroll className="scroll-thin relative flex flex-1 flex-col overflow-y-auto px-8 pt-10 pb-8">
+    <div data-scroll className="scroll-thin relative flex flex-1 flex-col overflow-y-auto px-panel pt-10 pb-section">
       <FunnelSentence
         s={stats}
-        className="font-serif text-[25px] leading-[1.22] tracking-[-0.005em]"
+        className="empty-sentence"
       />
       {stats &&
         ruleSet === "bill-2025-1545" &&
         (stats.lotsGaining ?? 0) > 0 && (
-          <p className="mt-3 text-[13px] text-[#6b5200]">
+          <p className="mt-3 text-callout text-warning-ink">
             <Tooltip content={TIP.bill}>If the housing bill passes</Tooltip>, +
             {stats.lotsGaining!.toLocaleString("en-US")} lots could also add a
             backyard unit.
           </p>
         )}
-      <div className="mt-7">
+      <div className="mt-section">
         {stats ? (
           <FunnelBars s={stats} />
         ) : (
@@ -156,12 +156,12 @@ function EmptyState({
           </div>
         )}
       </div>
-      <div className="mt-9 border-t border-hairline pt-5">
-        <p className="text-[14px] text-ink">Pick a lot on the map or in the list.</p>
+      <div className="mt-section border-t border-hairline pt-section">
+        <p className="text-body text-ink">Pick a lot on the map or in the list.</p>
         {onSelectId && (
           <button
             onClick={() => onSelectId(DEMO_LOT_ID)}
-            className="mt-1.5 text-left text-[13px] text-accent underline decoration-accent/30 underline-offset-[3px] hover:decoration-accent"
+            className="mt-1.5 text-left text-callout text-accent underline decoration-accent/30 underline-offset-[3px] hover:decoration-accent"
           >
             Try a demo lot: 4623 Chatsworth St, Hazelwood
           </button>
@@ -181,7 +181,7 @@ function ScopeEmptyState({
 }) {
   const f = scope.funnel;
   const n = (v: number) => (
-    <span className="font-semibold text-ink tabular-nums">
+    <span className="funnel-number font-semibold text-ink tabular-nums">
       {v.toLocaleString("en-US")}
     </span>
   );
@@ -206,26 +206,26 @@ function ScopeEmptyState({
     },
   ];
   return (
-    <div data-scroll className="scroll-thin relative flex flex-1 flex-col overflow-y-auto px-8 pt-10 pb-8">
-      <p className="text-[12px] text-muted">{scope.label}</p>
-      <p className="mt-1 font-serif text-[25px] leading-[1.22] tracking-[-0.005em] text-muted">
+    <div data-scroll className="scroll-thin relative flex flex-1 flex-col overflow-y-auto px-panel pt-10 pb-section">
+      <p className="text-caption text-muted">{scope.label}</p>
+      <p className="empty-sentence mt-1 text-muted">
         {n(f.byRight)} of {n(f.records)} vacant City lots pass the use-table and
         lot-size screen. {n(f.atLeast1000)}{" "}
         {f.atLeast1000 === 1 ? "is a candidate" : "are candidates"} for staff
         review; {n(f.pencil)} also clear the cost-and-return screen.
       </p>
-      <div className="mt-7">
+      <div className="mt-section">
         <FunnelBars steps={steps} />
       </div>
-      <div className="mt-9 border-t border-hairline pt-5">
-        <p className="text-[14px] text-ink">
+      <div className="mt-section border-t border-hairline pt-section">
+        <p className="text-body text-ink">
           Pick a lot on the map or in the list. The Plan tab has this
           scope&apos;s shortlist.
         </p>
         {onSelectId && scope.label.includes("Hazelwood") && (
           <button
             onClick={() => onSelectId(DEMO_LOT_ID)}
-            className="mt-1.5 text-left text-[13px] text-accent underline decoration-accent/30 underline-offset-[3px] hover:decoration-accent"
+            className="mt-1.5 text-left text-callout text-accent underline decoration-accent/30 underline-offset-[3px] hover:decoration-accent"
           >
             Try a demo lot: 4623 Chatsworth St, Hazelwood
           </button>
@@ -350,30 +350,30 @@ function LotDetail({
   const fitFail = fitRows.filter((r) => r.state === "fail").length;
   const fitSite = fitRows.filter((r) => r.state === "site").length;
   const unconfirmed = districtUnconfirmed(lot);
-  const pad = expanded ? "px-10" : "px-5";
+  const pad = expanded ? "px-10" : "px-panel";
 
   return (
     <div ref={scroller} onScroll={onScroll} data-scroll className="fade-in scroll-thin relative flex-1 overflow-y-auto">
-      <div ref={header} className={`sticky top-0 z-10 border-b border-hairline bg-panel ${pad}`}>
-        <div className={`flex items-center justify-between gap-3 transition-[height] duration-200 ${scrolled ? "h-[48px]" : "pt-4 pb-2"}`}>
+      <div ref={header} className={`toolbar sticky top-0 z-10 border-b border-hairline ${pad}`}>
+        <div className={`flex items-center justify-between gap-3 transition-[height] duration-200 ${scrolled ? "h-[48px]" : "pt-panel pb-4"}`}>
           <div className="min-w-0">
             {scrolled ? (
-              <p className="flex min-w-0 items-center gap-2 text-[14px] whitespace-nowrap">
+              <p className="flex min-w-0 items-center gap-2 text-body whitespace-nowrap">
                 <span className="truncate font-semibold text-ink">{lot.address || "Unaddressed lot"}</span>
                 <span className="truncate text-muted">{lot.neighborhood}</span>
                 <ZoneChip zone={lot.zone} tip />
               </p>
             ) : (
               <>
-                <h2 className="truncate font-serif text-[26px] leading-[1.1] text-ink">{lot.address || "Unaddressed lot"}</h2>
-                <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted">
+                <h2 className="text-display break-words text-ink">{lot.address || "Unaddressed lot"}</h2>
+                <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-callout text-muted">
                   <span>{lot.neighborhood}</span>
                   <ZoneChip zone={lot.zone} tip />
                   {unconfirmed && (
                     <Tooltip
                       content={`Inventory says ${lot.zone || "no district"}; ${lot.zoneMap === null ? "no City zoning map district contains this point" : `the City zoning map says ${lot.zoneMap ?? "a different district"} at this point`}. Confirm the district before relying on the use result.`}
                     >
-                      <span className="inline-flex shrink-0 items-center rounded border border-gold/60 bg-gold-soft px-1.5 py-px text-[11px] font-medium whitespace-nowrap text-[#6b5200]">
+                      <span className="inline-flex shrink-0 items-center rounded-full bg-warning-soft px-2 py-1 text-caption font-medium whitespace-nowrap text-warning-ink">
                         {lot.zoneMap === null
                           ? "Not on the zoning map"
                           : `Map says ${lot.zoneMap ? zoneLabel(lot.zoneMap) : "other"}`}
@@ -385,7 +385,7 @@ function LotDetail({
                       await copyText(lot.id);
                       flash("Parcel ID copied");
                     }}
-                    className="-mx-1 inline-flex items-center gap-1 rounded px-1 text-[12px] text-muted tabular-nums hover:bg-surface hover:text-ink"
+                    className="-mx-1 inline-flex items-center gap-1 rounded px-1 text-caption text-muted tabular-nums hover:bg-surface hover:text-ink"
                     aria-label={`Copy parcel ID ${lot.id}`}
                   >
                     Parcel {lot.id}
@@ -401,7 +401,7 @@ function LotDetail({
                 onClick={() => onExpanded(!expanded)}
                 aria-pressed={expanded}
                 aria-label={expanded ? "Collapse" : "Expand"}
-                className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface hover:text-ink"
+                className="icon-button"
               >
                 <ExpandIcon expanded={expanded} />
               </button>
@@ -410,9 +410,9 @@ function LotDetail({
               <button
                 onClick={onClose}
                 aria-label="Close lot (Esc)"
-                className="flex h-7 w-7 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface hover:text-ink"
+                className="icon-button"
               >
-                <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden>
+                <svg width="16" height="16" viewBox="0 0 12 12" aria-hidden>
                   <path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                 </svg>
               </button>
@@ -425,8 +425,8 @@ function LotDetail({
               key={n.id}
               onClick={() => goTo(n.id)}
               aria-current={active === n.id ? "true" : undefined}
-              className={`border-b-2 pt-1 pb-2 text-[13px] transition-colors ${
-                active === n.id ? "border-ink font-medium text-ink" : "border-transparent text-muted hover:text-ink"
+              className={`border-b-2 pt-1 pb-2 text-callout transition-colors ${
+                active === n.id ? "border-accent font-medium text-accent" : "border-transparent text-muted hover:text-ink"
               }`}
             >
               {n.label}
@@ -435,7 +435,7 @@ function LotDetail({
         </nav>
       </div>
 
-      <div className={`space-y-7 py-5 ${pad}`}>
+      <div className={`space-y-section py-section ${pad}`}>
         <AnswerCard
           headline={nb(head.text)}
           tone={head.tone}
@@ -466,7 +466,7 @@ function LotDetail({
           summary={useTableSummary(lot, findings)}
         >
           {unconfirmed && (
-            <p className="mb-2 text-[12px] leading-snug text-[#6b5200]">
+            <p className="mb-2 text-caption text-warning-ink">
               Checked against the inventory district {lot.zone || "(none)"}; the
               City zoning map says {lot.zoneMap ?? "no district"} here. No home
               type counts as allowed until the district is confirmed.
@@ -496,15 +496,15 @@ function LotDetail({
         >
           {chosen && chosen.verdict !== "unknown" ? (
             <>
-              <p className="mb-2 text-[12px] text-muted">For a {TYPOLOGY_LABEL[typology].toLowerCase()}, from the City inventory.</p>
-              <ul className="divide-y divide-hairline border-y border-hairline">
+              <p className="mb-2 text-caption text-muted">For a {TYPOLOGY_LABEL[typology].toLowerCase()}, from the City inventory.</p>
+              <ul className="surface-card divide-y divide-hairline px-card">
                 {fitRows.map((r) => (
                   <FitRow key={r.key} r={r} />
                 ))}
               </ul>
             </>
           ) : (
-            <p className="text-[13px] text-muted">Zoning was not checked for this district, so the size rules were not applied.</p>
+            <p className="text-callout text-muted">Zoning was not checked for this district, so the size rules were not applied.</p>
           )}
         </Section>
 
@@ -514,7 +514,7 @@ function LotDetail({
           action={
             <span
               aria-live="polite"
-              className={`flex items-center gap-1.5 text-[12px] text-muted transition-opacity duration-150 ${
+              className={`flex items-center gap-1.5 text-caption text-muted transition-opacity duration-200 ${
                 recomputing ? "opacity-100" : "opacity-0"
               }`}
             >
@@ -556,31 +556,31 @@ function LotDetail({
         </Section>
 
         <div className="relative flex items-center justify-between border-t border-hairline pt-4 pb-2">
-          <span className="text-[12px] text-muted">Share this screen</span>
+          <span className="text-caption text-muted">Share this screen</span>
           <div className="relative">
             <button
               onClick={() => setExportOpen((o) => !o)}
               aria-haspopup="menu"
               aria-expanded={exportOpen}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-hairline bg-white px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-surface active:scale-[0.98]"
+              className="button-secondary gap-1.5"
             >
               Export
               <svg width="10" height="10" viewBox="0 0 12 12" aria-hidden className={exportOpen ? "" : "rotate-180"}>
-                <path d="M3 4.5l3 3 3-3" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" />
+                <path d="M3 4.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />
               </svg>
             </button>
             {exportOpen && (
               <div
                 role="menu"
-                className="pop absolute right-0 bottom-[calc(100%+6px)] w-[220px] rounded-xl border border-hairline bg-white p-1 shadow-[0_12px_32px_-12px_rgba(23,33,30,.35)]"
+                className="pop absolute right-0 bottom-[calc(100%+6px)] surface-card w-[220px] p-2 shadow-overlay"
               >
-                <button role="menuitem" onClick={downloadBrief} className="block w-full rounded-lg px-3 py-2 text-left text-[13px] hover:bg-surface">
+                <button role="menuitem" onClick={downloadBrief} className="block w-full rounded-card px-3 py-2 text-left text-callout hover:bg-surface">
                   Lot brief (.md)
-                  <span className="block text-[12px] text-muted">Every check with its citation</span>
+                  <span className="block text-caption text-muted">Every check with its citation</span>
                 </button>
-                <button role="menuitem" onClick={copySummary} className="block w-full rounded-lg px-3 py-2 text-left text-[13px] hover:bg-surface">
+                <button role="menuitem" onClick={copySummary} className="block w-full rounded-card px-3 py-2 text-left text-callout hover:bg-surface">
                   Copy summary
-                  <span className="block text-[12px] text-muted">Six lines for an email</span>
+                  <span className="block text-caption text-muted">Six lines for an email</span>
                 </button>
               </div>
             )}
@@ -589,7 +589,7 @@ function LotDetail({
       </div>
 
       {copied && (
-        <div className="pop fixed right-6 bottom-6 z-50 rounded-full bg-ink px-3.5 py-1.5 text-[12px] font-medium text-white shadow-lg">
+        <div className="pop fixed right-6 bottom-6 z-50 rounded-full bg-ink px-3.5 py-1.5 text-caption font-medium text-white shadow-lg">
           {copied}
         </div>
       )}
@@ -723,14 +723,14 @@ const NOT_IN_RECORD = "not in the County record · survey needed";
 
 function FitRow({ r }: { r: FitItem }) {
   return (
-    <li className="flex items-start gap-3 py-2.5">
+    <li className="flex items-start gap-3 py-4">
       <StatusIcon state={r.state} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">
-          <span className="text-[13px] text-ink">{r.label}</span>
-          <span className={`shrink-0 text-[12px] ${r.state === "fail" ? "text-[#c2410c]" : "text-muted"}`}>{r.word ?? FIT_WORD[r.state]}</span>
+          <span className="text-callout text-ink">{r.label}</span>
+          <span className={`shrink-0 text-caption ${r.state === "fail" ? "text-danger-ink" : "text-muted"}`}>{r.word ?? FIT_WORD[r.state]}</span>
         </div>
-        <p className="mt-0.5 text-[12px] leading-snug text-muted">
+        <p className="mt-0.5 text-caption text-muted">
           <span className="text-ink tabular-nums">{r.value}</span>
           {r.required && <> · {r.required}</>}
           {r.citation && (
@@ -780,7 +780,7 @@ function VerdictList({
   for (let i = 0; i < findings.length; i += columns) rows.push(findings.slice(i, i + columns));
   const otherVerdict = (t: Typology): Verdict | null => other?.find((o) => o.typology === t)?.verdict ?? null;
   return (
-    <ul className="overflow-hidden rounded-lg border border-hairline bg-white">
+    <ul className="surface-card overflow-hidden">
       {rows.map((row) => {
         const opened = row.find((f) => f.typology === open);
         return (
@@ -796,13 +796,13 @@ function VerdictList({
                     <button
                       onClick={() => onOpen(isOpen ? null : f.typology)}
                       aria-expanded={isOpen}
-                      className={`flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 text-left hover:bg-[#fafaf8] ${isOpen ? "bg-[#fafaf8]" : ""}`}
+                      className={`flex min-w-0 flex-1 items-center gap-3 px-card py-4 text-left hover:bg-surface ${isOpen ? "bg-surface" : ""}`}
                     >
                       <span className="w-1 self-stretch rounded-full" style={{ background: VERDICT_COLOR[f.verdict] }} />
                       <span className="min-w-0 flex-1">
-                        <span className="block text-[13px] text-ink">{TYPOLOGY_LABEL[f.typology]}</span>
+                        <span className="block text-callout text-ink">{TYPOLOGY_LABEL[f.typology]}</span>
                         {diff && (
-                          <span className="mt-0.5 block text-[12px] leading-snug text-[#7a5a00]">
+                          <span className="mt-0.5 block text-caption text-warning-ink">
                             {ruleSet === "current"
                               ? nb(`→ ${verdictWord(diff)} if the housing bill passes`)
                               : nb(`Today: ${lowerFirst(verdictWord(diff))}`)}
@@ -811,7 +811,7 @@ function VerdictList({
                       </span>
                       <Chevron open={isOpen} />
                     </button>
-                    <span className="flex shrink-0 items-center pr-3">
+                    <span className="flex max-w-[55%] shrink-0 items-center py-3 pr-4">
                       {unconfirmed && f.verdict !== "unknown" ? (
                         <Tooltip
                           content="The inventory and the City zoning map disagree on this lot's district. Confirm the district first."
@@ -819,9 +819,9 @@ function VerdictList({
                         >
                           <span
                             tabIndex={0}
-                            className="inline-flex cursor-help items-center gap-1.5 rounded-full bg-[#9ca3af14] px-2 py-0.5 text-[12px] font-medium whitespace-nowrap text-[#5d6762]"
+                            className="inline-flex cursor-help items-center gap-1.5 rounded-full bg-control px-2 py-0.5 text-caption font-medium whitespace-nowrap text-muted"
                           >
-                            <span className="inline-block h-1.5 w-1.5 rounded-full border border-[#9ca3af]" />
+                            <span className="inline-block h-1.5 w-1.5 rounded-full border border-v-unknown" />
                             Unconfirmed
                           </span>
                         </Tooltip>
@@ -840,11 +840,11 @@ function VerdictList({
               })}
             </div>
             {opened && (
-              <div className="fade-in border-t border-hairline bg-[#fafaf8] px-3 py-3">
-                {opened.typology === "single_adu" && <p className="mb-2 text-[12px] text-muted">{TIP.adu}</p>}
-                {opened.summary && <p className="mb-2 max-w-[70ch] text-[12px] leading-snug text-muted">{opened.summary}</p>}
+              <div className="fade-in border-t border-hairline bg-surface/60 p-card">
+                {opened.typology === "single_adu" && <p className="mb-2 text-caption text-muted">{TIP.adu}</p>}
+                {opened.summary && <p className="mb-2 max-w-[70ch] text-caption text-muted">{opened.summary}</p>}
                 {opened.checks.length === 0 && (
-                  <p className="text-[12px] text-muted">No checks run. {verdictWord(opened.verdict)}.</p>
+                  <p className="text-caption text-muted">No checks run. {verdictWord(opened.verdict)}.</p>
                 )}
                 <ul className={columns === 2 ? "grid grid-cols-2 gap-x-6 gap-y-3" : "space-y-2.5"}>
                   {opened.checks.map((c) => (
@@ -867,11 +867,11 @@ function CheckRow({ c }: { c: Check }) {
       <StatusIcon state={state} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">
-          <span className="text-[12px] font-medium text-ink">{c.label.replace(" (needs survey)", "")}</span>
-          <span className="shrink-0 text-[12px] text-muted">{FIT_WORD[state]}</span>
+          <span className="text-caption font-medium text-ink">{c.label.replace(" (needs survey)", "")}</span>
+          <span className="shrink-0 text-caption text-muted">{FIT_WORD[state]}</span>
         </div>
         {(c.measured || c.required) && (
-          <div className="mt-0.5 grid grid-cols-2 gap-2 text-[12px]">
+          <div className="mt-0.5 grid grid-cols-2 gap-2 text-caption">
             <span>
               <span className="text-faint">Measured </span>
               <span className="text-ink tabular-nums">{c.measured ?? "not in record"}</span>
@@ -882,12 +882,12 @@ function CheckRow({ c }: { c: Check }) {
             </span>
           </div>
         )}
-        {c.note && <p className="mt-0.5 text-[12px] text-muted">{c.note}</p>}
+        {c.note && <p className="mt-0.5 text-caption text-muted">{c.note}</p>}
         <a
           href={c.citation.url}
           target="_blank"
           rel="noreferrer"
-          className="mt-1 inline-block text-[12px] text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent"
+          className="mt-1 inline-block text-caption text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent"
         >
           {nb(c.citation.section)} {c.citation.title}
         </a>
@@ -900,8 +900,8 @@ function StatusIcon({ state }: { state: FitState }) {
   if (state === "pass")
     return (
       <svg width="16" height="16" viewBox="0 0 16 16" className="mt-px shrink-0" aria-label="Pass">
-        <circle cx="8" cy="8" r="7.5" fill="var(--accent)" />
-        <path d="M4.8 8.2l2.1 2.1 4.3-4.6" stroke="#fff" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="8" cy="8" r="7.5" fill="var(--color-v-byright)" />
+        <path d="M4.8 8.2l2.1 2.1 4.3-4.6" stroke="var(--color-panel)" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     );
   if (state === "fail")
@@ -913,14 +913,14 @@ function StatusIcon({ state }: { state: FitState }) {
         className="mt-px shrink-0"
         aria-label="Fail"
       >
-        <circle cx="8" cy="8" r="7.5" fill="#c2410c" />
-        <path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" />
+        <circle cx="8" cy="8" r="7.5" fill="var(--color-v-prohibited)" />
+        <path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="var(--color-panel)" strokeWidth="1.5" strokeLinecap="round" />
       </svg>
     );
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" className="mt-px shrink-0" aria-label="Check on site">
-      <circle cx="8" cy="8" r="7" fill="none" stroke="#9ca3af" strokeWidth="1.2" strokeDasharray="2.2 1.6" />
-      <circle cx="8" cy="8" r="1.4" fill="#5d6762" />
+      <circle cx="8" cy="8" r="7" fill="none" stroke="var(--color-v-unknown)" strokeWidth="1.5" strokeDasharray="2.2 1.6" />
+      <circle cx="8" cy="8" r="1.4" fill="var(--color-muted)" />
     </svg>
   );
 }
@@ -928,25 +928,25 @@ function StatusIcon({ state }: { state: FitState }) {
 function Chevron({ open }: { open: boolean }) {
   return (
     <svg
-      width="12"
-      height="12"
+      width="16"
+      height="16"
       viewBox="0 0 12 12"
       aria-hidden
       className="shrink-0 text-muted transition-transform duration-200"
       style={{ transform: open ? "rotate(180deg)" : "none" }}
     >
-      <path d="M3 4.5l3 3 3-3" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" />
+      <path d="M3 4.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />
     </svg>
   );
 }
 
 function ExpandIcon({ expanded }: { expanded: boolean }) {
   return (
-    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden className="shrink-0">
+    <svg width="16" height="16" viewBox="0 0 12 12" aria-hidden className="shrink-0">
       {expanded ? (
-        <path d="M5 1v4H1M7 11V7h4M5 5L1 1M7 7l4 4" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M5 1v4H1M7 11V7h4M5 5L1 1M7 7l4 4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
       ) : (
-        <path d="M7.5 1H11v3.5M4.5 11H1V7.5M11 1L7 5M1 11l4-4" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M7.5 1H11v3.5M4.5 11H1V7.5M11 1L7 5M1 11l4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
       )}
     </svg>
   );
@@ -954,7 +954,7 @@ function ExpandIcon({ expanded }: { expanded: boolean }) {
 
 function CopyIcon() {
   return (
-    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden className="text-muted">
+    <svg width="16" height="16" viewBox="0 0 12 12" aria-hidden className="text-muted">
       <rect x="3.5" y="3.5" width="7" height="7" rx="1.2" fill="none" stroke="currentColor" />
       <path d="M8.5 2.5V2a1 1 0 00-1-1H2a1 1 0 00-1 1v5.5a1 1 0 001 1h.5" fill="none" stroke="currentColor" />
     </svg>

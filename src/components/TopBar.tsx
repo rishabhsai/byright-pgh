@@ -34,26 +34,26 @@ export default function TopBar({ ruleSet, onRuleSet, stats, onAbout }: Props) {
   const s = stats?.[ruleSet] ?? null;
 
   return (
-    <header className="relative z-20 shrink-0 border-b border-hairline bg-panel">
-      <div className="flex h-[48px] items-center gap-4 px-5">
-        <h1 className="shrink-0 font-serif text-[26px] leading-none tracking-[-0.01em] text-ink">
-          ByRight <span className="italic text-accent">PGH</span>
+    <header className="toolbar relative z-20 shrink-0 border-b border-hairline">
+      <div className="flex min-h-16 items-center gap-4 px-panel py-3">
+        <h1 className="shrink-0 text-title text-ink">
+          ByRight <span className="text-muted">PGH</span>
         </h1>
-        <p className="min-w-0 truncate pt-1 text-[13px] text-muted">Screening Pittsburgh&apos;s vacant City lots for small homes</p>
+        <p className="min-w-0 text-callout text-muted">Screening Pittsburgh&apos;s vacant City lots for small homes</p>
         <div className="ml-auto flex shrink-0 items-center gap-2">
           <ScenarioMenu ruleSet={ruleSet} onRuleSet={onRuleSet} />
           <button
             onClick={onAbout}
-            className="rounded-full bg-ink px-3.5 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-accent active:scale-[0.98]"
+            className="button-secondary text-callout"
           >
             About the data
           </button>
         </div>
       </div>
 
-      <div className="flex h-[56px] items-center gap-6 border-t border-hairline/70 px-5">
-        <div className="min-w-0 flex-1">
-          <FunnelSentence s={s} className="truncate text-[13px] leading-tight whitespace-nowrap min-[1440px]:text-[14px]" />
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-hairline px-panel py-4">
+        <div className="min-w-0 flex-[1_1_660px]">
+          <FunnelSentence s={s} className="hero-sentence" />
           <div className="mt-1">
             <FunnelLine s={s} />
           </div>
@@ -63,10 +63,10 @@ export default function TopBar({ ruleSet, onRuleSet, stats, onAbout }: Props) {
             <Tooltip key={t} content={TRIAGE_SHORT[t]} side="bottom" asChild>
               <span
                 tabIndex={0}
-                className="inline-flex h-[22px] items-center gap-1.5 rounded-full border border-hairline bg-white px-2 text-[12px] font-medium text-ink tabular-nums"
+                className="inline-flex min-h-8 items-center gap-1.5 rounded-full bg-control px-3 py-1 text-caption font-medium text-ink tabular-nums"
               >
                 <TriageDot triage={t} size={7} />
-                <span className="text-[10px] font-normal text-muted">
+                <span className="text-caption font-normal text-muted">
                   {TRIAGE_WORD[t]}
                 </span>
                 <span className="sr-only">, {TRIAGE_SHORT[t]}: </span>
@@ -114,21 +114,21 @@ function ScenarioMenu({ ruleSet, onRuleSet }: { ruleSet: RuleSet; onRuleSet: (r:
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="menu"
         aria-expanded={open}
-        className={`inline-flex h-[28px] items-center gap-2 rounded-full border px-3 text-[12px] transition-colors ${
-          bill ? "border-gold/70 bg-gold-soft text-[#5c4400]" : "border-hairline bg-white text-ink hover:bg-surface"
+        className={`inline-flex min-h-9 items-center gap-2 rounded-full px-4 py-2 text-callout transition-colors ${
+          bill ? "bg-warning-soft text-warning-ink" : "bg-control text-ink hover:bg-track"
         }`}
       >
         <span className="text-muted">Scenario</span>
         <span className="font-medium">{SCENARIO_LABEL[ruleSet]}</span>
-        <svg width="10" height="10" viewBox="0 0 12 12" aria-hidden className={`transition-transform ${open ? "rotate-180" : ""}`}>
-          <path d="M3 4.5l3 3 3-3" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" />
+        <svg width="16" height="16" viewBox="0 0 12 12" aria-hidden className={`transition-transform ${open ? "rotate-180" : ""}`}>
+          <path d="M3 4.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />
         </svg>
       </button>
       {open && (
         <div
           role="menu"
           aria-label="Zoning scenario"
-          className="pop absolute top-[calc(100%+6px)] right-0 w-[300px] overflow-hidden rounded-xl border border-hairline bg-white p-1 shadow-[0_12px_32px_-12px_rgba(23,33,30,.35)]"
+          className="pop absolute top-[calc(100%+6px)] right-0 w-[300px] surface-card overflow-hidden p-2 shadow-overlay"
         >
           {OPTIONS.map((o) => {
             const on = o === ruleSet;
@@ -141,20 +141,20 @@ function ScenarioMenu({ ruleSet, onRuleSet }: { ruleSet: RuleSet; onRuleSet: (r:
                   onRuleSet(o);
                   setOpen(false);
                 }}
-                className={`flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left hover:bg-surface ${on ? "bg-surface/70" : ""}`}
+                className={`flex w-full items-start gap-2.5 rounded-tooltip px-3 py-3 text-left hover:bg-surface ${on ? "bg-surface/70" : ""}`}
               >
                 <span
                   aria-hidden
                   className="mt-[3px] h-3 w-3 shrink-0 rounded-full border"
                   style={
                     on
-                      ? { borderColor: o === "current" ? "var(--ink)" : "var(--gold)", boxShadow: `inset 0 0 0 3px #fff`, background: o === "current" ? "var(--ink)" : "var(--gold)" }
-                      : { borderColor: "var(--hairline)" }
+                      ? { borderColor: o === "current" ? "var(--color-accent)" : "var(--color-v-variance)", boxShadow: `inset 0 0 0 3px var(--color-panel)`, background: o === "current" ? "var(--color-accent)" : "var(--color-v-variance)" }
+                      : { borderColor: "var(--color-hairline)" }
                   }
                 />
                 <span className="min-w-0">
-                  <span className="block text-[13px] font-medium text-ink">{SCENARIO_LABEL[o]}</span>
-                  <span className="mt-0.5 block text-[12px] leading-snug text-muted">{SCENARIO_TIP[o]}</span>
+                  <span className="block text-callout font-medium text-ink">{SCENARIO_LABEL[o]}</span>
+                  <span className="mt-0.5 block text-caption text-muted">{SCENARIO_TIP[o]}</span>
                 </span>
               </button>
             );

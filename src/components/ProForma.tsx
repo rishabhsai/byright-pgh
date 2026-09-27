@@ -54,7 +54,7 @@ export const NO_COMPS = "No Zillow comps for this neighborhood; finance not asse
 
 function CompsFailed({ onRetry }: { onRetry?: () => void }) {
   return (
-    <p role="alert" className="flex items-center justify-between gap-3 rounded-lg border border-[#e7c98a] bg-[#fff8e6] px-3 py-3 text-[13px] text-[#6b4a00]">
+    <p role="alert" className="flex items-center justify-between gap-3 rounded-card bg-warning-soft p-card text-callout text-warning-ink">
       <span>Finance data didn&apos;t load, so this lot is not assessed.</span>
       {onRetry && (
         <button onClick={onRetry} className="shrink-0 font-medium text-accent underline decoration-accent/30 underline-offset-[3px] hover:decoration-accent">
@@ -104,7 +104,7 @@ export default function ProForma({
 
   if (!comps) {
     if (compsError) return <CompsFailed onRetry={onRetryComps} />;
-    return <p className="rounded-lg border border-dashed border-hairline px-3 py-3 text-[13px] text-muted">{NO_COMPS}.</p>;
+    return <p className="rounded-card bg-control p-card text-callout text-muted">{NO_COMPS}.</p>;
   }
 
   const hasSale = comps.zhvi != null;
@@ -123,15 +123,15 @@ export default function ProForma({
       <div aria-hidden className="mb-3 space-y-1.5">
         <div className="flex h-2.5 overflow-hidden rounded-full bg-surface">
           <span
-            className="h-full bg-[#8a938e]"
+            className="h-full bg-faint"
             style={{ width: `${(r.land / scale) * 100}%` }}
           />
           <span
-            className="h-full bg-[#5d6762]"
+            className="h-full bg-muted"
             style={{ width: `${(r.hard / scale) * 100}%` }}
           />
           <span
-            className="h-full bg-[#aeb6b1]"
+            className="h-full bg-control-edge"
             style={{ width: `${((r.soft + r.devFee) / scale) * 100}%` }}
           />
         </div>
@@ -140,12 +140,12 @@ export default function ProForma({
             className="h-full rounded-full"
             style={{
               width: `${(r.revenue / scale) * 100}%`,
-              background: r.pencils ? "var(--accent)" : "#d9a441",
+              background: r.pencils ? "var(--color-v-byright)" : "var(--color-v-variance)",
             }}
           />
         </div>
       </div>
-      <dl className="divide-y divide-hairline border-y border-hairline text-[13px]">
+      <dl className="surface-card divide-y divide-hairline px-card text-callout">
         <Row
           label={
             r.landSource === "assessed" ? (
@@ -156,17 +156,17 @@ export default function ProForma({
               "Land, assumed (no assessment)"
             )
           }
-          swatch="#8a938e"
+          swatch="var(--color-faint)"
           value={fmtUsd(r.land)}
         />
         <Row
           label={`Construction, ${r.buildingSf.toLocaleString()} sq ft × $${a.hardCostPerSf}`}
-          swatch="#5d6762"
+          swatch="var(--color-muted)"
           value={fmtUsd(r.hard)}
         />
         <Row
           label="Fees, design and developer's fee"
-          swatch="#aeb6b1"
+          swatch="var(--color-control-edge)"
           value={fmtUsd(r.soft + r.devFee)}
         />
         <Row
@@ -177,28 +177,28 @@ export default function ProForma({
                 : "Value from neighborhood index"}
             </Tooltip>
           }
-          swatch={r.pencils ? "var(--accent)" : "#d9a441"}
+          swatch={r.pencils ? "var(--color-v-byright)" : "var(--color-v-variance)"}
           value={fmtUsd(r.revenue)}
         />
-        <div className="flex items-baseline justify-between gap-3 py-2.5">
+        <div className="finance-total">
           <dt className="min-w-0">
             <span className="font-medium text-ink">
               {r.pencils ? "Margin" : `Short of a ${target}% return`}
             </span>
-            <span className="block text-[12px] text-muted tabular-nums">
+            <span className="block text-caption text-muted tabular-nums">
               {r.pencils
                 ? `${Math.round(r.marginPct)}% on ${fmtUsd(r.totalCost)} total cost`
                 : `Value minus ${fmtUsd(r.totalCost)} total cost, minus the ${target}% return`}
             </span>
           </dt>
           <dd
-            className={`shrink-0 font-serif text-[20px] leading-none tabular-nums ${r.pencils ? "text-accent" : "text-[#9a3412]"}`}
+            className={`text-display tabular-nums ${r.pencils ? "text-success-ink" : "text-warning-ink"}`}
           >
             {r.pencils ? fmtUsd(r.margin) : `−${fmtUsd(r.gap)}`}
           </dd>
         </div>
       </dl>
-      <p className="mt-2 text-[12px] leading-snug text-muted">
+      <p className="mt-2 text-caption text-muted">
         Sources: Zillow{" "}
         {comps.zhvi != null
           ? `home price ${comps.neighborhood} (${comps.zhviDate?.slice(0, 7) ?? "latest"})`
@@ -221,13 +221,13 @@ export default function ProForma({
   );
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-section">
       {blocked ? (
         <div>
-          <p className="font-serif text-[22px] leading-tight text-ink">
+          <p className="text-title text-ink">
             Not screened: {blockedHeadline(blocked)}
           </p>
-          <p className="mt-1 text-[13px] leading-snug text-muted">
+          <p className="mt-1 text-callout text-muted">
             The cost-and-return screen runs only on a proposal whose use is permitted and fit does not fail, in a confirmed
             district, on a lot recorded Available for Sale. No margin or shortfall is reported for this{" "}
             {TYPOLOGY_LABEL[typology].toLowerCase()}.
@@ -236,11 +236,11 @@ export default function ProForma({
       ) : r ? (
         <div>
           <p
-            className={`font-serif text-[22px] leading-tight ${r.pencils ? "text-accent" : "text-[#9a3412]"}`}
+            className={`text-title ${r.pencils ? "text-success-ink" : "text-warning-ink"}`}
           >
             {mainLine}
           </p>
-          <p className="mt-1 text-[13px] leading-snug text-muted">
+          <p className="mt-1 text-callout text-muted">
             {r.pencils
               ? `Against the ${r.mode === "rent" ? "ZIP rent index" : "neighborhood home-value index"}, a modeled ${TYPOLOGY_LABEL[typology].toLowerCase()} covers its costs and a ${target}% return. A reference index, not an appraisal or an achievable price.`
               : `Against the ${r.mode === "rent" ? "ZIP rent index" : "neighborhood home-value index"}, a modeled ${TYPOLOGY_LABEL[typology].toLowerCase()} falls short of a ${target}% return. A reference index, not an appraisal or a subsidy need.`}{" "}
@@ -250,22 +250,22 @@ export default function ProForma({
             </span>
           </p>
           {r.mode !== mode && (
-            <p className="mt-1 text-[12px] text-[#7a5400]">
+            <p className="mt-1 text-caption text-warning-ink">
               No {mode === "sale" ? "home price" : "rent"} data here, so {r.mode === "sale" ? "the neighborhood home price" : "the ZIP rent"} was used.
             </p>
           )}
         </div>
       ) : (
-        <p className="rounded-lg border border-dashed border-hairline px-3 py-3 text-[13px] text-muted">{NO_COMPS}.</p>
+        <p className="rounded-card bg-control p-card text-callout text-muted">{NO_COMPS}.</p>
       )}
 
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-callout">
         <span className="text-muted">Modeled for</span>
         <select
           value={typology}
           onChange={(e) => onTypology(e.target.value as Typology)}
           aria-label="Home type"
-          className="max-w-[210px] rounded-md border border-hairline bg-white px-2 py-1 text-[13px] text-ink"
+          className="input-field max-w-full"
         >
           {TYPOLOGIES.map((t) => (
             <option key={t} value={t}>
@@ -279,7 +279,7 @@ export default function ProForma({
           {plan.note.replace(/ × /g, "\u00a0×\u00a0")}
         </span>
         {selectedVerdict !== "by-right" && !blocked && (
-          <span className="block w-full text-[12px] text-[#7a5400]">
+          <span className="block w-full text-caption text-warning-ink">
             Zoning: {selectedFinding ? verdictLabel(selectedFinding).toLowerCase() : "not checked"} for this type; these numbers assume it gets approved.
           </span>
         )}
@@ -287,11 +287,11 @@ export default function ProForma({
 
       {blocked ? (
         hypothetical && (
-        <details className="group/hyp text-[13px]">
+        <details className="group/hyp text-callout">
           <summary className="cursor-pointer text-accent select-none">
             Show hypothetical numbers
           </summary>
-          <p className="mt-2 mb-3 text-[12px] leading-snug text-muted">
+          <p className="mt-2 mb-3 text-caption text-muted">
             If the {TYPOLOGY_LABEL[typology].toLowerCase()} were approved as
             proposed. Not a screen result.
           </p>
@@ -302,14 +302,14 @@ export default function ProForma({
         r && ladderView
       )}
 
-      <details className="group rounded-lg border border-hairline bg-white" onBlur={onCommit}>
-        <summary className="flex cursor-pointer items-center justify-between px-3 py-2 text-[13px] font-medium text-ink select-none">
+      <details className="surface-card group" onBlur={onCommit}>
+        <summary className="flex cursor-pointer items-center justify-between gap-3 p-card text-body font-semibold text-ink select-none">
           Adjust assumptions
-          <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden className="text-muted transition-transform group-open:rotate-180">
-            <path d="M3 4.5l3 3 3-3" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" />
+          <svg width="16" height="16" viewBox="0 0 12 12" aria-hidden className="text-muted transition-transform group-open:rotate-180">
+            <path d="M3 4.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />
           </svg>
         </summary>
-        <div className="space-y-3 border-t border-hairline px-3 pt-3 pb-3">
+        <div className="space-y-4 border-t border-hairline p-card">
           <div>
             <Segmented<RevenueMode>
               label="Revenue"
@@ -322,14 +322,14 @@ export default function ProForma({
               ]}
             />
             {(!hasSale || !hasRent) && (
-              <p className="mt-1 text-[12px] text-muted">
+              <p className="mt-1 text-caption text-muted">
                 {!hasSale
                   ? `Selling is unavailable: Zillow has no home price series for ${comps.neighborhood}.`
                   : `Renting is unavailable: Zillow has no rent series for ${comps.zip ? `ZIP ${comps.zip}` : "this ZIP"}.`}
               </p>
             )}
           </div>
-          <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
+          <div className="grid grid-cols-2 gap-4">
             <Num
               k="hardCostPerSf"
               label="Construction $/sq ft"
@@ -381,7 +381,7 @@ export default function ProForma({
             )}
           </div>
           {r && (
-            <details className="text-[12px]">
+            <details className="text-caption">
               <summary className="cursor-pointer text-accent select-none">Where each number comes from</summary>
               <ul className="mt-2 space-y-1.5">
                 {r.inputsUsed.map((x) => (
@@ -505,7 +505,7 @@ function Num({
   const { min, max } = FINANCE_RANGES[k];
   return (
     <label className="block">
-      <span className="mb-1 block text-[12px] text-muted">{label}</span>
+      <span className="mb-1 block text-caption text-muted">{label}</span>
       <input
         type="number"
         {...inputProps}
@@ -513,15 +513,15 @@ function Num({
         min={min}
         max={max}
         aria-invalid={used !== parsed}
-        className={`w-full rounded-md border bg-white px-2 py-1.5 text-[13px] tabular-nums ${used !== parsed ? "border-[#d97706]" : "border-hairline"}`}
+        className="input-field w-full tabular-nums"
       />
       {used !== parsed ? (
-        <span className="mt-0.5 block text-[12px] leading-tight text-[#a16207]">
+        <span className="mt-0.5 block text-caption text-warning-ink">
           Outside the accepted range ({min}–{max}), using {used}
         </span>
       ) : (
         hint && (
-          <span className="mt-0.5 block text-[12px] leading-tight text-muted">
+          <span className="mt-0.5 block text-caption text-muted">
             {hint}
           </span>
         )
@@ -552,7 +552,7 @@ function LandInput({
   );
   return (
     <label className="block">
-      <span className="mb-1 block text-[12px] text-muted">
+      <span className="mb-1 block text-caption text-muted">
         Land cost, this lot only ($)
       </span>
       <input
@@ -561,7 +561,7 @@ function LandInput({
         step={1000}
         {...inputProps}
         placeholder={placeholder}
-        className="w-full rounded-md border border-hairline bg-white px-2 py-1.5 text-[13px] tabular-nums"
+        className="input-field w-full tabular-nums"
       />
     </label>
   );
@@ -577,7 +577,7 @@ function Row({
   swatch: string;
 }) {
   return (
-    <div className="flex items-baseline justify-between gap-3 py-2">
+    <div className="flex items-baseline justify-between gap-3 py-3">
       <dt className="flex min-w-0 items-baseline gap-2 text-muted">
         <span aria-hidden className="inline-block h-2 w-2 shrink-0 translate-y-[-1px] rounded-full" style={{ background: swatch }} />
         <span className="min-w-0">{label}</span>
