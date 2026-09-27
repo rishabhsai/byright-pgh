@@ -48,9 +48,9 @@ describe("runProforma", () => {
     expect(r.pencils).toBe(true);
     expect(r.gap).toBe(0);
     expect(r.marginPct).toBeGreaterThanOrEqual(15);
-    // 1,200 sf × $185 = $222,000 hard; 22% soft; 13% developer fee; $10,000 assessed land
-    expect(r.hard).toBe(222_000);
-    expect(r.totalCost).toBeCloseTo(10_000 + 222_000 * 1.35, 0);
+    // 1,200 sf × $225 = $270,000 hard; 22% soft; 13% developer fee; $35,000 site work; $10,000 assessed land
+    expect(r.hard).toBe(270_000);
+    expect(r.totalCost).toBeCloseTo(10_000 + 35_000 + 270_000 * 1.35, 0);
     expect(r.revenue).toBeCloseTo(780_000 * (1200 / 1400), 0);
     expect(r.landSource).toBe("assessed");
   });
@@ -60,6 +60,39 @@ describe("runProforma", () => {
     expect(r.pencils).toBe(false);
     expect(r.gap).toBeGreaterThan(0);
     expect(r.revenue + r.gap).toBeCloseTo(r.totalCost * 1.1, 0);
+  });
+
+  it("charges site work once per project, not per dwelling", () => {
+    const single = runProforma(lot(), "single", comps(300_000))!;
+    const duplex = runProforma(lot(), "duplex", comps(300_000))!;
+    const duplexNoSite = runProforma(lot(), "duplex", comps(300_000), { siteCostPerProject: 0 })!;
+    expect(single.site).toBe(35_000);
+    expect(duplex.site).toBe(35_000);
+    expect(duplex.totalCost - duplexNoSite.totalCost).toBe(35_000);
+    // Duplex: $10,000 land + $35,000 site + 1,900 sf × $225 = $427,500 hard, × 1.35 with soft and fee = $577,125
+    expect(duplex.totalCost).toBeCloseTo(10_000 + 35_000 + 577_125, 0);
+    // Soft cost and fee stay a share of hard cost only.
+    expect(duplex.soft).toBeCloseTo(427_500 * 0.22, 6);
+    expect(duplex.devFee).toBeCloseTo(427_500 * 0.13, 6);
+  });
+
+  it("clamps site cost to $0–$150,000 and accepts zero", () => {
+    expect(validateFinance({ siteCostPerProject: 0 }).siteCostPerProject).toBe(0);
+    expect(validateFinance({ siteCostPerProject: 400_000 }).siteCostPerProject).toBe(150_000);
+    expect(validateFinance({ siteCostPerProject: -5 }).siteCostPerProject).toBe(0);
+    expect(validateFinance({ siteCostPerProject: Number.NaN }).siteCostPerProject).toBe(35_000);
+  });
+
+  it("cites the hackathon mentors for hard cost and site cost", () => {
+    const r = runProforma(lot(), "single", comps(300_000))!;
+    const src = (k: string) => r.inputsUsed.find((i) => i.key === k)!.source;
+    expect(src("hardCostPerSf")).toMatch(/Dennis Steigerwalt, Housing Innovation Alliance/);
+    expect(src("hardCostPerSf")).toMatch(/hackathon SME channel, Sept 26, 2026/);
+    expect(src("hardCostPerSf")).toContain("$200–$250/sf is a reasonable range");
+    expect(src("siteCostPerProject")).toMatch(/Tom Hardy, hackathon SME/);
+    expect(src("siteCostPerProject")).toMatch(/Sept 26, 2026/);
+    expect(src("siteCostPerProject")).toContain("$25k–$50k");
+    expect(r.inputsUsed.find((i) => i.key === "siteCostPerProject")!.display).toBe("$35,000 per project");
   });
 
   it("returns null when comps are missing", () => {
@@ -112,8 +145,8 @@ describe("runProforma", () => {
 
   it("reports the break-even value at which margin equals the target", () => {
     const r = runProforma(lot(), "single", comps(300_000))!;
-    // $10,000 land + 1,200 sf × $185 × 1.35 = $309,700 cost; 10% target → $340,670
-    expect(r.breakEvenValue).toBeCloseTo(340_670, 0);
+    // $10,000 land + $35,000 site + 1,200 sf × $225 × 1.35 = $409,500 cost; 10% target → $450,450
+    expect(r.breakEvenValue).toBeCloseTo(450_450, 0);
   });
 
   it("clamps the sale size scale", () => {
@@ -158,13 +191,21 @@ describe("new-construction premium", () => {
     expect(runProforma(lot(), "single", comps(300_000), { valuePremium: Number.NaN })!.revenue).toBe(base.revenue);
   });
 
-  it("adds the premium case to the per-lot sensitivity line", () => {
-    // Worked example (docs/comps-and-proforma.md): cost $309,700, target value $340,670; at ZHVI $300k the shortfall is $83,527.
-    // +$10/sf: cost 309,700 + 12,000 x 1.35 = 325,900; target 358,490; value 257,143 -> short $101,347.
-    // 1.3x index: value 334,286 vs target 340,670 -> short $6,384.
+  it("shows the mentor hard-cost scenarios and the premium case in the per-lot sensitivity line", () => {
+    // Worked example (docs/comps-and-proforma.md): cost $409,500, target value $450,450; at ZHVI $300k the value is $257,143.
+    // $185/sf: cost 45,000 + 222,000 x 1.35 = 344,700; target 379,170 -> short $122,027.
+    // $250/sf: cost 45,000 + 300,000 x 1.35 = 450,000; target 495,000 -> short $237,857.
+    // $350/sf: cost 45,000 + 420,000 x 1.35 = 612,000; target 673,200 -> short $416,057.
+    // 1.3x index: value 334,286 vs target 450,450 -> short $116,164.
     expect(sensitivityLine(lot(), "single", comps(300_000))).toBe(
-      "Value needed for the target return $340,670; at $195/sq ft short by $101,347; at a new-construction premium (1.3× index) short by $6,384.",
+      "Value needed for the target return $450,450; at $185/sq ft short by $122,027; at $250/sq ft short by $237,857; at $350/sq ft short by $416,057; at a new-construction premium (1.3× index) short by $116,164.",
     );
+  });
+
+  it("leaves the displayed rate out of the sensitivity scenarios", () => {
+    const line = sensitivityLine(lot(), "single", comps(300_000), { hardCostPerSf: 250 });
+    expect(line).toMatch(/at \$185\/sq ft .*; at \$225\/sq ft .*; at \$350\/sq ft /);
+    expect(line).not.toMatch(/at \$250\/sq ft/);
   });
 });
 

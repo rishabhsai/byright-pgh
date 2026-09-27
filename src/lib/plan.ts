@@ -3,12 +3,14 @@ import { lookupDistrict, normalizeZone, RULESET_LABEL, TYPOLOGY_ORDER, TYPOLOGY_
 import {
   fmtNum,
   fmtUsd,
+  HARD_COST_SCENARIOS,
   NEW_CONSTRUCTION_PREMIUM,
   UNIT_PLAN,
   ZILLOW_DATA_URL,
   type FinanceAssumptions,
   type Proforma,
   type RevenueMode,
+  type ScenarioPsf,
 } from "./proforma";
 import { todayET } from "./dates";
 import { hasHazardFlag, isAvailable, isDispositionEligible } from "./ranking";
@@ -51,11 +53,13 @@ export const CSV_COLUMNS = [
   "checks_passed_of_6", "unresolved_notes",
   "flag_slope_25", "flag_undermined", "flag_flood", "hazard_test_method",
   "est_total_cost", "est_value", "value_basis", "value_basis_date",
-  "shortfall_to_target", "break_even_value", "shortfall_at_150psf", "shortfall_at_215psf",
+  "shortfall_to_target", "break_even_value",
+  // One shortfall per hard-cost scenario (HARD_COST_SCENARIOS); these replaced shortfall_at_150psf and shortfall_at_215psf.
+  "shortfall_at_185psf", "shortfall_at_225psf", "shortfall_at_250psf", "shortfall_at_350psf",
   "adjacent_city_lots_150ft",
   "triage", "next_action",
   "rule_set", "hard_cost_psf", "soft_pct", "fee_pct", "target_margin_pct", "generated_at",
-  // Appended in cycle 2; the 47 columns above keep their names and order.
+  // Appended in cycle 2; the columns above keep their names and order.
   "staff_review_candidate", "checks_unknown", "checks_not_checked", "units",
   "revenue_mode", "effective_land_cost", "land_source", "typical_home_sf", "cap_rate_pct", "opex_pct", "default_land_cost",
   "rule_citations", "cost_basis",
@@ -63,6 +67,8 @@ export const CSV_COLUMNS = [
   "zone_map", "zone_agrees", "shortfall_at_1_3x_value",
   // Appended in cycle 4: whether the row's money is a screen result (financeResult); when false every money column is blank.
   "finance_screened", "finance_reason",
+  // Appended with the mentor calibration (Sept 26, 2026): site work, once per project.
+  "site_cost_per_project",
 ] as const;
 
 export type CsvColumn = (typeof CSV_COLUMNS)[number];
@@ -70,8 +76,8 @@ export type CsvColumn = (typeof CSV_COLUMNS)[number];
 /** Unrounded finance for one row, so totals sum exact values rather than rounded cells. */
 export interface RowFinance {
   gap: number;
-  gap150: number | null;
-  gap215: number | null;
+  /** Shortfall at each hard-cost scenario rate. */
+  gapAt: Record<ScenarioPsf, number | null>;
   /** Shortfall with value at 1.3× the comp index (new-construction premium), at the displayed hard cost. */
   gapPremium: number | null;
   /** Total cost × (1 + target return): the value the project must reach, not zero-profit break-even. */
@@ -128,8 +134,8 @@ export interface Gap extends GapScenario {
   /** Dwellings those projects deliver (a duplex is one project, two dwellings). */
   dwellings: number;
   hardCostPerSf: number;
-  at150: GapScenario;
-  at215: GapScenario;
+  /** The shortfall at each hard-cost scenario rate (HARD_COST_SCENARIOS), in rate order. */
+  atRates: (GapScenario & { psf: number; note: string })[];
   /** Value at 1.3× the comp index, at the displayed hard cost: the new-construction premium case. */
   atPremium: GapScenario;
   /** Mean target value per project: total cost plus the target return, at the displayed assumptions. */
@@ -498,8 +504,9 @@ export function buildPlan(
     // One financial result: money is published only when financeResult screens it.
     const fin = financeResult(lot, f, ev, priced ? proformaFor(lot, f.typology, comps[i], a) : null);
     const pf = fin.screened ? fin.proforma : null;
-    const pf150 = pf ? proformaFor(lot, f.typology, comps[i], { ...a, hardCostPerSf: 150 }) : null;
-    const pf215 = pf ? proformaFor(lot, f.typology, comps[i], { ...a, hardCostPerSf: 215 }) : null;
+    const pfAt = Object.fromEntries(
+      HARD_COST_SCENARIOS.map(({ psf }) => [psf, pf ? proformaFor(lot, f.typology, comps[i], { ...a, hardCostPerSf: psf }) : null]),
+    ) as Record<ScenarioPsf, Proforma | null>;
     const pfPremium = pf ? proformaFor(lot, f.typology, comps[i], { ...a, valuePremium: NEW_CONSTRUCTION_PREMIUM }) : null;
     const c = comps[i];
     const sale = pf?.mode === "sale";
@@ -512,8 +519,7 @@ export function buildPlan(
       finance: pf
         ? {
             gap: pf.gap,
-            gap150: pf150?.gap ?? null,
-            gap215: pf215?.gap ?? null,
+            gapAt: Object.fromEntries(HARD_COST_SCENARIOS.map(({ psf }) => [psf, pfAt[psf]?.gap ?? null])) as Record<ScenarioPsf, number | null>,
             gapPremium: pfPremium?.gap ?? null,
             targetValue: pf.breakEvenValue,
             mode: pf.mode,
@@ -550,8 +556,10 @@ export function buildPlan(
       value_basis_date: pf && c ? ((sale ? c.zhviDate : c.zoriDate) ?? "") : "",
       shortfall_to_target: round(pf?.gap),
       break_even_value: round(pf?.breakEvenValue),
-      shortfall_at_150psf: round(pf150?.gap),
-      shortfall_at_215psf: round(pf215?.gap),
+      shortfall_at_185psf: round(pfAt[185]?.gap),
+      shortfall_at_225psf: round(pfAt[225]?.gap),
+      shortfall_at_250psf: round(pfAt[250]?.gap),
+      shortfall_at_350psf: round(pfAt[350]?.gap),
       adjacent_city_lots_150ft: "",
       triage: tr?.triage ?? "",
       next_action: nextAction(lot, f, ev, pf, tr),
@@ -579,6 +587,7 @@ export function buildPlan(
       shortfall_at_1_3x_value: round(pfPremium?.gap),
       finance_screened: String(fin.screened),
       finance_reason: fin.reason ?? "",
+      site_cost_per_project: assumptions.siteCostPerProject,
     } as PlanRow;
     for (const x of ev.checks) row[EVIDENCE_COL[x.id]] = STATE_CSV[x.state];
     rows.push(row);
@@ -624,8 +633,7 @@ export function buildPlan(
       dwellings,
       hardCostPerSf: assumptions.hardCostPerSf,
       ...scen((f) => f.gap),
-      at150: scen((f) => f.gap150),
-      at215: scen((f) => f.gap215),
+      atRates: HARD_COST_SCENARIOS.map(({ psf, note }) => ({ psf, note, ...scen((f) => f.gapAt[psf]) })),
       atPremium: scen((f) => f.gapPremium),
       targetValueAvg: priced.reduce((s, r) => s + r.finance.targetValue, 0) / priced.length,
       valueMode: modes.size === 1 ? [...modes][0] : "mixed",
@@ -693,6 +701,32 @@ function notScreenedLine(n: number): string {
   return ` ${fmtNum(n)} more shortlisted ${n === 1 ? "candidate has" : "candidates have"} no screened financial result (district or permission unresolved, or no comps) and ${n === 1 ? "is" : "are"} not in the total.`;
 }
 
+/** The mentors' framing for the hurdle card and the brief. */
+export const PENCILS_FIRST =
+  "Mentors' guidance: developers check whether a project pencils before pursuing a variance (T. Hardy, Sept 26, 2026).";
+
+export interface HardCostRow {
+  psf: number;
+  label: string;
+  s: GapScenario;
+  /** The rate the plan was computed at. */
+  strong: boolean;
+}
+
+/**
+ * The shortfall table's rate rows, in rate order: each mentor scenario, with the plan's own rate marked
+ * ("displayed" in the UI) and inserted in order when it is not one of the scenarios.
+ */
+export function hardCostRows(g: Gap, marker = "displayed"): HardCostRow[] {
+  const rows: HardCostRow[] = g.atRates.map((r) =>
+    r.psf === g.hardCostPerSf
+      ? { psf: r.psf, label: `$${r.psf}/sf (${marker}; ${r.note})`, s: g, strong: true }
+      : { psf: r.psf, label: `$${r.psf}/sf (${r.note})`, s: r, strong: false },
+  );
+  if (!rows.some((r) => r.strong)) rows.push({ psf: g.hardCostPerSf, label: `$${g.hardCostPerSf}/sf (${marker})`, s: g, strong: true });
+  return rows.sort((x, y) => x.psf - y.psf);
+}
+
 export function gapSentence(plan: Plan): string {
   const g = plan.gap;
   if (!g) {
@@ -735,7 +769,7 @@ function sourceLine(src: { name: string; url: string; vintage: string }): string
 
 /**
  * The short review brief (≤ 350 words): scope and assumptions, the funnel, candidates by channel, the
- * financial hurdle for N projects with the four scenarios, open items grouped with counts, a pointer to
+ * financial hurdle for N projects with the hard-cost and premium scenarios, open items grouped with counts, a pointer to
  * the CSV for per-lot detail, sources with vintages, the disclaimer. Stage definitions and the per-lot
  * list live in the CSV and README.
  */
@@ -771,8 +805,8 @@ export function toBrief(plan: Plan): string {
     );
     L.push("| Scenario | Shortfall | Per project |", "|---|---:|---:|");
     const row = (label: string, x: GapScenario) => `| ${label} | ${fmtUsd(x.total)} | ${fmtUsd(x.perProject)} |`;
-    L.push(row(`$${g.hardCostPerSf}/sf`, g), row("$150/sf", g.at150), row("$215/sf", g.at215), row(`${NEW_CONSTRUCTION_PREMIUM}× index, $${g.hardCostPerSf}/sf`, g.atPremium), "");
-    L.push("Scenarios against an aggregate index: not a subsidy award or appraisal.", "");
+    L.push(...hardCostRows(g, "assumed").map((r) => row(r.label, r.s)), row(`${NEW_CONSTRUCTION_PREMIUM}× index, $${g.hardCostPerSf}/sf`, g.atPremium), "");
+    L.push(`Scenarios against an aggregate index: not a subsidy award or appraisal. ${PENCILS_FIRST}`, "");
   }
 
   if (plan.openGroups.length) {

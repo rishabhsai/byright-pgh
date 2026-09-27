@@ -11,6 +11,8 @@ export type RevenueMode = "sale" | "rent";
 export interface FinanceAssumptions {
   /** Hard construction cost, $ per gross sf. Assumption for small wood-frame infill. */
   hardCostPerSf: number;
+  /** Site work (water/sewer taps, grading, sidewalks, landscaping), $ once per project, not per dwelling. */
+  siteCostPerProject: number;
   /** Soft costs (professional fees, construction loan fees, holding, other) as % of hard cost. */
   softCostPct: number;
   /** Developer fee + overhead as % of hard cost. */
@@ -39,7 +41,8 @@ export interface FinanceAssumptions {
 }
 
 export const DEFAULT_FINANCE: FinanceAssumptions = {
-  hardCostPerSf: 185,
+  hardCostPerSf: 225,
+  siteCostPerProject: 35_000,
   softCostPct: 22,
   devFeePct: 13,
   defaultLand: 5000,
@@ -50,11 +53,12 @@ export const DEFAULT_FINANCE: FinanceAssumptions = {
   targetMarginPct: 10,
 };
 
-type RangedKey = "hardCostPerSf" | "softCostPct" | "devFeePct" | "targetMarginPct" | "typicalHomeSf" | "capRate" | "opexPct";
+type RangedKey = "hardCostPerSf" | "siteCostPerProject" | "softCostPct" | "devFeePct" | "targetMarginPct" | "typicalHomeSf" | "capRate" | "opexPct";
 
 /** Accepted range for each editable number; values outside are clamped, blanks and non-numbers use the default. */
 export const FINANCE_RANGES: Record<RangedKey, { min: number; max: number }> = {
   hardCostPerSf: { min: 50, max: 600 },
+  siteCostPerProject: { min: 0, max: 150_000 },
   softCostPct: { min: 0, max: 60 },
   devFeePct: { min: 0, max: 30 },
   targetMarginPct: { min: 0, max: 50 },
@@ -84,6 +88,19 @@ export function validateFinance(assumptions: Partial<FinanceAssumptions> = {}): 
 /** New-construction premium scenario: value at 1.3× the neighborhood index. The URA would calibrate this against actual gap awards. */
 export const NEW_CONSTRUCTION_PREMIUM = 1.3;
 export const PREMIUM_LABEL = `New-construction premium (${NEW_CONSTRUCTION_PREMIUM}× index)`;
+
+/**
+ * Hard-cost scenarios shown beside the displayed rate: the plan's shortfall table, the CSV and the per-lot sensitivity line.
+ * Sources: Dennis Steigerwalt ($200–$250/sf, city infill) and Tom Hardy ($325–$375/sf vertical construction), Sept 26, 2026.
+ */
+export const HARD_COST_SCENARIOS = [
+  { psf: 185, note: "prior default" },
+  { psf: 225, note: "default, Steigerwalt mid" },
+  { psf: 250, note: "Steigerwalt high" },
+  { psf: 350, note: "Tom Hardy mid, vertical construction" },
+] as const;
+
+export type ScenarioPsf = (typeof HARD_COST_SCENARIOS)[number]["psf"];
 
 /** Frontage under which a detached house leaves too narrow a footprint after side yards; the attached form is the prototype. */
 export const NARROW_LOT_FT = 25;
@@ -125,6 +142,24 @@ export function buildingSf(typology: Typology): number {
   const plan = UNIT_PLAN[typology];
   return typology === "single_adu" ? 1800 : plan.units * plan.sfPerUnit;
 }
+
+/** Hackathon mentors whose cost guidance sets the hard-cost and site-cost defaults (#housing-sme-help, Sept 26, 2026). */
+export const MENTOR_SOURCES = [
+  {
+    name: "Dennis Steigerwalt, Housing Innovation Alliance",
+    vintage: "hackathon SME channel, Sept 26, 2026: city single-family infill hard cost, \"$200–$250/sf is a reasonable range\"",
+  },
+  {
+    name: "Tom Hardy, hackathon SME",
+    vintage:
+      "hackathon SME channel, Sept 26, 2026: city site costs \"$25k–$50k\" per single unit (water/sewer taps, grading, sidewalks, landscaping); vertical construction $325–$375/sf",
+  },
+] as const;
+
+const HARD_COST_SOURCE =
+  "Dennis Steigerwalt, Housing Innovation Alliance (hackathon SME channel, Sept 26, 2026): for city single-family infill \"$200–$250/sf is a reasonable range\"; default is the midpoint; editable";
+const SITE_COST_SOURCE =
+  "Tom Hardy, hackathon SME (hackathon SME channel, Sept 26, 2026): city site costs \"$25k–$50k\" per single unit for water/sewer taps, grading, sidewalks, landscaping; default is the midpoint, once per project; editable";
 
 export const ZILLOW_DATA_URL = "https://www.zillow.com/research/data/";
 export const ASSESSMENTS_URL = "https://data.wprdc.org/dataset/property-assessments";
@@ -184,6 +219,8 @@ export interface Proforma {
   land: number;
   landSource: LandSource;
   landIsAssumed: boolean;
+  /** Site work, once per project. */
+  site: number;
   hard: number;
   soft: number;
   devFee: number;
@@ -230,6 +267,7 @@ interface CostStack {
   buildingSf: number;
   land: number;
   landSource: LandSource;
+  site: number;
   hard: number;
   soft: number;
   devFee: number;
@@ -239,7 +277,7 @@ interface CostStack {
 function costStack(
   typology: Typology,
   landValue: number | null,
-  a: Pick<FinanceAssumptions, "hardCostPerSf" | "softCostPct" | "devFeePct" | "landOverride" | "defaultLand">,
+  a: Pick<FinanceAssumptions, "hardCostPerSf" | "siteCostPerProject" | "softCostPct" | "devFeePct" | "landOverride" | "defaultLand">,
 ): CostStack {
   const sf = buildingSf(typology);
   const landSource: LandSource = a.landOverride != null ? "override" : landValue != null ? "assessed" : "default";
@@ -247,7 +285,8 @@ function costStack(
   const hard = sf * a.hardCostPerSf;
   const soft = hard * (a.softCostPct / 100);
   const devFee = hard * (a.devFeePct / 100);
-  return { buildingSf: sf, land, landSource, hard, soft, devFee, totalCost: land + hard + soft + devFee };
+  const site = a.siteCostPerProject;
+  return { buildingSf: sf, land, landSource, site, hard, soft, devFee, totalCost: land + site + hard + soft + devFee };
 }
 
 /**
@@ -285,7 +324,15 @@ export function runProforma(
       label: "Hard cost per sf",
       value: a.hardCostPerSf,
       display: `${fmtUsd(a.hardCostPerSf)}/sf × ${fmtNum(c.buildingSf)} sf`,
-      source: "Assumption for small wood-frame infill in Pittsburgh; editable",
+      source: HARD_COST_SOURCE,
+      assumed: true,
+    },
+    {
+      key: "siteCostPerProject",
+      label: "Site work (taps, grading, sidewalks)",
+      value: a.siteCostPerProject,
+      display: `${fmtUsd(a.siteCostPerProject)} per project`,
+      source: SITE_COST_SOURCE,
       assumed: true,
     },
     {
@@ -416,18 +463,19 @@ export function runProforma(
 }
 
 /**
- * One-line sensitivity for a lot's pro forma: the target value, then +$10/sf hard cost, then the new-construction
- * premium. Falls back to the other revenue mode like the triage does. Empty string when no comp is available.
+ * One-line sensitivity for a lot's pro forma: the target value, then each hard-cost scenario other than the displayed
+ * rate, then the new-construction premium. Falls back to the other revenue mode like the triage does. Empty string when no comp is available.
  */
 export function sensitivityLine(lot: Lot, typology: Typology, comps: Comps | null, assumptions: Partial<FinanceAssumptions> = {}): string {
   const a = validateFinance(assumptions);
   const run = (x: FinanceAssumptions) => runProforma(lot, typology, comps, x) ?? runProforma(lot, typology, comps, { ...x, mode: x.mode === "sale" ? "rent" : "sale" });
   const r = run(a);
   if (!r) return "";
-  const alt = run({ ...a, hardCostPerSf: a.hardCostPerSf + 10 });
   const prem = run({ ...a, valuePremium: NEW_CONSTRUCTION_PREMIUM });
   const outcome = (p: Proforma | null) => (p ? (p.pencils ? `${Math.round(p.marginPct)}% margin` : `short by ${fmtUsd(p.gap)}`) : "n/a");
-  return `Value needed for the target return ${fmtUsd(r.breakEvenValue)}; at $${a.hardCostPerSf + 10}/sq ft ${outcome(alt)}; at a new-construction premium (${NEW_CONSTRUCTION_PREMIUM}× index) ${outcome(prem)}.`;
+  const rates = HARD_COST_SCENARIOS.map((x) => x.psf).filter((psf) => psf !== a.hardCostPerSf);
+  const atRates = rates.map((psf) => `; at $${psf}/sq ft ${outcome(run({ ...a, hardCostPerSf: psf }))}`).join("");
+  return `Value needed for the target return ${fmtUsd(r.breakEvenValue)}${atRates}; at a new-construction premium (${NEW_CONSTRUCTION_PREMIUM}× index) ${outcome(prem)}.`;
 }
 
 /* ---------- Legacy API (affordable sale at AMI / HUD FMR). Kept for existing UI callers. ---------- */
@@ -472,7 +520,7 @@ export function computeProforma(
   mode: RevenueMode,
 ): ProformaResult {
   const plan = UNIT_PLAN[typology];
-  const c = costStack(typology, landValue, { ...a, devFeePct: 0, landOverride: null });
+  const c = costStack(typology, landValue, { ...a, devFeePct: 0, siteCostPerProject: 0, landOverride: null });
   let revenue: number;
   let revenueNote: string;
   if (mode === "sale") {

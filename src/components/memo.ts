@@ -99,6 +99,7 @@ export function buildMemo(
     L.push("");
     L.push("| Line | Amount |", "|---|---:|");
     L.push(`| Land (${pf.landSource === "override" ? "your figure for this lot" : pf.landSource === "assessed" ? "County land value" : "assumed; no assessment"}) | ${fmtUsd(pf.land)} |`);
+    L.push(`| Site work (taps, grading, sidewalks) | ${fmtUsd(pf.site)} |`);
     L.push(`| Construction, ${pf.buildingSf.toLocaleString()} sf | ${fmtUsd(pf.hard)} |`);
     L.push(`| Soft costs and developer fee | ${fmtUsd(pf.soft + pf.devFee)} |`);
     L.push(`| Total cost | ${fmtUsd(pf.totalCost)} |`);

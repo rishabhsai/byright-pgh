@@ -296,16 +296,18 @@ describe("triageCounts", () => {
   const LOTS = "public/data/lots.json";
   const COMPS = "public/data/comps.json";
   it.runIf(existsSync(LOTS) && existsSync(COMPS))("every Green lot's evidence row shows Use, Lot size, Width, Site and Finance passing and Fit not failing", () => {
+    // No lot is Green at the default $225/sf plus $35,000 site work, so check the invariant at the prior default ($185/sf, no site cost).
+    const a = { ...DEFAULT_FINANCE, hardCostPerSf: 185, siteCostPerProject: 0 };
     const lots = (JSON.parse(readFileSync(LOTS, "utf8")) as LotsFile).lots;
     const file = JSON.parse(readFileSync(COMPS, "utf8")) as CompsFile;
     let green = 0;
     for (const l of lots) {
       const f = evaluateLot(l, "current");
       const c = compsFor(l, file);
-      const t = triageLot(l, f, c, DEFAULT_FINANCE);
+      const t = triageLot(l, f, c, a);
       if (t.triage !== "green") continue;
       green++;
-      const ev = evidenceForLot(l, f, t, c, DEFAULT_FINANCE, null);
+      const ev = evidenceForLot(l, f, t, c, a, null);
       const state = (id: string) => ev.checks.find((x) => x.id === id)!.state;
       for (const id of ["use", "lotSize", "width", "site", "finance"]) expect(state(id), `${l.id} ${id}`).toBe("pass");
       expect(state("fit")).not.toBe("fail");
@@ -322,7 +324,12 @@ describe("triageCounts", () => {
       "bill-2025-1545": triageCounts(lots, "bill-2025-1545", file),
       "current (rent)": triageCounts(lots, "current", file, { mode: "rent" }),
       "current (no comps)": triageCounts(lots, "current", null),
-      "current ($195/sf)": triageCounts(lots, "current", file, { hardCostPerSf: 195 }),
+      "current ($185/sf)": triageCounts(lots, "current", file, { hardCostPerSf: 185 }),
+      "current ($185/sf, no site cost: prior default)": triageCounts(lots, "current", file, { hardCostPerSf: 185, siteCostPerProject: 0 }),
+      "current ($235/sf)": triageCounts(lots, "current", file, { hardCostPerSf: 235 }),
+      "current ($250/sf)": triageCounts(lots, "current", file, { hardCostPerSf: 250 }),
+      "current ($350/sf)": triageCounts(lots, "current", file, { hardCostPerSf: 350 }),
+      "current (1.3x premium)": triageCounts(lots, "current", file, { valuePremium: 1.3 }),
       "current (15% target)": triageCounts(lots, "current", file, { targetMarginPct: 15 }),
       ...Object.fromEntries(TYPES.map((t) => [`current, ${t} selected`, triageCounts(lots, "current", file, undefined, t)])),
     };

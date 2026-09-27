@@ -9,6 +9,8 @@ import { RULESET_LABEL, TYPOLOGY_ORDER } from "@/lib/rules";
 import {
   CHANNELS,
   gapSentence,
+  hardCostRows,
+  PENCILS_FIRST,
   reliefSentence,
   rowChecks,
   toBrief,
@@ -196,7 +198,7 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
           <p className="mt-1.5 text-[12px] leading-4 text-muted">
             Mean of {h.n === 1 ? "the one screened project" : `${fmtNum(h.n)} screened projects`}: cost plus the {plan.assumptions.targetMarginPct}% target return, against the value modeled from{" "}
             {plan.gap?.valueBasis.length === 1 ? plan.gap.valueBasis[0].label : "aggregate Zillow indices"}. An index is not an appraisal
-            of new construction; staff decide what evidence would support the target.
+            of new construction; staff decide what evidence would support the target. {PENCILS_FIRST}
           </p>
         </>
       ) : (
@@ -292,17 +294,7 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
           </thead>
           <tbody>
             {[
-              {
-                label: `$${g.hardCostPerSf}/sf (displayed)`,
-                s: g as GapScenario,
-                strong: true,
-              },
-              ...(g.hardCostPerSf === 150
-                ? []
-                : [{ label: "$150/sf", s: g.at150, strong: false }]),
-              ...(g.hardCostPerSf === 215
-                ? []
-                : [{ label: "$215/sf", s: g.at215, strong: false }]),
+              ...hardCostRows(g),
               ...(premium
                 ? [
                     {

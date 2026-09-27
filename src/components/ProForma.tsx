@@ -6,14 +6,13 @@ import { TYPOLOGY_LABEL } from "@/lib/types";
 import { verdictLabel } from "./ui/answer";
 import {
   fmtUsd,
-  proformaWithFallback,
   UNIT_PLAN,
   ZILLOW_DATA_URL,
   type FinanceAssumptions,
   type Proforma,
   type RevenueMode,
 } from "@/lib/finance";
-import { acceptedValue, FINANCE_RANGES } from "@/lib/proforma";
+import { acceptedValue, FINANCE_RANGES, sensitivityLine } from "@/lib/proforma";
 import { TIP, TYPOLOGIES, VERDICT_SHORT } from "./verdict";
 import Tooltip from "./ui/Tooltip";
 
@@ -91,11 +90,7 @@ export default function ProForma({
     if ((land ?? null) !== (a.landOverride ?? null)) onLandOverride(land ?? null);
     else onAssumptions(shared);
   };
-  const altHard = a.hardCostPerSf + 10;
-  const rAlt = useMemo(
-    () => proformaWithFallback(lot, typology, comps, { ...a, hardCostPerSf: altHard }),
-    [lot, typology, comps, a, altHard],
-  );
+  const sensitivity = useMemo(() => sensitivityLine(lot, typology, comps, a), [lot, typology, comps, a]);
   const set = <K extends keyof FinanceAssumptions>(k: K, v: FinanceAssumptions[K]) => update({ ...a, [k]: v });
   const mode: RevenueMode = a.mode;
   const verdictOf = (t: Typology) => findings.find((f) => f.typology === t)?.verdict ?? "unknown";
@@ -126,6 +121,7 @@ export default function ProForma({
             className="h-full bg-[#8a938e]"
             style={{ width: `${(r.land / scale) * 100}%` }}
           />
+          <span className="h-full bg-[#737d78]" style={{ width: `${(r.site / scale) * 100}%` }} />
           <span
             className="h-full bg-[#5d6762]"
             style={{ width: `${(r.hard / scale) * 100}%` }}
@@ -159,6 +155,7 @@ export default function ProForma({
           swatch="#8a938e"
           value={fmtUsd(r.land)}
         />
+        <Row label="Site work (taps, grading, sidewalks)" swatch="#737d78" value={fmtUsd(r.site)} />
         <Row
           label={`Construction, ${r.buildingSf.toLocaleString()} sq ft × $${a.hardCostPerSf}`}
           swatch="#5d6762"
@@ -244,10 +241,7 @@ export default function ProForma({
             {r.pencils
               ? `Against the ${r.mode === "rent" ? "ZIP rent index" : "neighborhood home-value index"}, a modeled ${TYPOLOGY_LABEL[typology].toLowerCase()} covers its costs and a ${target}% return. A reference index, not an appraisal or an achievable price.`
               : `Against the ${r.mode === "rent" ? "ZIP rent index" : "neighborhood home-value index"}, a modeled ${TYPOLOGY_LABEL[typology].toLowerCase()} falls short of a ${target}% return. A reference index, not an appraisal or a subsidy need.`}{" "}
-            <span className="tabular-nums">
-              Value needed for the target return {fmtUsd(r.breakEvenValue)}; at ${altHard}/sq ft{" "}
-              {rAlt ? (rAlt.pencils ? `${Math.round(rAlt.marginPct)}% margin` : `short by ${fmtUsd(rAlt.gap)}`) : "n/a"}.
-            </span>
+            <span className="tabular-nums">{sensitivity}</span>
           </p>
           {r.mode !== mode && (
             <p className="mt-1 text-[12px] text-[#7a5400]">
@@ -336,6 +330,7 @@ export default function ProForma({
               value={a.hardCostPerSf}
               onChange={(v) => set("hardCostPerSf", v)}
             />
+            <Num k="siteCostPerProject" label="Site work per project ($)" value={a.siteCostPerProject} onChange={(v) => set("siteCostPerProject", v)} step={1000} />
             <Num
               k="softCostPct"
               label="Fees & design (% of construction)"

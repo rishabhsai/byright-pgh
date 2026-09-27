@@ -177,7 +177,7 @@ describe("deriveEvidence", () => {
     expect(check(none, "finance")).toMatchObject({ state: "unknown", detail: "No Zillow series for New Homestead; finance not screened." });
     const poor = evidenceFor(lot(), POOR).evidence;
     expect(check(poor, "finance").state).toBe("fail");
-    expect(check(poor, "finance").detail).toMatch(/^Modeled shortfall \$[\d,]+ to a 10% return at \$185\/sf\. Target sale value \$[\d,]+; Test ZHVI \$83,082 \(2026-08\)\.$/);
+    expect(check(poor, "finance").detail).toMatch(/^Modeled shortfall \$[\d,]+ to a 10% return at \$225\/sf\. Target sale value \$[\d,]+; Test ZHVI \$83,082 \(2026-08\)\.$/);
   });
 });
 

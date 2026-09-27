@@ -39,6 +39,7 @@ type RangedKey = keyof typeof FINANCE_RANGES;
 /** Short URL keys for the ranged finance inputs. */
 export const FIN_KEYS: [string, RangedKey][] = [
   ["hc", "hardCostPerSf"],
+  ["site", "siteCostPerProject"],
   ["soft", "softCostPct"],
   ["dev", "devFeePct"],
   ["ret", "targetMarginPct"],

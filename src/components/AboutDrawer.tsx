@@ -7,6 +7,7 @@ import { GREEN_POLICY } from "@/lib/triage";
 import { TRIAGE_LABEL } from "@/lib/types";
 import { TRIAGE_COLOR, TRIAGE_ORDER, TRIAGE_WORD } from "./verdict";
 import { todayET } from "@/lib/dates";
+import { MENTOR_SOURCES } from "@/lib/proforma";
 
 const ET_TIME = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 
@@ -175,6 +176,9 @@ export default function AboutDrawer({
                   </a>
                   <p className="mt-0.5 text-[11px] leading-snug break-words text-muted [overflow-wrap:anywhere]">{vintageET(s.vintage, compsFile?.generatedAt)}</p>
                 </li>
+              ))}
+              {MENTOR_SOURCES.map((s) => (
+                <li key={s.name} className="text-ink">{s.name}<p className="mt-0.5 text-[11px] leading-snug text-muted">{s.vintage}</p></li>
               ))}
               {!compsFile?.sources?.length && (
                 <li className="text-[12px] text-muted">No comps file loaded; finance is not assessed for any lot.</li>

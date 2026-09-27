@@ -95,7 +95,10 @@ describe.skipIf(!haveData)("reopening a shared link", () => {
   };
 
   it("126 Carrington at a $100,000 land figure reopens with the same shortfall, not assessed land", () => {
-    const original: UrlState = { ...base, lot: "0023F00165000000", land: { "0023F00165000000": 100000 } };
+    // At the prior default ($185/sf, no site cost; hc=185&site=0 in the link) the lot is Green without the land figure.
+    const prior = { ...DEFAULT_FINANCE, hardCostPerSf: 185, siteCostPerProject: 0 };
+    const original: UrlState = { ...base, lot: "0023F00165000000", finance: prior, land: { "0023F00165000000": 100000 } };
+    expect(serializeUrlState(original)).toMatch(/hc=185&site=0/);
     const reopened = parseUrlState(`?${serializeUrlState(original)}`);
     const before = shown(original);
     expect(shown(reopened)).toEqual(before);
