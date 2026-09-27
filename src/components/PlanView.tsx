@@ -59,7 +59,7 @@ function fileBase(plan: Plan): string {
 const card = "surface-card p-card";
 const kicker = "text-headline text-ink";
 
-function FunnelRow({ plan, wide }: { plan: Plan; wide: boolean }) {
+function FunnelRow({ plan }: { plan: Plan }) {
   const f = plan.funnel;
   const steps = [
     { n: f.records, label: ["lots"], title: "Vacant-land records in the City inventory" },
@@ -73,8 +73,8 @@ function FunnelRow({ plan, wide }: { plan: Plan; wide: boolean }) {
     <ol aria-label="Disposition funnel" className="plan-funnel">
       {steps.map((s, i) => (
         <li key={s.title} title={s.title} className="flex min-w-0 flex-1 items-start">
-          {(wide ? i > 0 : i % 3 !== 0) && (
-            <span aria-hidden className="mt-[3px] shrink-0 text-caption text-faint">
+          {i > 0 && (
+            <span aria-hidden className="funnel-arrow mt-[3px] shrink-0 text-caption text-faint">
               →
             </span>
           )}
@@ -221,7 +221,7 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
   const funnel = (
     <section aria-label="Funnel">
       <div className={card}>
-        <FunnelRow plan={plan} wide={reading} />
+        <FunnelRow plan={plan} />
         <p className="mt-2.5 border-t border-hairline pt-2 text-caption text-muted">
           <span className="tabular-nums text-ink">{fmtNum(plan.needsRelief)}</span> need relief (lot size) ·{" "}
           <span className="tabular-nums text-ink">{fmtNum(plan.hillsideReview)}</span> Hillside exception ·{" "}
@@ -298,41 +298,53 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
       </div>
       <p className="mt-1.5 text-callout">{nb(gapSentence(plan))}</p>
       {g && (
-        <table className="plan-table mt-4 w-full text-callout tabular-nums">
-          <thead>
-            <tr className="text-caption text-faint">
-              <th className="text-left font-normal">Scenario</th>
-              <th className="pl-3 text-right font-normal whitespace-nowrap">Total</th>
-              <th className="pl-3 text-right font-normal whitespace-nowrap">Per project</th>
-              {reading && <th className="pl-3 text-right font-normal whitespace-nowrap">Per dwelling</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {[
-              ...hardCostRows(g),
-              ...(premium
-                ? [
-                    {
-                      label: PREMIUM_LABEL,
-                      s: premium,
-                      strong: false,
-                      premium: true,
-                    },
-                  ]
-                : []),
-            ].map((r) => (
-              <tr
-                key={r.label}
-                className={`${r.strong ? "font-medium text-ink" : "text-muted"} ${"premium" in r ? "border-t border-dashed border-hairline" : ""}`}
-              >
-                <td className="py-2 pr-2">{r.label}</td>
-                <td className="py-2 pl-3 text-right align-top">{fmtUsd(r.s.total)}</td>
-                <td className="py-2 pl-3 text-right align-top">{fmtUsd(r.s.perProject)}</td>
-                {reading && <td className="py-2 pl-3 text-right align-top">{fmtUsd(r.s.perDwelling)}</td>}
+        <div className="plan-table mt-4">
+          <table className="w-full table-fixed text-callout tabular-nums">
+            <colgroup>
+              <col />
+              <col className="w-[86px]" />
+              <col className="w-[76px]" />
+              {reading && <col className="w-[84px]" />}
+            </colgroup>
+            <thead>
+              <tr className="text-caption text-faint">
+                <th className="text-left font-normal">Scenario</th>
+                <th className="pl-3 text-right font-normal whitespace-nowrap">Total</th>
+                <th className="pl-3 text-right font-normal whitespace-nowrap">Per project</th>
+                {reading && <th className="pl-3 text-right font-normal whitespace-nowrap">Per dwelling</th>}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {[
+                ...hardCostRows(g),
+                ...(premium
+                  ? [
+                      {
+                        label: PREMIUM_LABEL,
+                        s: premium,
+                        strong: false,
+                        premium: true,
+                      },
+                    ]
+                  : []),
+              ].map((r) => (
+                <tr
+                  key={r.label}
+                  className={`${r.strong ? "font-medium text-ink" : "text-muted"} ${"premium" in r ? "border-t border-dashed border-hairline" : ""}`}
+                >
+                  <td className="py-2 pr-2 align-top">
+                    <span title={r.label} className="line-clamp-2 text-caption">
+                      {r.label}
+                    </span>
+                  </td>
+                  <td className="py-2 pl-3 text-right align-top">{fmtUsd(r.s.total)}</td>
+                  <td className="py-2 pl-3 text-right align-top">{fmtUsd(r.s.perProject)}</td>
+                  {reading && <td className="py-2 pl-3 text-right align-top">{fmtUsd(r.s.perDwelling)}</td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       <p className="mt-1.5 text-caption text-faint">
         Shortfall to the target return against an aggregate reference value; a screen, not a subsidy award or appraisal.

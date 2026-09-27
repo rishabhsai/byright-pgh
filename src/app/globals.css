@@ -165,8 +165,10 @@
   .plan-funnel { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 8px; }
   .plan-funnel > li { position: relative; }
   .plan-funnel > li > [aria-hidden] { position: absolute; left: -8px; top: 12px; }
+  /* Two stages per row: no arrow at the start of a row. */
+  .plan-funnel > li:nth-child(2n + 1) > .funnel-arrow { display: none; }
   .plan-splits { display: grid; gap: 16px; }
-  .plan-table { display: block; max-width: 100%; overflow-x: auto; padding-bottom: 8px; }
+  .plan-table { max-width: 100%; overflow-x: auto; padding-bottom: 8px; }
   .finance-total { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; padding-block: 20px; }
   .finance-total dt { flex: 1 1 120px; font-size: var(--text-caption); line-height: var(--text-caption--line-height); color: var(--color-muted); }
   .map-overlays { position: absolute; inset: 0; pointer-events: none; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end; gap: 8px; padding: 16px 48px 16px 16px; }
@@ -178,6 +180,8 @@
 
 @container (min-width: 400px) {
   .plan-funnel { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .plan-funnel > li:nth-child(2n + 1) > .funnel-arrow { display: block; }
+  .plan-funnel > li:nth-child(3n + 1) > .funnel-arrow { display: none; }
   .plan-splits { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 

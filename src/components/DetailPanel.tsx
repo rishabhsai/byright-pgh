@@ -359,13 +359,14 @@ function LotDetail({
           <div className="min-w-0">
             {scrolled ? (
               <p className="flex min-w-0 items-center gap-2 text-body whitespace-nowrap">
-                <span className="truncate font-semibold text-ink">{lot.address || "Unaddressed lot"}</span>
-                <span className="truncate text-muted">{lot.neighborhood}</span>
+                {/* The address keeps its width (up to 65%, room for the zone chip); the neighborhood truncates first. */}
+                <span className="max-w-[65%] shrink-0 truncate font-semibold text-ink">{lot.address || "Unaddressed lot"}</span>
+                <span className="min-w-0 truncate text-muted">{lot.neighborhood}</span>
                 <ZoneChip zone={lot.zone} tip />
               </p>
             ) : (
               <>
-                <h2 className="text-display break-words text-ink">{lot.address || "Unaddressed lot"}</h2>
+                <h2 className="text-display break-words text-balance text-ink">{keepLastWord(lot.address || "Unaddressed lot")}</h2>
                 <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-callout text-muted">
                   <span>{lot.neighborhood}</span>
                   <ZoneChip zone={lot.zone} tip />
@@ -598,6 +599,9 @@ function LotDetail({
 }
 
 const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+
+/** A non-breaking space before the last word, so a street suffix ("St") never wraps alone. */
+const keepLastWord = (s: string) => s.replace(/ (\S+)$/, "\u00a0$1");
 
 /* ---------- Fits? ---------- */
 
