@@ -12,6 +12,7 @@ export default function Collapsible({
   summary,
   action,
   defaultOpen = true,
+  bar,
   children,
 }: {
   id: string;
@@ -21,6 +22,8 @@ export default function Collapsible({
   /** A control at the right of the header row (Reset, Open in reading view). */
   action?: ReactNode;
   defaultOpen?: boolean;
+  /** A row pinned under the header, shown open or collapsed (the Plan's exports). */
+  bar?: ReactNode;
   children: ReactNode;
 }) {
   const prefs = useSyncExternalStore(subscribePrefs, getPrefs, getServerPrefs);
@@ -44,6 +47,7 @@ export default function Collapsible({
         </button>
         {action}
       </div>
+      {bar && <div className="flex items-center justify-end gap-1.5 px-4 pb-2">{bar}</div>}
       <div className="collapse-body" data-open={open}>
         <div id={bodyId} inert={!open} className="min-h-0 overflow-hidden">
           <div className="px-4 pt-0.5 pb-3">{children}</div>

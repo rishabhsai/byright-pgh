@@ -396,7 +396,7 @@ function MapView({
                 <span aria-hidden className="ml-0.5 h-2 w-2 rounded-full" style={{ background: "var(--color-v-byright)" }} />
                 <span className="text-ink tabular-nums">{fmtN(reformCounts[1])}</span> newly allowed +
                 <span aria-hidden className="ml-0.5 h-2 w-2 rounded-full" style={{ background: "var(--color-success-ink)" }} />
-                <span className="text-ink tabular-nums">{fmtN(reformCounts[2])}</span> newly candidates
+                <span className="text-ink tabular-nums">{fmtN(reformCounts[2])}</span> new candidates
               </li>
               {REFORM_LEGEND.filter((x) => x.code === 3 || x.code === 0).map((x) => (
                 <li key={x.code} className="inline-flex items-center gap-1.5 whitespace-nowrap">

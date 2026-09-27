@@ -110,16 +110,21 @@ export default function SplitHandle({ label, host, pane, value, onCommit }: Prop
         onLostPointerCapture={() => end(true)}
         onDoubleClick={() => onCommit(null)}
         onKeyDown={onKeyDown}
-        className="group absolute inset-x-0 -top-1 h-2 cursor-row-resize touch-none outline-none"
+        className="group absolute inset-x-0 -top-1.5 h-3 cursor-row-resize touch-none outline-none"
       >
         <div
           aria-hidden
-          className="absolute inset-x-0 top-[3px] h-px bg-hairline transition-colors duration-(--duration-ui) group-hover:bg-accent group-hover:delay-150 group-focus-visible:bg-accent group-data-dragging:bg-accent group-data-dragging:delay-0"
+          className="absolute inset-x-0 top-[5px] h-px bg-hairline transition-colors duration-(--duration-ui) group-hover:bg-accent group-hover:delay-150 group-focus-visible:bg-accent group-data-dragging:bg-accent group-data-dragging:delay-0"
         />
+        {/* The grip: a 44×4 pill with three dots, over the hairline. */}
         <div
           aria-hidden
-          className="absolute top-[2px] left-1/2 h-[3px] w-7 -translate-x-1/2 rounded-full bg-control-edge transition-colors duration-(--duration-ui) group-hover:bg-accent group-focus-visible:bg-accent group-data-dragging:bg-accent"
-        />
+          className="absolute top-[4px] left-1/2 flex h-1 w-11 -translate-x-1/2 items-center justify-center gap-[5px] rounded-full bg-control-edge shadow-[0_0_0_2px_var(--color-panel)] transition-colors duration-(--duration-ui) group-hover:bg-accent group-focus-visible:bg-accent group-data-dragging:bg-accent"
+        >
+          {[0, 1, 2].map((k) => (
+            <span key={k} className="h-0.5 w-0.5 rounded-full bg-panel" />
+          ))}
+        </div>
       </div>
     </div>
   );

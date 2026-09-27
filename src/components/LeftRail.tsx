@@ -1,5 +1,5 @@
 "use client";
-import { memo, useId, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { memo, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import type { Lot, RuleSet, Triage, Typology } from "@/lib/types";
 import { TYPOLOGY_LABEL } from "@/lib/types";
 import { scoreLot, compareTriageRanked, isAvailable, STATUS_GROUPS, type StatusGroup, type TriageRanked } from "@/lib/ranking";
@@ -12,7 +12,7 @@ import { reasonText } from "./ui/answer";
 import Collapsible from "./ui/Collapsible";
 import SplitHandle from "./ui/SplitHandle";
 import { ProjectsInput } from "./PlanView";
-import { getPrefs, getServerPrefs, setSplit, SPLIT_DEFAULT, subscribePrefs } from "./paneLayout";
+import { getPrefs, getServerPrefs, setSplit, SPLIT_DEFAULT, SPLIT_MIN_PX, subscribePrefs } from "./paneLayout";
 import { revealInScroller } from "./ui/revealInScroller";
 import Segmented from "./ui/Segmented";
 import {
@@ -138,6 +138,12 @@ interface Props {
   reformResults?: ReactNode;
   /** Ask ByRight's applied changes, as a chip row at the top of the controls pane. */
   askChips?: ReactNode;
+  /** One line under the tabs (the Plan tab's "Ask filters active" notice). */
+  notice?: ReactNode;
+  /** Export CSV and Download brief, pinned in the Plan header. */
+  planExports?: ReactNode;
+  /** Set while the plan's reading view is open: the rail dims like the map, and a click closes the view. */
+  onDimClick?: (() => void) | null;
 }
 
 export type Tab = "lots" | "plan" | "reform";
@@ -196,6 +202,9 @@ function LeftRail({
   reform,
   reformResults,
   askChips,
+  notice,
+  planExports,
+  onDimClick = null,
 }: Props) {
   const listId = useId();
   const advId = useId();
@@ -204,7 +213,10 @@ function LeftRail({
   const controlsRef = useRef<HTMLDivElement>(null);
   const [cursor, setCursor] = useState<number | null>(null);
   const prefs = useSyncExternalStore(subscribePrefs, getPrefs, getServerPrefs);
-  const split = prefs.split[tab] ?? SPLIT_DEFAULT[tab];
+  const userSplit = prefs.split[tab];
+  // Without a user split, the controls pane ends on a row boundary at or above the tab's default share.
+  const [fit, setFit] = useState<{ tab: Tab; f: number } | null>(null);
+  const split = userSplit ?? (fit?.tab === tab ? fit.f : SPLIT_DEFAULT[tab]);
 
   const hoodOptions = useMemo<NeighborhoodOption[]>(() => {
     const m = new Map<string, NeighborhoodOption>();
@@ -304,6 +316,22 @@ function LeftRail({
     e.preventDefault();
     moveCursor(next);
   };
+
+  const hasChips = !!askChips;
+  useLayoutEffect(() => {
+    const host = splitRef.current;
+    const pane = controlsRef.current;
+    if (userSplit != null || !host || !pane) return;
+    const measure = () => {
+      const f = fitSplit(host, pane, SPLIT_DEFAULT[tab]);
+      setFit((prev) => (prev?.tab === tab && prev.f === f ? prev : { tab, f }));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(host);
+    for (const el of pane.children) ro.observe(el);
+    return () => ro.disconnect();
+  }, [tab, userSplit, hasChips]);
 
   const scopeLabel = filters.neighborhoods.length ? filters.neighborhoods.join(", ") : "Citywide";
 
@@ -608,6 +636,7 @@ function LeftRail({
       id="plan.scope"
       title="Disposition plan"
       summary={`${scopeLabel} · ${projects.toLocaleString("en-US")} projects`}
+      bar={planExports}
       action={
         onReadPlan && evals && triages && evidence ? (
           <button onClick={onReadPlan} className="flex h-6 shrink-0 items-center gap-1 rounded-full bg-control px-2 text-caption font-medium text-ink hover:bg-track">
@@ -656,7 +685,8 @@ function LeftRail({
   const tabLabel = tab === "reform" ? "Reform" : tab === "plan" ? "Plan" : "Lots";
 
   return (
-    <aside className="pane-rail rail-pane flex shrink-0 flex-col border-r border-hairline bg-panel">
+    <aside className="pane-rail rail-pane relative flex shrink-0 flex-col border-r border-hairline bg-panel">
+      {onDimClick && <div aria-hidden onClick={onDimClick} className="backdrop-in absolute inset-0 z-30 bg-ink/25" />}
       <div className="shrink-0 px-4 py-1.5">
         <Segmented<Tab>
           kind="tabs"
@@ -671,6 +701,7 @@ function LeftRail({
           ]}
         />
       </div>
+      {notice}
       <div
         ref={splitRef}
         role="tabpanel"
@@ -693,6 +724,36 @@ function LeftRail({
       </div>
     </aside>
   );
+}
+
+/** Elements a split must not cut through: text lines, controls and list rows. */
+const ROW_SELECTOR = "p, li, label, button, input, select, h2, h3, h4, [role=group], .filter-row, .input-shell";
+
+/**
+ * The controls pane's share of the split area `host` so it ends on a row boundary: its whole content when that fits
+ * in `share`, else the lowest point at or above `share` that no row straddles. Rows in collapsed (inert) bodies are skipped.
+ */
+function fitSplit(host: HTMLElement, pane: HTMLElement, share: number): number {
+  const H = host.clientHeight;
+  if (!H) return share;
+  const limit = share * H;
+  if (pane.scrollHeight <= limit) return share;
+  const origin = pane.getBoundingClientRect().top - pane.scrollTop;
+  const rows: [number, number][] = [];
+  for (const el of pane.querySelectorAll<HTMLElement>(ROW_SELECTOR)) {
+    if (el.closest("[inert]")) continue;
+    const r = el.getBoundingClientRect();
+    if (!r.height) continue;
+    rows.push([r.top - origin, r.bottom - origin]);
+  }
+  let cut = 0;
+  for (const [, bottom] of rows) {
+    const at = bottom + 2;
+    if (at > limit || at <= cut) continue;
+    if (rows.some(([t, b]) => t < at - 1 && b > at + 1)) continue;
+    cut = at;
+  }
+  return cut >= SPLIT_MIN_PX.controls ? Math.ceil((cut / H) * 1000) / 1000 : share;
 }
 
 export default memo(LeftRail);

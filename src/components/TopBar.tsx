@@ -28,6 +28,20 @@ export interface ReformHeader {
   } | null;
 }
 
+/** The status strip scoped to the neighborhood filter, read off the plan: "Hazelwood: 285 of 797 pass …". */
+export interface ScopeLine {
+  label: string;
+  total: number;
+  allowed: number;
+  candidates: number;
+  clearing: number;
+  hardCostPerSf: number;
+  /** "duplex" with a Home type filter. */
+  typeLabel: string | null;
+  /** The plan lags the inputs. */
+  pending: boolean;
+}
+
 interface Props {
   ruleSet: RuleSet;
   onRuleSet: (r: RuleSet) => void;
@@ -37,6 +51,10 @@ interface Props {
   reform?: ReformHeader | null;
   /** The search and Ask field, with its sheet: the toolbar centers it. */
   search: ReactNode;
+  /** Set with a neighborhood filter: the strip counts that scope, not the city. Null while the plan builds. */
+  scope?: ScopeLine | null;
+  /** A neighborhood filter is set, so the strip is scoped (a skeleton until `scope` arrives). */
+  scoped?: boolean;
 }
 
 const fmt = (n: number) => n.toLocaleString("en-US");
@@ -56,7 +74,7 @@ const OPTIONS: RuleSet[] = ["current", "bill-2025-1545"];
  * One 48px toolbar (wordmark, the search and Ask field, scenario and About) over a 28px status strip that
  * carries the headline counts in one line. The big-number hero lives only in the right panel's empty state.
  */
-export default function TopBar({ ruleSet, onRuleSet, stats, onAbout, reform = null, search }: Props) {
+export default function TopBar({ ruleSet, onRuleSet, stats, onAbout, reform = null, search, scope = null, scoped = false }: Props) {
   const s = stats?.[ruleSet] ?? null;
 
   return (
@@ -66,9 +84,12 @@ export default function TopBar({ ruleSet, onRuleSet, stats, onAbout, reform = nu
           <h1 className="shrink-0 text-headline text-ink">
             ByRight <span className="text-muted">PGH</span>
           </h1>
-          <p className="min-w-0 truncate text-caption text-muted">Screening Pittsburgh&apos;s vacant City lots for small homes</p>
+          <p className="hidden min-w-0 truncate text-caption text-muted min-[1440px]:block">Screening Pittsburgh&apos;s vacant City lots for small homes</p>
         </div>
-        <div className="min-w-0">{search}</div>
+        {/* The Ask sheet anchors to this cell, below the status strip (see AskSheet). */}
+        <div className="relative flex h-full min-w-0 items-center">
+          <div className="w-full">{search}</div>
+        </div>
         <div className="flex min-w-0 items-center justify-end gap-2">
           {reform ? (
             <Tooltip content="Set on the Reform tab. Leave Reform to choose today's code or the bill here." side="bottom" asChild>
@@ -87,7 +108,7 @@ export default function TopBar({ ruleSet, onRuleSet, stats, onAbout, reform = nu
       </div>
 
       <div className="flex h-7 items-center gap-4 border-b border-hairline bg-panel px-4 text-caption">
-        {reform ? <ScenarioLine r={reform} /> : <CountsLine s={s} />}
+        {reform ? <ScenarioLine r={reform} /> : scoped ? <ScopedLine l={scope} /> : <CountsLine s={s} />}
         {reform ? (
           <span className="shrink-0 text-faint">Hypothetical; not a proposal</span>
         ) : (
@@ -131,6 +152,28 @@ function CountsLine({ s }: { s: RuleSetStats | null }) {
       {b(pays.n)} {pays.n === 1 ? "clears" : "clear"} the cost screen at ${fmt(s.hardCostPerSf)}/sf
       <span className="text-faint"> · </span>
       {b(s.clearAtPremium)} at a {NEW_CONSTRUCTION_PREMIUM}× premium
+    </p>
+  );
+}
+
+/** "Hazelwood: 285 of 797 pass the use-table and lot-size screen · 106 candidates · 0 clear the cost screen at $225/sf" */
+function ScopedLine({ l }: { l: ScopeLine | null }) {
+  if (!l)
+    return (
+      <p aria-label="Counting the neighborhood" className="min-w-0 flex-1">
+        <span className="inline-block h-2.5 w-[46ch] max-w-full animate-pulse rounded-sm bg-surface align-middle" />
+      </p>
+    );
+  const b = (n: number) => <span className="font-semibold text-ink tabular-nums">{fmt(n)}</span>;
+  return (
+    <p aria-busy={l.pending || undefined} className={`min-w-0 flex-1 truncate text-muted transition-opacity duration-200 ${l.pending ? "opacity-60" : ""}`}>
+      <span className="font-medium text-ink">{l.label}:</span> {b(l.allowed)} of {b(l.total)} pass the{" "}
+      <Tooltip content={TIP.byRight}>use-table and lot-size screen</Tooltip>
+      {l.typeLabel ? ` for a ${l.typeLabel}` : ""}
+      <span className="text-faint"> · </span>
+      {b(l.candidates)} {l.candidates === 1 ? "candidate" : "candidates"}
+      <span className="text-faint"> · </span>
+      {b(l.clearing)} {l.clearing === 1 ? "clears" : "clear"} the cost screen at ${fmt(l.hardCostPerSf)}/sf
     </p>
   );
 }

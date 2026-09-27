@@ -31,7 +31,7 @@ import { districtUnconfirmed, MIN_PRACTICAL_LOT_SQFT } from "@/lib/evidence";
 import { prototypeNote } from "@/lib/proforma";
 import { financeGate } from "./ui/financeGate";
 import { FunnelBars, FunnelHero, StatBlocks, type FunnelStats } from "./ui/Funnel";
-import type { Funnel } from "@/lib/plan";
+import { channelOf, type Funnel } from "@/lib/plan";
 
 /** 4623 Chatsworth St, Hazelwood: the demo script's lot (a detached house; Finance fails, Fit not checked). */
 export const DEMO_LOT_ID = "0055P00008000000";
@@ -313,6 +313,8 @@ function LotDetail({
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 4) cur = NAV[NAV.length - 1].id;
     setActive(cur);
   };
+  // Clicking Pays in the nav opens Adjust assumptions (it sits right under the Pays headline).
+  const [openAssumptions, setOpenAssumptions] = useState(0);
   const goTo = (id: string) => {
     const el = scroller.current;
     const s = el?.querySelector<HTMLElement>(`[data-section="${id}"]`);
@@ -377,6 +379,13 @@ function LotDetail({
                 <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-callout text-muted">
                   <span>{lot.neighborhood}</span>
                   <ZoneChip zone={lot.zone} tip />
+                  {channelOf(lot) !== "Other" && (
+                    <Tooltip content={`Recorded disposition channel in the City inventory: ${channelOf(lot)}.`}>
+                      <span className="inline-flex shrink-0 items-center rounded-full bg-accent-soft px-2 py-0.5 text-caption font-medium whitespace-nowrap text-review-ink">
+                        {channelOf(lot)}
+                      </span>
+                    </Tooltip>
+                  )}
                   {unconfirmed && (
                     <Tooltip
                       content={`Inventory says ${lot.zone || "no district"}; ${lot.zoneMap === null ? "no City zoning map district contains this point" : `the City zoning map says ${lot.zoneMap ?? "a different district"} at this point`}. Confirm the district before relying on the use result.`}
@@ -431,7 +440,10 @@ function LotDetail({
           {NAV.map((n) => (
             <button
               key={n.id}
-              onClick={() => goTo(n.id)}
+              onClick={() => {
+                if (n.id === "pays") setOpenAssumptions((k) => k + 1);
+                goTo(n.id);
+              }}
               aria-current={active === n.id ? "true" : undefined}
               className={`border-b-2 pt-1 pb-2 text-callout transition-colors ${
                 active === n.id ? "border-accent font-medium text-accent" : "border-transparent text-muted hover:text-ink"
@@ -552,6 +564,7 @@ function LotDetail({
             onRetryComps={onRetryComps}
             blocked={gate.screened ? null : `${TYPOLOGY_LABEL[typology]}: ${gate.reason}`}
             hypothetical={gate.hypothetical}
+            openAssumptions={openAssumptions}
           />
         </Section>
 

@@ -7,7 +7,7 @@ const FOCUSABLE = 'a[href], button, input, select, textarea, summary, [tabindex]
  * The plan in reading view: the same overlay surface the lot panel expands into, over the map area,
  * wide enough for two columns.
  */
-export default function PlanReader({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+export default function PlanReader({ title, onClose, actions, children }: { title: string; onClose: () => void; actions?: ReactNode; children: ReactNode }) {
   const closeBtn = useRef<HTMLButtonElement>(null);
   const dialog = useRef<HTMLDivElement>(null);
   // Focus moves in on open and back to whatever opened the view on close.
@@ -49,17 +49,20 @@ export default function PlanReader({ title, onClose, children }: { title: string
             <h2 className="text-title text-ink">Disposition plan</h2>
             <p className="mt-1.5 truncate text-callout text-muted">{title}</p>
           </div>
-          <button
-            ref={closeBtn}
-            onClick={onClose}
-            aria-label="Close reading view (Esc)"
-            className="button-secondary shrink-0 gap-2 text-callout"
-          >
-            Back to the rail
-            <svg width="16" height="16" viewBox="0 0 12 12" aria-hidden>
-              <path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            {actions}
+            <button
+              ref={closeBtn}
+              onClick={onClose}
+              aria-label="Close reading view (Esc)"
+              className="button-secondary shrink-0 gap-2 text-callout"
+            >
+              Back to the rail
+              <svg width="16" height="16" viewBox="0 0 12 12" aria-hidden>
+                <path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
         </div>
         <div data-scroll className="scroll-thin relative min-h-0 flex-1 overflow-y-auto">{children}</div>
       </div>

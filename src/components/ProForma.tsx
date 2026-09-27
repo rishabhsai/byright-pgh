@@ -42,6 +42,8 @@ interface Props {
   blocked?: string | null;
   /** The lib's labeled hypothetical for an unscreened proposal; null means no numbers are shown at all. */
   hypothetical?: Proforma | null;
+  /** Bumped when the Pays tab is clicked in the section nav: opens Adjust assumptions. */
+  openAssumptions?: number;
 }
 
 /** The Pays headline for a blocked proposal: the gate's reason without the home type. */
@@ -79,7 +81,12 @@ export default function ProForma({
   onRetryComps,
   blocked = null,
   hypothetical = null,
+  openAssumptions = 0,
 }: Props) {
+  const assumptionsRef = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    if (openAssumptions > 0 && assumptionsRef.current) assumptionsRef.current.open = true;
+  }, [openAssumptions]);
   // Controlled by the selected case: every edit rebuilds the case synchronously, so the headline,
   // the evidence row and these numbers always come from the same inputs. The app batches edits
   // for the city-wide pass on its own.
@@ -253,50 +260,7 @@ export default function ProForma({
         <p className="rounded-card bg-control p-card text-callout text-muted">{NO_COMPS}.</p>
       )}
 
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-callout">
-        <span className="text-muted">Modeled for</span>
-        <select
-          value={typology}
-          onChange={(e) => onTypology(e.target.value as Typology)}
-          aria-label="Home type"
-          className="input-field max-w-full"
-        >
-          {TYPOLOGIES.map((t) => (
-            <option key={t} value={t}>
-              {TYPOLOGY_LABEL[t]}
-              {verdictOf(t) === "by-right" ? "" : ` (${VERDICT_SHORT[verdictOf(t)].toLowerCase()})`}
-            </option>
-          ))}
-        </select>
-        <span className="text-muted tabular-nums">
-          {TYPOLOGY_LABEL[typology]}{" "}
-          {plan.note.replace(/ × /g, "\u00a0×\u00a0")}
-        </span>
-        {selectedVerdict !== "by-right" && !blocked && (
-          <span className="block w-full text-caption text-warning-ink">
-            Zoning: {selectedFinding ? verdictLabel(selectedFinding).toLowerCase() : "not checked"} for this type; these numbers assume it gets approved.
-          </span>
-        )}
-      </div>
-
-      {blocked ? (
-        hypothetical && (
-        <details className="group/hyp text-callout">
-          <summary className="cursor-pointer text-accent select-none">
-            Show hypothetical numbers
-          </summary>
-          <p className="mt-2 mb-3 text-caption text-muted">
-            If the {TYPOLOGY_LABEL[typology].toLowerCase()} were approved as
-            proposed. Not a screen result.
-          </p>
-          {ladderView}
-        </details>
-        )
-      ) : (
-        r && ladderView
-      )}
-
-      <details className="surface-card group" onBlur={onCommit}>
+      <details ref={assumptionsRef} className="surface-card group" onBlur={onCommit}>
         <summary className="flex cursor-pointer items-center justify-between gap-3 p-card text-body font-semibold text-ink select-none">
           Adjust assumptions
           <svg width="16" height="16" viewBox="0 0 12 12" aria-hidden className="text-muted transition-transform group-open:rotate-180">
@@ -400,6 +364,50 @@ export default function ProForma({
           )}
         </div>
       </details>
+
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-callout">
+        <span className="text-muted">Modeled for</span>
+        <select
+          value={typology}
+          onChange={(e) => onTypology(e.target.value as Typology)}
+          aria-label="Home type"
+          className="input-field max-w-full"
+        >
+          {TYPOLOGIES.map((t) => (
+            <option key={t} value={t}>
+              {TYPOLOGY_LABEL[t]}
+              {verdictOf(t) === "by-right" ? "" : ` (${VERDICT_SHORT[verdictOf(t)].toLowerCase()})`}
+            </option>
+          ))}
+        </select>
+        <span className="text-muted tabular-nums">
+          {TYPOLOGY_LABEL[typology]}{" "}
+          {plan.note.replace(/ × /g, "\u00a0×\u00a0")}
+        </span>
+        {selectedVerdict !== "by-right" && !blocked && (
+          <span className="block w-full text-caption text-warning-ink">
+            Zoning: {selectedFinding ? verdictLabel(selectedFinding).toLowerCase() : "not checked"} for this type; these numbers assume it gets approved.
+          </span>
+        )}
+      </div>
+
+      {blocked ? (
+        hypothetical && (
+        <details className="group/hyp text-callout">
+          <summary className="cursor-pointer text-accent select-none">
+            Show hypothetical numbers
+          </summary>
+          <p className="mt-2 mb-3 text-caption text-muted">
+            If the {TYPOLOGY_LABEL[typology].toLowerCase()} were approved as
+            proposed. Not a screen result.
+          </p>
+          {ladderView}
+        </details>
+        )
+      ) : (
+        r && ladderView
+      )}
+
     </div>
   );
 }
@@ -502,7 +510,7 @@ function Num({
   const { min, max } = FINANCE_RANGES[k];
   return (
     <label className="block">
-      <span className="mb-1 block text-caption text-muted">{label}</span>
+      <span className="mb-1 flex min-h-8 items-end text-caption text-muted">{label}</span>
       <input
         type="number"
         {...inputProps}
@@ -549,7 +557,7 @@ function LandInput({
   );
   return (
     <label className="block">
-      <span className="mb-1 block text-caption text-muted">
+      <span className="mb-1 flex min-h-8 items-end text-caption text-muted">
         Land cost, this lot only ($)
       </span>
       <input

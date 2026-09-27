@@ -11,11 +11,11 @@ import { districtUnconfirmed, yellowReason, pickFinding, type Evidence } from "@
 import { buildPlan, type Plan } from "@/lib/plan";
 import { RULE_SETS, type Evaluations, type Triages, type TriageInput } from "@/lib/evalCompute";
 import { useCityEval } from "@/lib/useCityEval";
-import TopBar from "./TopBar";
+import TopBar, { type ScopeLine } from "./TopBar";
 import LeftRail, { DEFAULT_FILTERS, type Filters, type Tab } from "./LeftRail";
 import DetailPanel from "./DetailPanel";
 import AboutDrawer from "./AboutDrawer";
-import PlanView from "./PlanView";
+import PlanView, { PlanExports } from "./PlanView";
 import PlanReader from "./PlanReader";
 import ResizeHandle from "./ui/ResizeHandle";
 import { defaultWidth, getLayout, getServerLayout, layoutStyle, setPaneWidth, subscribeLayout } from "./paneLayout";
@@ -33,7 +33,7 @@ import { compsFor, countTriage, DEFAULT_FINANCE, FALLBACK_COMPS, type FinanceAss
 import { applyAll, compactAskState, scenarioOf, undoApplied, type AskState } from "@/lib/ask/apply";
 import { explainText, type AnswerInput } from "@/lib/ask/answer";
 import type { ToolCall } from "@/lib/ask/tools";
-import AskTranscript, { ASK_TIMEOUT_MS, AskChipRow, AskSheet, askTopicsOf, useAskAnswer, type AskEntry } from "./ask/AskBox";
+import AskTranscript, { ASK_TIMEOUT_MS, AskChipRow, AskSheet, askTopicsOf, isLive, isScenarioCall, useAskAnswer, type AskEntry } from "./ask/AskBox";
 import SearchBox from "./SearchBox";
 
 const MapView = dynamic(() => import("./MapView"), {
@@ -716,11 +716,8 @@ export default function ByRightApp() {
   );
 
   // One plan for the rail and the reading view: same count, shortlist, totals and exports.
-  // The empty lot panel follows the neighborhood scope, so the plan is also derived then.
-  const planOpen =
-    tab === "plan" ||
-    planReading ||
-    (selectedIdx == null && filters.neighborhoods.length > 0);
+  // The status strip and the empty lot panel follow the neighborhood scope, so the plan is also derived then.
+  const planOpen = tab === "plan" || planReading || filters.neighborhoods.length > 0;
   // The plan is derived off the input path: after a short pause and in an idle callback, so typing in the
   // neighborhood picker or the project count never waits on a city-wide rebuild. Until the rebuild lands,
   // the previous plan stays on screen marked stale, and exports stay disabled.
@@ -872,11 +869,61 @@ export default function ByRightApp() {
     let to = from;
     for (let k = askEntry.applied.length - 1; k >= 0; k--) {
       const a = askEntry.applied[k];
-      if (a.changed.length && !a.undone) to = undoApplied(to, a);
+      if (isLive(a)) to = undoApplied(to, a);
     }
     askLatest.current.write(from, to);
-    setAskEntry((e) => (e && e.id === askEntry.id ? { ...e, applied: e.applied.map((x) => (x.changed.length ? { ...x, undone: true } : x)) } : e));
+    setAskEntry((e) => (e && e.id === askEntry.id ? { ...e, applied: e.applied.map((x) => (isLive(x) ? { ...x, undone: true } : x)) } : e));
   }, [askEntry]);
+
+  // The user picked a scenario themselves (a preset or lever row, a knob, the Scenario menu, or left Reform):
+  // an Ask scenario chip still applied is marked superseded, so two scenarios never show at once.
+  const supersedeAskScenario = useCallback(() => {
+    setAskEntry((e) =>
+      e && e.applied.some((a) => isScenarioCall(a) && isLive(a))
+        ? { ...e, applied: e.applied.map((a) => (isScenarioCall(a) && isLive(a) ? { ...a, superseded: true } : a)) }
+        : e,
+    );
+  }, []);
+  const onUserReformPreset = useCallback(
+    (id: string) => {
+      supersedeAskScenario();
+      onReformPreset(id);
+    },
+    [supersedeAskScenario, onReformPreset],
+  );
+  const onUserReformParams = useCallback(
+    (params: RuleParams) => {
+      supersedeAskScenario();
+      onReformParams(params);
+    },
+    [supersedeAskScenario, onReformParams],
+  );
+  const onUserRuleSet = useCallback(
+    (r: RuleSet) => {
+      if (r !== ruleSet) supersedeAskScenario();
+      setRuleSet(r);
+    },
+    [ruleSet, supersedeAskScenario],
+  );
+  const onUserTab = useCallback(
+    (t: Tab) => {
+      if (tab === "reform" && t !== "reform") supersedeAskScenario();
+      onTab(t);
+    },
+    [tab, supersedeAskScenario, onTab],
+  );
+
+  // The Plan tab's notice while Ask filters are still applied: "Ask filters active: Hazelwood · Duplex · Reset".
+  const askFilterParts = useMemo(() => {
+    if (!askEntry) return [];
+    const slices = new Set(askEntry.applied.filter(isLive).flatMap((a) => a.changed));
+    const parts: string[] = [];
+    if (slices.has("neighborhoods")) parts.push(filters.neighborhoods.length ? filters.neighborhoods.join(", ") : "All neighborhoods");
+    if (slices.has("homeType")) parts.push(filters.typology ? TYPOLOGY_LABEL[filters.typology] : "Any home type");
+    if (slices.has("status")) parts.push(filters.status ? (filters.status === "other" ? "Other status" : filters.status) : "Any status");
+    if (slices.has("triage")) parts.push(filters.triage ? `${filters.triage[0].toUpperCase()}${filters.triage.slice(1)}` : "Any triage");
+    return parts;
+  }, [askEntry, filters.neighborhoods, filters.typology, filters.status, filters.triage]);
   const closeAskSheet = useCallback(() => setAskSheetOpen(false), []);
   const closeAsk = useCallback(() => {
     setAskSheetOpen(false);
@@ -914,6 +961,24 @@ export default function ByRightApp() {
     [askEntry, askScenario, askGreen],
   );
 
+  // The status strip, scoped to the neighborhood filter: read off the plan, so it matches the Plan tab.
+  const scopeLine = useMemo<ScopeLine | null>(
+    () =>
+      plan && filters.neighborhoods.length
+        ? {
+            label: plan.scopeLabel,
+            total: plan.funnel.records,
+            allowed: plan.funnel.byRight,
+            candidates: plan.funnel.atLeast1000,
+            clearing: plan.funnel.pencil,
+            hardCostPerSf: plan.assumptions.hardCostPerSf,
+            typeLabel: cityTypology ? TYPOLOGY_LABEL[cityTypology].toLowerCase() : null,
+            pending: recomputing || planStale,
+          }
+        : null,
+    [plan, filters.neighborhoods.length, cityTypology, recomputing, planStale],
+  );
+
   // Pane widths: user-set via the handles, persisted, and dropped when they would squeeze the map.
   const layout = useSyncExternalStore(subscribeLayout, getLayout, getServerLayout);
   const shellRef = useRef<HTMLDivElement>(null);
@@ -923,12 +988,14 @@ export default function ByRightApp() {
     <div className="relative flex h-dvh flex-col overflow-clip">
       <TopBar
         ruleSet={ruleSet}
-        onRuleSet={setRuleSet}
+        onRuleSet={onUserRuleSet}
         stats={stats}
+        scoped={filters.neighborhoods.length > 0 && !loadError && !city.error}
+        scope={scopeLine}
         onAbout={() => setAboutOpen(true)}
         reform={reformHeader}
         search={
-          <div className="relative">
+          <div>
             <SearchBox
               lots={lots}
               onPick={selectFromList}
@@ -962,8 +1029,23 @@ export default function ByRightApp() {
           evidence={evidence}
           typology={cityTypology}
           tab={tab}
-          onTab={onTab}
+          onTab={onUserTab}
           loading={!loadError && !city.error && !stats}
+          onDimClick={planReading && plan ? () => setPlanReading(false) : null}
+          planExports={<PlanExports plan={plan} stale={recomputing || planStale} />}
+          notice={
+            tab === "plan" && askFilterParts.length > 0 ? (
+              <p role="status" className="fade-in flex h-7 shrink-0 items-center gap-1.5 border-t border-hairline bg-warning-soft px-4 text-caption text-warning-ink">
+                <span className="min-w-0 truncate">
+                  <span className="font-medium">Ask filters active:</span> {askFilterParts.join(" · ")}
+                </span>
+                <span aria-hidden className="shrink-0">·</span>
+                <button type="button" onClick={onAskUndoAll} className="shrink-0 font-medium text-accent hover:underline">
+                  Reset
+                </button>
+              </p>
+            ) : null
+          }
           onReadPlan={() => {
             setExpanded(false);
             setPlanReading(true);
@@ -976,9 +1058,9 @@ export default function ByRightApp() {
             ) : null
           }
           reform={
-            <ReformView presetId={reform.presetId} params={reform.params} onPreset={onReformPreset} onParams={onReformParams} lotCount={lots.length} />
+            <ReformView presetId={reform.presetId} params={reform.params} onPreset={onUserReformPreset} onParams={onUserReformParams} lotCount={lots.length} />
           }
-          reformResults={<LeverList levers={rf.levers} today={rf.today} activeId={reformId} pending={rf.leversPending} onPreset={onReformPreset} />}
+          reformResults={<LeverList levers={rf.levers} today={rf.today} activeId={reformId} pending={rf.leversPending} onPreset={onUserReformPreset} />}
           plan={
             plan ? (
               <PlanView
@@ -1086,7 +1168,7 @@ export default function ByRightApp() {
                   leversPending={rf.leversPending}
                   totalLots={lots.length}
                   hardCostPerSf={rf.computedAssumptions?.hardCostPerSf ?? cityAssumptions.hardCostPerSf}
-                  onPreset={onReformPreset}
+                  onPreset={onUserReformPreset}
                 />
               ) : undefined
             }
@@ -1100,6 +1182,7 @@ export default function ByRightApp() {
             <PlanReader
               title={`${filters.neighborhoods.length ? filters.neighborhoods.join(", ") : "Citywide"}${cityTypology ? `, ${TYPOLOGY_LABEL[cityTypology]}` : ""}. Scope follows the neighborhood filter.`}
               onClose={() => setPlanReading(false)}
+              actions={<PlanExports plan={plan} stale={recomputing || planStale} size="md" />}
             >
               <PlanView
                 layout="reading"

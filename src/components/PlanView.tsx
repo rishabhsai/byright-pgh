@@ -58,8 +58,59 @@ function fileBase(plan: Plan): string {
 
 const kicker = "text-headline text-ink";
 
+/**
+ * Export CSV and Download brief as two compact pills, pinned in the Plan header (rail) and the reading view's
+ * header so neither needs a scroll. Same files as the full buttons at the end of the plan.
+ */
+export function PlanExports({ plan, stale = false, size = "sm" }: { plan: Plan | null; stale?: boolean; size?: "sm" | "md" }) {
+  const off = !plan || stale;
+  const pill =
+    size === "sm"
+      ? "flex h-6 shrink-0 items-center gap-1 rounded-full px-2 text-caption font-medium whitespace-nowrap"
+      : "flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-callout font-medium whitespace-nowrap";
+  const why = stale ? "Updating for your latest inputs" : !plan ? "The plan is being computed" : undefined;
+  return (
+    <>
+      <button
+        type="button"
+        data-action="export-csv-pinned"
+        disabled={off}
+        title={why ?? (plan ? `${fmtNum(plan.rows.length)} lots in scope` : undefined)}
+        onClick={() => plan && downloadText(`${fileBase(plan)}.csv`, toCsv(plan.rows), "text/csv;charset=utf-8")}
+        className={`${pill} bg-accent text-white hover:bg-accent/90 disabled:cursor-wait disabled:opacity-50`}
+      >
+        <DownloadIcon />
+        Export CSV
+      </button>
+      <button
+        type="button"
+        data-action="download-brief-pinned"
+        disabled={off}
+        title={why ?? "Markdown summary"}
+        onClick={() => plan && downloadText(`${fileBase(plan)}.md`, toBrief(plan), "text/markdown;charset=utf-8")}
+        className={`${pill} bg-control text-ink hover:bg-track disabled:cursor-wait disabled:opacity-50`}
+      >
+        <DownloadIcon />
+        Download brief
+      </button>
+    </>
+  );
+}
+
+function DownloadIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden>
+      <path d="M6 1.5v6M3.5 5L6 7.5 8.5 5M2 10.5h8" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function FunnelRow({ plan, compact = false }: { plan: Plan; compact?: boolean }) {
   const f = plan.funnel;
+  // The reading view carries the candidates' channel split under the candidate stage, so one frame holds it.
+  const channels = compact
+    ? []
+    : CHANNELS.filter((c) => c !== "Other" && plan.candidates.byChannel[c] > 0).sort((a, b) => plan.candidates.byChannel[b] - plan.candidates.byChannel[a]);
   const steps = [
     { n: f.records, label: ["lots"], title: "Vacant-land records in the City inventory" },
     { n: f.encoded, label: ["encoded"], title: "In zoning districts the rules engine encodes" },
@@ -86,6 +137,15 @@ function FunnelRow({ plan, compact = false }: { plan: Plan; compact?: boolean })
                 {t}
               </span>
             ))}
+            {i === 4 && channels.length > 0 && (
+              <span aria-label="Candidates by recorded channel" className="mt-1.5 block border-t border-hairline pt-1.5 text-caption text-muted">
+                {channels.map((c) => (
+                  <span key={c} className="block whitespace-nowrap">
+                    <span className="font-medium text-ink tabular-nums">{fmtNum(plan.candidates.byChannel[c])}</span> {c}
+                  </span>
+                ))}
+              </span>
+            )}
           </span>
         </li>
       ))}

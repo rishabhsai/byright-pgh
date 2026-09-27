@@ -118,6 +118,17 @@ export default function ReformPanel({ lots, base, today, result, levers, activeI
               for staff review ({changeText(change.candidates)}); <b className="font-semibold text-ink tabular-nums">{fmt(result.clearingCostScreen)}</b> clear
               the cost screen at ${hardCostPerSf}/sf.
             </p>
+            <button
+              type="button"
+              onClick={() => {
+                const el = document.getElementById("moves-h");
+                el?.scrollIntoView({ block: "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+              }}
+              className="mt-3 inline-flex items-center gap-1 text-callout font-medium text-accent hover:underline"
+            >
+              Where it moves
+              <span aria-hidden>↓</span>
+            </button>
           </div>
         ) : (
           <div aria-label="Computing the scenario" className="mt-3 space-y-3">
@@ -241,7 +252,7 @@ export default function ReformPanel({ lots, base, today, result, levers, activeI
       </section>
 
       <section aria-labelledby="moves-h">
-        <h3 id="moves-h" className="text-title text-ink">
+        <h3 id="moves-h" className="scroll-mt-4 text-title text-ink">
           Where it moves
         </h3>
         <p className="mt-1 text-caption text-muted">Lots newly passing the use-table and lot-size screen under this scenario (gains only; losses are in the headline).</p>
