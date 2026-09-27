@@ -43,6 +43,10 @@ Or open the [Hazelwood disposition plan](https://byright-pgh.vercel.app/?hoods=H
 5. **District check.** The inventory district against the City zoning map (98.3% agree); a conflict makes the district "unconfirmed".
 6. **Finance.** Cost (mentor-calibrated $/sf, site work, soft cost, fee) against Zillow index value, screened only when the proposal is buildable, the district is confirmed and the lot is for sale.
 
+## Reform levers
+
+A third tab applies hypothetical rule changes to the same 11,338 lots: one preset per lever (minimum lot size by subdistrict, Hillside minimum, two-unit in R1, three-unit in R2, ADUs by right, no parking minimums) plus Bill 2025-1545 and a custom mode with sliders, each labeled with the section it edits. "Allowed" means the use table, minimum lot size and LNC FAR; setbacks and height are not modeled. Today's code and the bill are rebuilt from the same parameter table and are byte-identical to the hand-encoded tables (tested). Headline results at default finance: lowering the L minimum from 3,000 to 1,800 sq ft makes 587 more public lots pass the screen (175 more candidates; Homewood North +178); the bill unlocks no additional lots but adds 3,619 ADU options and removes parking minimums. Full table: `docs/reform.md`. Not a proposal; a lever to see where a rule binds.
+
 ## What the data says (Sept 26, 2026)
 
 - 11,338 vacant-land records in the City inventory. 3,641 have at least one small home type that passes the use table and lot-size standards (use, lot size, lot width, and floor area in LNC; setbacks, height, overlays, and parking on the site plan not checked); on 3,638 more, no type passes and a permitted type needs relief: 3,631 fail a lot-size standard (zoning staff decide whether the relief path is a variance or a nonconforming-lot exception) and 7 fail only the LNC floor-area ratio; 3,549 are in the Hillside district, where the use needs an administrator exception (1,751 with no failing lot standard, 1,798 that also need lot-size relief); 2,308 are in districts we did not encode (mostly Parks).
