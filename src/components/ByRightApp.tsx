@@ -575,7 +575,7 @@ export default function ByRightApp() {
   }, []);
 
   return (
-    <div className="flex h-dvh flex-col">
+    <div className="relative flex h-dvh flex-col overflow-clip">
       <TopBar ruleSet={ruleSet} onRuleSet={setRuleSet} stats={stats} onAbout={() => setAboutOpen(true)} />
       <div className="flex min-h-0 flex-1">
         <LeftRail

@@ -49,7 +49,7 @@ export default function Segmented<T extends string>({ options, value, onChange, 
     if (j == null) return;
     e.preventDefault();
     onChange(options[j].value);
-    refs.current[j]?.focus();
+    refs.current[j]?.focus({ preventScroll: true });
   };
 
   const tabs = kind === "tabs";

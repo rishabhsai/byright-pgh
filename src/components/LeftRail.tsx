@@ -10,6 +10,7 @@ import type { Evaluations, Triages } from "./ByRightApp";
 import NeighborhoodPicker, { type NeighborhoodOption } from "./NeighborhoodPicker";
 import { reasonText } from "./ui/answer";
 import SearchBox from "./SearchBox";
+import { revealInScroller } from "./ui/revealInScroller";
 import Segmented from "./ui/Segmented";
 import {
   TRIAGE_COLOR,
@@ -271,7 +272,7 @@ function LeftRail({
 
   const moveCursor = (pos: number) => {
     setCursor(pos);
-    document.getElementById(rowId(pos))?.scrollIntoView({ block: "nearest" });
+    revealInScroller(document.getElementById(rowId(pos)));
   };
 
   const onListKey = (e: KeyboardEvent<HTMLUListElement>) => {
@@ -311,7 +312,7 @@ function LeftRail({
       </div>
 
       {tab === "plan" ? (
-        <div role="tabpanel" aria-label="Plan" className="scroll-thin min-h-0 flex-1 overflow-y-auto">
+        <div role="tabpanel" aria-label="Plan" data-scroll className="scroll-thin relative min-h-0 flex-1 overflow-y-auto">
           <div className="border-b border-hairline px-4 pt-2 pb-3">
             <div className="flex items-center justify-between gap-2">
               <h2 className="font-serif text-[22px] leading-none">Disposition plan</h2>
@@ -587,7 +588,8 @@ function LeftRail({
             tabIndex={rows.length ? 0 : -1}
             aria-activedescendant={cur >= 0 ? rowId(cur) : undefined}
             onKeyDown={onListKey}
-            className="scroll-thin group/list min-h-0 flex-1 overflow-y-auto px-2 pb-2 focus-visible:outline-offset-[-2px]"
+            data-scroll
+            className="scroll-thin group/list relative min-h-0 flex-1 overflow-y-auto px-2 pb-2 focus-visible:outline-offset-[-2px]"
           >
             {loading && Array.from({ length: 8 }, (_, k) => <SkeletonRow key={k} />)}
             {!loading &&

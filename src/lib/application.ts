@@ -340,6 +340,32 @@ function describe(lot: Lot, typology: Typology, zoneName: string | null, pf: Pro
 /* ---------- ZBA review worksheet (§ 922.09.E): record facts and applicant questions ---------- */
 
 /** The first thing to establish when the district is unconfirmed: which district governs. */
+/** Street suffixes as the City inventory abbreviates them (St, Av, Wy, Bo, ...) and spelled out. */
+const STREET_SUFFIX =
+  /^(st|street|ave?|avenue|wa?y|wa|rd|road|rdwy|blvd|boulevard|bv|bl|bo|pl|place|dr|drive|ln|lane|ct|court|ter|terrace|sq|square|pike|path|aly|alley|cir|circle|hwy|pkwy|row|commons)$/i;
+
+/** True when the address ends in a street suffix, ignoring a trailing direction, "Ext" or "Rear". */
+export function hasStreetSuffix(address: string): boolean {
+  const words = address.trim().split(/\s+/);
+  while (words.length > 1 && /^(n|s|e|w|ext|rear)$/i.test(words[words.length - 1])) words.pop();
+  return words.length > 1 && STREET_SUFFIX.test(words[words.length - 1]);
+}
+
+/** The purchase form's address: the inventory address as-is, with the ZIP when the parcel-to-ZIP table has it. */
+function purchaseAddress(lot: Lot, zip: string | null): PrefilledField {
+  const address = lot.address.trim();
+  const notes: string[] = [];
+  if (/^0+ /.test(address)) notes.push("House number 0 means the lot has no assigned number; the Block/Lot Number identifies it.");
+  if (address && !hasStreetSuffix(address)) notes.push("Street name as recorded in the City inventory, which gives no street suffix.");
+  if (!zip) notes.push("Add the ZIP code from the County record.");
+  return {
+    label: "Property to be Purchased Address",
+    value: `${address || "No street address on record"}, Pittsburgh, PA${zip ? ` ${zip}` : ""}`,
+    who: "prefilled",
+    note: notes.length ? notes.join(" ") : undefined,
+  };
+}
+
 function districtQuestion(lot: Lot): string {
   const map = lot.zoneMap ? `the City zoning map says ${lot.zoneMap}` : "no City zoning map district contains the inventory point";
   return `Which district governs this lot? The inventory says ${lot.zone || "no district"}; ${map}. Get zoning staff's determination before relying on anything below.`;
@@ -598,15 +624,7 @@ export function buildApplicationPlan(
   if (letter === "S") seek.push(`special exception (§ 922.07)${seek.length ? "" : ", Zoning Board hearing"}`);
   const seekItems = seek.filter((x, i, a) => a.indexOf(x) === i);
 
-  const purchaseForm: PrefilledField[] = [
-    {
-      label: "Property to be Purchased Address",
-      value: `${lot.address || "No street address on record"}, Pittsburgh, PA`,
-      who: "prefilled",
-      note: /^0+ /.test(lot.address)
-        ? "House number 0 means the lot has no assigned number; the Block/Lot Number identifies it. Add the ZIP code from the County record."
-        : "Add the ZIP code from the County record.",
-    },
+  const purchaseForm: PrefilledField[] = [purchaseAddress(lot, comps?.zip ?? null),
     { label: "Ward", value: lot.ward || null, who: lot.ward ? "prefilled" : "you" },
     { label: "Block/Lot Number", value: blockLot.text, who: "prefilled", note: blockLot.note },
     {

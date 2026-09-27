@@ -130,7 +130,7 @@ function EmptyState({
       </div>
     );
   return (
-    <div className="scroll-thin flex flex-1 flex-col overflow-y-auto px-8 pt-10 pb-8">
+    <div data-scroll className="scroll-thin relative flex flex-1 flex-col overflow-y-auto px-8 pt-10 pb-8">
       <FunnelSentence
         s={stats}
         className="font-serif text-[25px] leading-[1.22] tracking-[-0.005em]"
@@ -205,7 +205,7 @@ function ScopeEmptyState({
     },
   ];
   return (
-    <div className="scroll-thin flex flex-1 flex-col overflow-y-auto px-8 pt-10 pb-8">
+    <div data-scroll className="scroll-thin relative flex flex-1 flex-col overflow-y-auto px-8 pt-10 pb-8">
       <p className="text-[12px] text-muted">{scope.label}</p>
       <p className="mt-1 font-serif text-[25px] leading-[1.22] tracking-[-0.005em] text-muted">
         {n(f.byRight)} of {n(f.records)} vacant City lots pass the use-table and
@@ -348,7 +348,7 @@ function LotDetail({
   const pad = expanded ? "px-10" : "px-5";
 
   return (
-    <div ref={scroller} onScroll={onScroll} className="fade-in scroll-thin flex-1 overflow-y-auto">
+    <div ref={scroller} onScroll={onScroll} data-scroll className="fade-in scroll-thin relative flex-1 overflow-y-auto">
       <div ref={header} className={`sticky top-0 z-10 border-b border-hairline bg-panel ${pad}`}>
         <div className={`flex items-center justify-between gap-3 transition-[height] duration-200 ${scrolled ? "h-[48px]" : "pt-4 pb-2"}`}>
           <div className="min-w-0">

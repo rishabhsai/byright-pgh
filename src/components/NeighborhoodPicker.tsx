@@ -1,5 +1,6 @@
 "use client";
 import { useId, useMemo, useRef, useState } from "react";
+import { revealInScroller } from "./ui/revealInScroller";
 
 export interface NeighborhoodOption {
   name: string;
@@ -63,7 +64,7 @@ export default function NeighborhoodPicker({ options, selected, onChange }: Prop
 
   const moveTo = (i: number) => {
     setActive(i);
-    listRef.current?.querySelector<HTMLElement>(`[data-i="${i}"]`)?.scrollIntoView({ block: "nearest" });
+    revealInScroller(listRef.current?.querySelector<HTMLElement>(`[data-i="${i}"]`));
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -128,7 +129,7 @@ export default function NeighborhoodPicker({ options, selected, onChange }: Prop
           // Clicking the padding around the chips focuses the text box instead of blurring it.
           if (e.target === e.currentTarget) {
             e.preventDefault();
-            inputRef.current?.focus();
+            inputRef.current?.focus({ preventScroll: true });
             setOpen(true);
           }
         }}
@@ -190,6 +191,7 @@ export default function NeighborhoodPicker({ options, selected, onChange }: Prop
           aria-multiselectable="true"
           aria-label="Neighborhoods"
           onMouseDown={(e) => e.preventDefault()}
+          data-scroll
           className="scroll-thin absolute inset-x-0 top-full z-30 mt-1 max-h-[272px] overflow-y-auto rounded-md border border-hairline bg-white py-1 shadow-[0_8px_24px_-8px_rgba(23,33,30,.22)]"
         >
           {results.length === 0 && (

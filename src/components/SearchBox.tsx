@@ -178,7 +178,7 @@ function SearchBox({
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        input.current?.focus();
+        input.current?.focus({ preventScroll: true });
         input.current?.select();
         setOpen(true);
       }

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef } from "react";
 import type { CompsFile, LotsFile } from "@/lib/types";
-import { caveats, RULESET_LABEL, RULESET_NOTE } from "@/lib/engine";
+import { caveats, FRONTAGE_SOURCE, RULESET_LABEL, RULESET_NOTE } from "@/lib/engine";
 import { encodedDistricts } from "./district";
 import { GREEN_POLICY } from "@/lib/triage";
 import { TRIAGE_LABEL } from "@/lib/types";
@@ -18,9 +18,6 @@ const AI_USE = [
 const HAZARD_STATEMENT =
   "Steep slope, undermining and flood are screening flags at the inventory point. A flag keeps a lot out of Green and is listed as an open item; it never changes a zoning verdict.";
 
-/** Where frontage comes from, worded the same everywhere. */
-const FRONTAGE_SOURCE = "parsed from the County legal description; approximate";
-
 /** What each triage color means, in the order the header shows them. GREEN_POLICY follows as the full statement. */
 const TRIAGE_MEANING: Record<keyof typeof TRIAGE_LABEL, string> = {
   green:
@@ -36,7 +33,7 @@ const LIMITATIONS = [
   "Setbacks, height, lot coverage, and overlay districts are not encoded. A survey and a zoning review are still needed.",
   HAZARD_STATEMENT,
   "County land value is the 2012-base assessment, not a market price.",
-  `Street frontage is ${FRONTAGE_SOURCE}. A survey governs; a lot with no frontage in the record reads "Unknown · survey needed".`,
+  `Street frontage is ${FRONTAGE_SOURCE}. A lot with no frontage in the record reads "Unknown · survey needed".`,
   "The header counts lots, not homes. The five home types on a lot are alternatives, so lot × home-type combinations are not added up anywhere.",
   "No personal information is used or shown. Parcels come from the City's vacant-land inventory; a few records are marked Privately Owned.",
   "Rules decide. No verdict comes from a model.",
@@ -77,6 +74,7 @@ export default function AboutDrawer({
         role="dialog"
         aria-modal="true"
         aria-label="About the data"
+        data-scroll
         className={`scroll-thin absolute top-0 right-0 h-full w-[520px] overflow-y-auto border-l border-hairline bg-panel shadow-[-20px_0_40px_-20px_rgba(23,33,30,.3)] transition-transform duration-300 ease-[cubic-bezier(.2,.8,.2,1)] ${
           open ? "translate-x-0" : "translate-x-full"
         }`}

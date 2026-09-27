@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { Finding, Lot } from "./types";
+import type { Comps, Finding, Lot } from "./types";
 import { evaluateLot } from "./rules";
 import { triageLot } from "./triage";
 import { DEFAULT_FINANCE, proformaWithFallback } from "./finance";
 import {
   buildApplicationPlan,
   formatBlockLot,
+  hasStreetSuffix,
   NEVER_SUBMITS,
   renderApplicationMarkdown,
   WORKSHEET_LABEL,
@@ -295,5 +296,41 @@ describe("buildApplicationPlan: relief comes from every failed check and the rev
 
   it("never says parking passed: parking is unverified on a vacant lot", () => {
     for (const s of sentences(plan(SMALL_R2, "single"))) expect(s).not.toMatch(/checks we ran \(use, lot area, lot width, parking/);
+  });
+});
+
+describe("purchase-form address", () => {
+  const ADDR = "Property to be Purchased Address";
+  const comps: Comps = { neighborhood: "Test", zip: "15212", zhvi: null, zhviDate: null, zori: null, zoriDate: null };
+  const build = (l: Lot, c: Comps | null) => {
+    const f = evaluateLot(l, "current");
+    return buildApplicationPlan(l, f, "current", triageLot(l, f, null), null, c, "single");
+  };
+
+  it("adds the ZIP when known, in the plan and the markdown export", () => {
+    const p = build(SMALL_R2, comps);
+    expect(field(p, ADDR)?.value).toBe(`${SMALL_R2.address}, Pittsburgh, PA 15212`);
+    expect(field(p, ADDR)?.note ?? "").not.toContain("ZIP");
+    expect(renderApplicationMarkdown(p)).toContain(`${SMALL_R2.address}, Pittsburgh, PA 15212`);
+  });
+
+  it("asks for the ZIP when it is not known", () => {
+    const p = build(SMALL_R2, null);
+    expect(field(p, ADDR)?.value).toBe(`${SMALL_R2.address}, Pittsburgh, PA`);
+    expect(field(p, ADDR)?.note).toContain("Add the ZIP code from the County record.");
+  });
+
+  it("keeps an address without a street suffix as-is and says it is as recorded in the City inventory", () => {
+    const l = lot({ address: "1200 Voskamp" });
+    const p = build(l, comps);
+    expect(field(p, ADDR)?.value).toBe("1200 Voskamp, Pittsburgh, PA 15212");
+    expect(field(p, ADDR)?.note).toContain("as recorded in the City inventory");
+    expect(renderApplicationMarkdown(p)).toContain("as recorded in the City inventory");
+    expect(field(build(SMALL_R2, comps), ADDR)?.note ?? "").not.toContain("as recorded");
+  });
+
+  it("recognizes inventory suffix abbreviations and trailing qualifiers", () => {
+    for (const a of ["3336 Oregon St", "0 Forbes Av", "12 Mission Wy", "5 Grandview Bo", "7 Brownsville Rd Ext", "9 Ohio St W"]) expect(hasStreetSuffix(a)).toBe(true);
+    for (const a of ["1200 Voskamp", "44 Perrysville", "0 Rule"]) expect(hasStreetSuffix(a)).toBe(false);
   });
 });

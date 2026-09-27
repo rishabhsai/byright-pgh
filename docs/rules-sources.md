@@ -93,7 +93,9 @@ Mirrors the `caveats` export in `src/lib/rules/index.ts`.
 1. Screening only; the Zoning Administrator interprets the code.
 2. Current-code ADU verdicts assume the lot is outside any ADU Overlay District; the prototype has
    no overlay layer. The only overlay we know of was the 2018 interim pilot (Ord. 32-2018).
-3. Missing lot area or frontage -> "needs survey", verdict not downgraded, lot kept out of Green.
+3. Lot area comes from the City inventory; frontage is parsed from the County legal description
+   (approximate; a survey governs). Missing lot area or frontage -> "needs survey", verdict not
+   downgraded, lot kept out of Green.
 4. Frontage stands in for Lot Width in the § 911.04.A.69A 35 ft test; the code's Lot Width
    definition (§ 925/926) can differ from street frontage.
 5. Parking minimums are reported, not checked against lot geometry.

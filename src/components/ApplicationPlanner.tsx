@@ -49,18 +49,7 @@ export default function ApplicationPlanner({ selected, onChangeType, onFlash, wi
   const plan = useMemo<ApplicationPlan | null>(
     () =>
       evaluable
-        ? withKnownZip(
-            buildApplicationPlan(
-              lot,
-              findings,
-              ruleSet,
-              triage,
-              proforma,
-              comps,
-              typology,
-            ),
-            comps?.zip ?? null,
-          )
+        ? buildApplicationPlan(lot, findings, ruleSet, triage, proforma, comps, typology)
         : null,
     [evaluable, typology, lot, findings, ruleSet, triage, proforma, comps],
   );
@@ -204,31 +193,6 @@ export default function ApplicationPlanner({ selected, onChangeType, onFlash, wi
 }
 
 /** "3 filings · staff zoning review" or "4 filings · Zoning Board hearing required (§ 922.09.E)" */
-/** The purchase form's address with the lot's ZIP (from the comps file's parcel-to-ZIP table) when known. */
-function withKnownZip(
-  plan: ApplicationPlan,
-  zip: string | null,
-): ApplicationPlan {
-  if (!zip) return plan;
-  return {
-    ...plan,
-    purchaseForm: plan.purchaseForm.map((f) =>
-      f.label === "Property to be Purchased Address" &&
-      typeof f.value === "string" &&
-      f.value.endsWith(", Pittsburgh, PA")
-        ? {
-            ...f,
-            value: `${f.value} ${zip}`,
-            note:
-              f.note
-                ?.replace(/\s*Add the ZIP code from the County record\./, "")
-                .trim() || undefined,
-          }
-        : f,
-    ),
-  };
-}
-
 function packetHeadline(
   plan: ApplicationPlan,
   districtUnconfirmed = false,

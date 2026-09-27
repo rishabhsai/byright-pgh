@@ -23,6 +23,7 @@ const USE_LETTER_LABEL: Record<UseLetter, string> = {
 };
 
 const NEEDS_SURVEY = "needs survey";
+const LOT_AREA_MISSING = "Lot area is not in the City inventory";
 
 export const NONCONFORMING_LOT_URL = "https://ecode360.com/45478977";
 
@@ -90,7 +91,8 @@ function numericCheck(
   required: number | null,
   requiredNote: string | undefined,
   citation: Check["citation"],
-  missingLabel: string,
+  /** Why the measure is missing, e.g. "Lot area is not in the City inventory". */
+  missing: string,
 ): Check {
   if (required === null || required === 0) {
     return {
@@ -111,7 +113,7 @@ function numericCheck(
       measured: null,
       required: `${fmt(required)} ${measuredUnit}`,
       citation,
-      note: `${missingLabel} is not in the City inventory; ${NEEDS_SURVEY}.`,
+      note: `${missing}; ${NEEDS_SURVEY}.`,
     };
   }
   const passed = measured >= required;
@@ -178,7 +180,7 @@ function dimensionalChecks(d: DistrictStandards, typology: Typology, lot: Lot): 
       d.minLotAreaSqFt.value,
       d.minLotAreaSqFt.note,
       d.minLotAreaSqFt.citation,
-      "Lot area",
+      LOT_AREA_MISSING,
     ),
     numericCheck(
       "lot-width",
@@ -188,7 +190,7 @@ function dimensionalChecks(d: DistrictStandards, typology: Typology, lot: Lot): 
       d.minLotWidthFt.value,
       d.minLotWidthFt.note,
       d.minLotWidthFt.citation,
-      "Frontage",
+      "Frontage is not in the County legal description",
     ),
     numericCheck(
       "lot-area-per-unit",
@@ -198,7 +200,7 @@ function dimensionalChecks(d: DistrictStandards, typology: Typology, lot: Lot): 
       perUnit === null ? null : perUnit * units,
       d.minLotAreaPerUnitSqFt.note,
       d.minLotAreaPerUnitSqFt.citation,
-      "Lot area",
+      LOT_AREA_MISSING,
     ),
   ];
 }
