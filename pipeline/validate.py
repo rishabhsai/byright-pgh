@@ -11,6 +11,7 @@ ecode360 and the City zoning map; this script never fills it.
 """
 
 import json
+import re
 import os
 import subprocess
 import sys
@@ -20,19 +21,20 @@ ROOT = Path(__file__).resolve().parent.parent
 LOTS = ROOT / "public" / "data" / "lots.json"
 OUT = ROOT / "docs" / "validation-set.md"
 
-# (parcel id, why it is in the set)
+# (parcel id, why it is in the set). Never state a triage result here: the Triage column comes from the engine,
+# and main() refuses a reason that claims Green or a cleared cost-and-return screen the engine does not show.
 SET = [
-    ("0023F00165000000", "Green: allowed, clears the cost-and-return screen, for sale"),
+    ("0023F00165000000", "Allowed townhouse, recorded for sale; short of the target return at default assumptions, clears it only at the 1.3× premium"),
     ("0086L00500000000", "Sliver: 259 sf LNC lot, FAR 2:1"),
     ("0055R00106000000", "Hillside: administrator exception, slope flag"),
     ("0085K00296000000", "Missing frontage; inventory and map disagree"),
-    ("0086L00060000000", "Clears the cost-and-return screen but Hold for Study (not for sale)"),
+    ("0086L00060000000", "Allowed, but Hold for Study (not recorded for sale), so finance is not screened"),
     ("0082B00053000000", "Park record in the P district"),
     ("0056N00203000000", "Hazelwood, 19.5 ft lot: attached prototype"),
     ("0056N00206000000", "Hazelwood, 19.5 ft lot"),
     ("0056N00211000000", "Hazelwood, 19 ft lot"),
     ("0021N00315000000", "Hillside, 2,000 sf under the 3,200 sf minimum; Sale Pending"),
-    ("0023E00093000000", "Green, URA Transfer channel"),
+    ("0023E00093000000", "URA Transfer channel; short of the target return at default assumptions"),
     ("0020G00055000000", "R1D-L, 50 ft lot: detached house"),
     ("0024B00153000A00", "R1D-M, 1,274 sf under the 2,400 sf minimum"),
     ("0013P00172000000", "R2-L, two-unit permitted"),
@@ -87,6 +89,11 @@ def main():
     compared = [l for l in doc["lots"] if l.get("zoneAgrees") is not None]
     agree_all = sum(1 for l in compared if l["zoneAgrees"])
 
+    claims = re.compile(r"\bgreen\b|clears the cost-and-return screen", re.I)
+    stale = [pid for pid, why in SET if claims.search(why) and eng[pid]["triage"] != "green"]
+    if stale:
+        raise SystemExit(f"'Why in the set' claims a result the engine does not show at default assumptions: {stale}")
+
     rows = []
     for pid, why in SET:
         l, e = lots[pid], eng[pid]
@@ -113,7 +120,8 @@ def main():
              "*Map zone* is `zon_new` of the City zoning-map polygon that contains the point"
              + (f" ({zoning_src['url']}, {zoning_src['vintage']})" if zoning_src else "")
              + ". Where they disagree, the app marks Use as Unknown and the lot cannot be Green. "
-             f"Citywide, {agree_all:,} of {len(compared):,} compared lots agree ({100 * agree_all / len(compared):.1f}%); "
+             f"Citywide, {agree_all:,} of {len(compared):,} compared lots agree ({100 * agree_all / len(compared):.1f}% agreement "
+             "between the two sources, not a measure of verdict accuracy); "
              f"in this set, {set_agree} of {set_compared}.")
     L.append("")
     L.append("**Automated checks performed** (machine-verified; no person was involved):")
@@ -123,7 +131,7 @@ def main():
     L.append("- Engine determinism: the engine was run twice for these 20 parcels and printed identical results; "
              "`src/lib/evalCompute.test.ts` checks that the Web Worker and main-thread paths build the same plan, "
              "brief and CSV on Hazelwood and a 500-lot citywide sample.")
-    L.append("- District tables: two external audits (AI-agent reviews, not practitioner review) checked the encoded "
+    L.append("- District tables: two AI-agent audits (not practitioner or City review) checked the encoded "
              "district tables in `src/lib/rules/districts.ts` against the ecode360 captures in `docs/sources/`.")
     L.append("")
     L.append("None of these is a human check of a verdict. The *Hand check* column below is the human check.")

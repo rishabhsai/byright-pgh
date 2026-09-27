@@ -97,7 +97,7 @@ export function parseUrlState(search: string): UrlState {
     hoods: (p.get("hoods") ?? "").split(",").map((h) => h.trim()).filter(Boolean),
     bill: p.get("scenario") === "bill",
     tab: p.get("tab") === "plan" ? "plan" : p.get("tab") === "reform" ? "reform" : "lots",
-    reformPreset: /^[a-z0-9-]{1,40}$/.test(p.get("preset") ?? "") ? p.get("preset") : null,
+    reformPreset: /^[A-Za-z0-9-]{1,40}$/.test(p.get("preset") ?? "") ? p.get("preset") : null,
     reformParams: p.get("preset") === "custom" ? decodeParams(p.get("rp")) : null,
     projects: Number.isInteger(n) && n >= 1 && n <= 9999 ? n : DEFAULT_PROJECTS,
     finance,

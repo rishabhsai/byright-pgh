@@ -9,7 +9,11 @@ import { TYPOLOGY_ORDER } from "@/lib/rules";
  */
 
 export const MAX_BODY_BYTES = 4096;
-export const PROVIDER_TIMEOUT_MS = 15000;
+/** Provider timeout; the routes' maxDuration (20 s) leaves room to answer with the deterministic text after it. */
+export const PROVIDER_TIMEOUT_MS = 12_000;
+
+/** Shown with every model summary from /api/memo. */
+export const MEMO_SUMMARY_LABEL = "Plain-language summary (model-generated, unverified)";
 
 const RULE_SETS: readonly RuleSet[] = ["current", "bill-2025-1545"];
 
@@ -88,14 +92,14 @@ function provider(): Provider | null {
   if (process.env.OPENROUTER_API_KEY) {
     return {
       url: "https://openrouter.ai/api/v1/chat/completions",
-      model: process.env.MEMO_MODEL ?? "openai/gpt-4.1-mini",
+      model: process.env.MEMO_MODEL || "openai/gpt-4.1-mini",
       token: process.env.OPENROUTER_API_KEY,
     };
   }
   if (process.env.OPENAI_API_KEY) {
     return {
       url: "https://api.openai.com/v1/chat/completions",
-      model: process.env.MEMO_MODEL ?? "gpt-4.1-mini",
+      model: process.env.MEMO_MODEL || "gpt-4.1-mini",
       token: process.env.OPENAI_API_KEY,
     };
   }
@@ -103,7 +107,7 @@ function provider(): Provider | null {
   if (gatewayToken) {
     return {
       url: "https://ai-gateway.vercel.sh/v1/chat/completions",
-      model: process.env.MEMO_MODEL ?? "anthropic/claude-sonnet-4.5",
+      model: process.env.MEMO_MODEL || "anthropic/claude-sonnet-4.5",
       token: gatewayToken,
     };
   }
@@ -112,7 +116,7 @@ function provider(): Provider | null {
 
 export type Completion = { text: string; model: string } | { text: null; error: string };
 
-/** One chat completion with an 15 s timeout. Never throws. */
+/** One chat completion with a 12 s timeout. Never throws. */
 export async function complete(system: string, user: string, maxTokens: number): Promise<Completion> {
   const p = provider();
   if (!p) return { text: null, error: "no-llm-credentials" };

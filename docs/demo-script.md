@@ -1,30 +1,28 @@
 # Demo script
 
-_Numbers from the Sept 26, 2026 build: current code, Any home type, sale mode, $225/sf plus $35,000 site work (mentor calibration), no land overrides._
+_Numbers from the Sept 27, 2026 build: current code, Any home type, sale mode, $225/sf plus a $35,000 site-work allowance per project, no land overrides. Replace [names]. Target 3:20–3:50 with pauses._
 
-AI for Housing Hackathon, Track 1. We're [names]; this is ByRight PGH, a review queue for the City's vacant land.
+**Open the app.** AI for Housing Hackathon, Track One. We're [names]. ByRight PGH helps Pittsburgh disposition staff decide which public lots deserve review, what financial assumptions need checking, and which zoning changes would matter. AI helped extract the zoning text into inspectable rule tables; rules and arithmetic make every decision.
 
-Staff are asked which Hazelwood lots could take a small home, through which channel, and at what shortfall. Today that means parcel-by-parcel lookups.
+**Plan tab, pick Hazelwood, Escape, open reading view.** Start with Hazelwood. Seven hundred ninety-seven inventory records become one hundred six candidates for staff review: ninety-eight recorded as URA Transfer, eight as Public Sale. Each row names its next review action.
 
-**Open the app.** 3,641 of 11,338 vacant City lots pass the use-table and lot-size screen. 0 clear the cost-and-return screen at $225/sf; 7 would at a 1.3× new-construction premium.
+Now the financial hurdle. At two hundred twenty-five dollars per square foot, plus a thirty-five-thousand-dollar site-work allowance per project, the ten selected prototypes need roughly four hundred forty thousand dollars of value each, including the target return. Their size-adjusted neighborhood reference value is about seventy-one thousand. Staff verify bids and new-home sales before approvals. A screen, not a subsidy award.
 
-**Plan, pick Hazelwood, open reading view.** Hazelwood has 797 City records: 285 pass the use table and lot-size standards; 106 are recorded for sale, unflagged and at least a thousand square feet. These are candidates for staff review: 98 through URA Transfer, eight through Public Sale. None clears the cost-and-return screen, even at the premium.
+**Clear the neighborhood. ⌘K, "126 Carrington".** A different case: a Public Sale townhouse in Central Northside. At the reference value it falls short of the target return. A hypothetical thirty-percent value premium clears that target by only about twelve hundred dollars. **Pays: select the construction field, type 250, wait.** Raise construction to two hundred fifty and the premium case falls short again. **Back to 225.**
 
-The ten lowest-shortfall prototypes each need about $440,000 of value to reach cost plus the target return; the modeled value is about $71,000. Together: a $3.69 million modeled shortfall at $225 a foot, our mentors' midpoint, plus $35,000 site work each. That is a screen, not a subsidy award.
+**⌘K, paste 0086L00500000000.** It also catches hard stops. This Forbes parcel is two hundred fifty-nine square feet; its floor-area limit is five hundred eighteen, so the triplex prototype fails and finance is withheld. **⌘K, 5724 Murray Hill.** Here the inventory and the zoning map disagree. Staff resolve the district first.
 
-**Click 4623 Chatsworth St, then Fits, then Pays.** A house is allowed by the use table in R1D-H. Four checks pass, Finance fails, Fit is not checked: setbacks and height are not modeled. Not checked never counts as a pass. Cost $399,900 against $71,213 of modeled value: $368,677 short of the target return.
+**Close the card. Reform tab, click the "Minimum lot size L 3,000 → 1,800" row.** Reform asks which rule binds. Lower the low-density lot minimum from three thousand to eighteen hundred square feet: five hundred eighty-seven more public lots pass the encoded screen, one hundred seventy-five join the review cohort, Homewood North gains one hundred seventy-eight. None clears the default cost screen. **Click Bill 2025-1545.** The bill unlocks no additional lot; it adds home-type options on lots already allowed, a different benefit.
 
-**Clear the neighborhood. ⌘K, "126 Carrington".** A Public Sale townhouse in Central Northside: $461,050 cost, $391,048 value, $116,107 short of the ten percent return. It clears only at the 1.3× new-construction premium, and we say so. **Pays: construction 225 to 250.** Now $168,082 short. **Back to $225.** **Lots tab, Home type: Duplex.** Not allowed here; no money line appears. **Back to Any.**
+**Plan tab, add Hazelwood: Export CSV, Download brief.** Staff leave with a CSV of checks, citations, assumptions and next actions, plus a short review brief.
 
-**⌘K, paste 0086L00500000000.** 0 Forbes is LNC, with no minimum lot size, but it is 259 square feet and floor-area ratio caps the building at 518. The triplex fails Fit, so Finance is not screened. **⌘K, 5724 Murray Hill.** The inventory says RM-M; the City map says R1D-L. We do not pick one: Use stays unknown and Finance unscreened until staff confirm.
-
-**Plan tab, add Hazelwood: Export CSV, Download brief.** Staff leave with a 797-row CSV, every check cited, and a short review brief. Rows without screened finance carry no dollar figures and say why.
-
-**About the data.** Claude extracted the zoning tables from saved code captures; each row was checked against its capture. No model sits in the decision path: every verdict, count and dollar figure is tables, public data and arithmetic. No partnership exists yet. We propose a six-week pilot on Hazelwood and Larimer, asking City Planning to check 30 parcels and publishing every disagreement. Decision support, not zoning advice.
+**About the data.** Every verdict and figure comes from tables, public data and arithmetic. Independent practitioner validation is not finished; we say so. We propose a six-week pilot with City Planning, the URA and the Land Bank to review thirty parcels, publish every disagreement and measure staff time. No partner has committed. Decision support, not a zoning determination.
 
 ## Recording notes
 
-- 1920×1080, browser zoom 110%, pre-warm the page once so the first-load skeleton is not on camera. Record beats as separate clips.
-- Type "250" in one quick motion and wait about 2.5 s before cutting; slow typing shows an intermediate value.
-- Before the duplex beat click the Lots tab; after "Back to Any" return to Plan and re-add Hazelwood before exporting.
-- Use the full parcel ID for 0 Forbes Av (0086L00500000000); by name it ranks third.
+- 1920×1080, browser zoom 110%, pre-warm the page once. Double-click both resize handles first so the layout is 360 / 440. Record beats as separate clips.
+- After picking Hazelwood in the combobox, press Escape before "Open in reading view".
+- In the construction field, select all (⌘A) and type "250" in one motion; wait about 2.5 s. Clicking and typing appends.
+- Use the full parcel ID for 0 Forbes Av.
+- Close any open lot card and let the map fit citywide before the Reform beat; click the lever row (or open `?tab=reform&preset=min-lot-L-1800`) rather than hand-dragging the slider.
+- Never say: "98.3% accurate", "587 homes unlocked", "3,619 ADUs will be built", "zero feasible lots", "$3.69M required subsidy".

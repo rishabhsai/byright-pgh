@@ -1,10 +1,12 @@
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import type { Comps, CompsFile, Lot } from "./types";
+import type { Comps, CompsFile, Lot, LotsFile } from "./types";
 import {
   compsForLot,
   computeProforma,
   DEFAULT_ASSUMPTIONS,
   DEFAULT_FINANCE,
+  MENTOR_SOURCES,
   NEW_CONSTRUCTION_PREMIUM,
   prototypeNote,
   runProforma,
@@ -93,6 +95,15 @@ describe("runProforma", () => {
     expect(src("siteCostPerProject")).toMatch(/Sept 26, 2026/);
     expect(src("siteCostPerProject")).toContain("$25k–$50k");
     expect(r.inputsUsed.find((i) => i.key === "siteCostPerProject")!.display).toBe("$35,000 per project");
+    // $35,000 is not the midpoint of $25k–$50k, and Hardy's range is for one unit: say what we chose.
+    expect(src("siteCostPerProject")).toContain(
+      "$35,000 is a chosen allowance within Tom Hardy's $25k–$50k range (single unit); applied once per project as our assumption",
+    );
+    expect(src("siteCostPerProject")).not.toMatch(/midpoint/);
+    const hardy = MENTOR_SOURCES.find((m) => m.name.startsWith("Tom Hardy"))!;
+    expect(hardy.vintage).toContain(
+      "$35,000 is a chosen allowance within Tom Hardy's $25k–$50k range (single unit); applied once per project as our assumption",
+    );
   });
 
   it("returns null when comps are missing", () => {
@@ -202,6 +213,13 @@ describe("new-construction premium", () => {
     );
   });
 
+  it("states by how much a clearing scenario beats the target, never a rounded margin", () => {
+    // $185/sf: target value 379,170 (above); ZHVI $500k -> value 428,571 clears it by $49,401.
+    const line = sensitivityLine(lot(), "single", comps(500_000));
+    expect(line).toContain("at $185/sq ft clears the target by $49,401");
+    expect(line).not.toMatch(/% margin/);
+  });
+
   it("leaves the displayed rate out of the sensitivity scenarios", () => {
     const line = sensitivityLine(lot(), "single", comps(300_000), { hardCostPerSf: 250 });
     expect(line).toMatch(/at \$185\/sq ft .*; at \$225\/sq ft .*; at \$350\/sq ft /);
@@ -230,5 +248,18 @@ describe("computeProforma (legacy)", () => {
     expect(r.landIsAssumed).toBe(true);
     expect(r.revenue).toBe(75000 * 3.5);
     expect(r.gap).toBeCloseTo(r.revenue - r.totalCost, 6);
+  });
+});
+
+const haveData = existsSync("public/data/lots.json") && existsSync("public/data/comps.json");
+
+describe.runIf(haveData)("sensitivity line on the shipped data", () => {
+  it("126 Carrington (townhouse): the premium line gives the exact amount it clears the target by", () => {
+    const lots = (JSON.parse(readFileSync("public/data/lots.json", "utf8")) as LotsFile).lots;
+    const file = JSON.parse(readFileSync("public/data/comps.json", "utf8")) as CompsFile;
+    const carrington = lots.find((l) => l.id === "0023F00165000000")!;
+    expect(sensitivityLine(carrington, "townhome", compsForLot(carrington, file))).toMatch(
+      /at a new-construction premium \(1\.3× index\) clears the target by \$1,207\.$/,
+    );
   });
 });

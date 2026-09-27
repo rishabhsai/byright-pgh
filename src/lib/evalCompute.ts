@@ -15,7 +15,7 @@ export type Triages = Record<
   {
     results: TriageResult[];
     margin: (number | null)[];
-    /** Lots that would be Green if new homes were valued at NEW_CONSTRUCTION_PREMIUM × the comp index. */
+    /** All lots that would be Green if new homes were valued at NEW_CONSTRUCTION_PREMIUM × the comp index (lots already Green included). */
     greenAtPremium: number;
   }
 >;
@@ -54,8 +54,9 @@ export function triageAll(lots: Lot[], evals: Evaluations, input: TriageInput): 
 }
 
 /**
- * Lots that turn Green with value at the premium. Only a Yellow lot whose finance was screened and fell short,
- * whose proposal is allowed by right and which is recorded for sale can turn Green, so only those are re-triaged.
+ * The complete Green count with value at the premium: lots already Green (a higher value keeps them Green) plus
+ * the lots that turn Green. Only a Yellow lot whose finance was screened and fell short, whose proposal is allowed
+ * by right and which is recorded for sale can turn Green, so only those are re-triaged.
  */
 function greenAtPremium(lots: Lot[], findings: Finding[][], results: TriageResult[], input: TriageInput): number {
   const { comps, assumptions, landOverrides, typology } = input;
@@ -63,6 +64,10 @@ function greenAtPremium(lots: Lot[], findings: Finding[][], results: TriageResul
   let n = 0;
   for (let i = 0; i < lots.length; i++) {
     const r = results[i];
+    if (r.triage === "green") {
+      n++;
+      continue;
+    }
     if (r.triage !== "yellow" || r.pencils !== false || dispositionBlocker(lots[i]) !== null) continue;
     if (findings[i].find((f) => f.typology === r.bestTypology)?.verdict !== "by-right") continue;
     if (triageLot(lots[i], findings[i], comps[i], withLand(premium, landOverrides, lots[i]), typology).triage === "green") n++;

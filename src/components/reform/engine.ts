@@ -1,8 +1,8 @@
 // The one seam between the Reform UI and the levers engine (src/lib/levers.ts). The engine returns aggregates;
 // the map needs a per-lot outcome, which lotScreen derives with the same registry and candidate rule.
-import type { Comps, LeverResult, Lot, RuleParams, RulePreset, RuleSet, Typology } from "@/lib/types";
+import type { Check, Comps, Finding, LeverResult, Lot, RuleParams, RulePreset, RuleSet, Typology, Verdict } from "@/lib/types";
 import type { FinanceAssumptions } from "@/lib/finance";
-import { BILL_PARAMS, DISTRICTS, TODAY_PARAMS, buildRegistry, evaluateLot, sameParams, type Registry } from "@/lib/engine";
+import { BILL_PARAMS, DISTRICTS, TODAY_PARAMS, TYPOLOGY_ORDER, buildRegistry, evaluateLot, sameParams, type Registry } from "@/lib/engine";
 import { isCandidateLot } from "@/lib/plan";
 import { PRESETS, runCustom as runCustomEngine, runLevers } from "@/lib/levers";
 
@@ -35,10 +35,18 @@ export interface LotScreen {
   byType: Partial<Record<Typology, boolean>>;
 }
 
+/** Every home type's finding for one lot under the params: evaluateLot with buildRegistry(params). */
+export function lotFindings(lot: Lot, p: RuleParams): Finding[] {
+  const { ruleSet, registry } = registryFor(p);
+  return evaluateLot(lot, ruleSet, registry);
+}
+
 /** One lot under the params: evaluateLot with buildRegistry(params), the same rule the levers engine counts. */
 export function lotScreen(lot: Lot, p: RuleParams): LotScreen {
-  const { ruleSet, registry } = registryFor(p);
-  const fs = evaluateLot(lot, ruleSet, registry);
+  return screenOf(lot, lotFindings(lot, p));
+}
+
+function screenOf(lot: Lot, fs: Finding[]): LotScreen {
   const byType: Partial<Record<Typology, boolean>> = {};
   for (const f of fs) byType[f.typology] = f.verdict === "by-right";
   const allowed = fs.some((f) => f.verdict === "by-right");
@@ -48,6 +56,9 @@ export function lotScreen(lot: Lot, p: RuleParams): LotScreen {
 export const TODAY_ID = "today";
 export const BILL_ID = "bill-2025-1545";
 export const CUSTOM_ID = "custom";
+
+/** A lever label that never wraps between "(§" and its section number or before "(§". */
+export const leverLabel = (label: string) => label.replace(/ \(§ /g, "\u00a0(§\u00a0").replace(/§ /g, "§\u00a0");
 
 export const presetById = (id: string): RulePreset | null => PRESETS.find((p) => p.id === id) ?? null;
 
@@ -109,4 +120,65 @@ export function decodeParams(raw: string | null): RuleParams | null {
   } catch {
     return null;
   }
+}
+
+/** A check whose requirement or result differs between today and the scenario, for one home type. */
+export interface ChangedCheck {
+  id: string;
+  label: string;
+  measured: string | null;
+  required: string | null;
+  requiredToday: string | null;
+  passed: boolean | null;
+  passedToday: boolean | null;
+}
+
+/** One lot, today against the scenario: the map's shift plus the home type and checks that moved. */
+export interface LotComparison {
+  shift: LotShift;
+  now: LotScreen;
+  base: LotScreen;
+  /** The home type the comparison reads: the first whose by-right result changed, else the first allowed today. */
+  typology: Typology | null;
+  verdict: Verdict | null;
+  verdictToday: Verdict | null;
+  checks: ChangedCheck[];
+  /** Home types newly allowed (by right) under the scenario, and those no longer allowed. */
+  gainedTypes: Typology[];
+  lostTypes: Typology[];
+}
+
+const sameCheck = (a: Check, b: Check) => a.passed === b.passed && a.required === b.required;
+
+export function compareLot(lot: Lot, p: RuleParams): LotComparison {
+  const fs = lotFindings(lot, p);
+  const f0 = lotFindings(lot, TODAY_PARAMS);
+  const now = screenOf(lot, fs);
+  const base = screenOf(lot, f0);
+  const byRight = (f: Finding | undefined) => f?.verdict === "by-right";
+  const gainedTypes: Typology[] = [];
+  const lostTypes: Typology[] = [];
+  for (const t of TYPOLOGY_ORDER) {
+    const a = fs.find((f) => f.typology === t);
+    const b = f0.find((f) => f.typology === t);
+    if (byRight(a) && !byRight(b)) gainedTypes.push(t);
+    if (!byRight(a) && byRight(b)) lostTypes.push(t);
+  }
+  const typology =
+    gainedTypes[0] ??
+    lostTypes[0] ??
+    TYPOLOGY_ORDER.find((t) => fs.find((f) => f.typology === t)?.verdict !== f0.find((f) => f.typology === t)?.verdict) ??
+    TYPOLOGY_ORDER.find((t) => byRight(f0.find((f) => f.typology === t))) ??
+    null;
+  const f = typology ? fs.find((x) => x.typology === typology) : undefined;
+  const g = typology ? f0.find((x) => x.typology === typology) : undefined;
+  const checks: ChangedCheck[] = [];
+  if (f && g) {
+    for (const c of f.checks) {
+      const c0 = g.checks.find((x) => x.id === c.id);
+      if (!c0 || sameCheck(c, c0)) continue;
+      checks.push({ id: c.id, label: c.label, measured: c.measured, required: c.required, requiredToday: c0.required, passed: c.passed, passedToday: c0.passed });
+    }
+  }
+  return { shift: shiftOf(now, base), now, base, typology, verdict: f?.verdict ?? null, verdictToday: g?.verdict ?? null, checks, gainedTypes, lostTypes };
 }

@@ -94,7 +94,7 @@ export const PREMIUM_LABEL = `New-construction premium (${NEW_CONSTRUCTION_PREMI
  * Sources: Dennis Steigerwalt ($200–$250/sf, city infill) and Tom Hardy ($325–$375/sf vertical construction), Sept 26, 2026.
  */
 export const HARD_COST_SCENARIOS = [
-  { psf: 185, note: "prior default" },
+  { psf: 185, note: "prior hard-cost rate, with today's site allowance" },
   { psf: 225, note: "default, Steigerwalt mid" },
   { psf: 250, note: "Steigerwalt high" },
   { psf: 350, note: "Tom Hardy mid, vertical construction" },
@@ -152,14 +152,14 @@ export const MENTOR_SOURCES = [
   {
     name: "Tom Hardy, hackathon SME",
     vintage:
-      "hackathon SME channel, Sept 26, 2026: city site costs \"$25k–$50k\" per single unit (water/sewer taps, grading, sidewalks, landscaping); vertical construction $325–$375/sf",
+      "hackathon SME channel, Sept 26, 2026: city site costs \"$25k–$50k\" per single unit (water/sewer taps, grading, sidewalks, landscaping); vertical construction $325–$375/sf. $35,000 is a chosen allowance within Tom Hardy's $25k–$50k range (single unit); applied once per project as our assumption.",
   },
 ] as const;
 
 const HARD_COST_SOURCE =
   "Dennis Steigerwalt, Housing Innovation Alliance (hackathon SME channel, Sept 26, 2026): for city single-family infill \"$200–$250/sf is a reasonable range\"; default is the midpoint; editable";
 const SITE_COST_SOURCE =
-  "Tom Hardy, hackathon SME (hackathon SME channel, Sept 26, 2026): city site costs \"$25k–$50k\" per single unit for water/sewer taps, grading, sidewalks, landscaping; default is the midpoint, once per project; editable";
+  "Tom Hardy, hackathon SME (hackathon SME channel, Sept 26, 2026): city site costs \"$25k–$50k\" per single unit for water/sewer taps, grading, sidewalks, landscaping. $35,000 is a chosen allowance within Tom Hardy's $25k–$50k range (single unit); applied once per project as our assumption; editable";
 
 export const ZILLOW_DATA_URL = "https://www.zillow.com/research/data/";
 export const ASSESSMENTS_URL = "https://data.wprdc.org/dataset/property-assessments";
@@ -472,7 +472,7 @@ export function sensitivityLine(lot: Lot, typology: Typology, comps: Comps | nul
   const r = run(a);
   if (!r) return "";
   const prem = run({ ...a, valuePremium: NEW_CONSTRUCTION_PREMIUM });
-  const outcome = (p: Proforma | null) => (p ? (p.pencils ? `${Math.round(p.marginPct)}% margin` : `short by ${fmtUsd(p.gap)}`) : "n/a");
+  const outcome = (p: Proforma | null) => (p ? (p.pencils ? `clears the target by ${fmtUsd(p.revenue - p.breakEvenValue)}` : `short by ${fmtUsd(p.gap)}`) : "n/a");
   const rates = HARD_COST_SCENARIOS.map((x) => x.psf).filter((psf) => psf !== a.hardCostPerSf);
   const atRates = rates.map((psf) => `; at $${psf}/sq ft ${outcome(run({ ...a, hardCostPerSf: psf }))}`).join("");
   return `Value needed for the target return ${fmtUsd(r.breakEvenValue)}${atRates}; at a new-construction premium (${NEW_CONSTRUCTION_PREMIUM}× index) ${outcome(prem)}.`;

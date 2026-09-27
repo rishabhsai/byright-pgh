@@ -1,7 +1,7 @@
 "use client";
-import { memo, useId, type ReactNode } from "react";
+import { memo, useId, useState, type ReactNode } from "react";
 import Segmented from "../ui/Segmented";
-import { BILL_ID, CUSTOM_ID, TODAY_ID, TODAY_PARAMS, presetById, sameParams, type RuleParams, type SubKey } from "./engine";
+import { BILL_ID, CUSTOM_ID, TODAY_ID, TODAY_PARAMS, leverLabel, presetById, sameParams, type RuleParams, type SubKey } from "./engine";
 
 type Mode = typeof TODAY_ID | typeof BILL_ID | typeof CUSTOM_ID;
 
@@ -46,7 +46,6 @@ function ReformView({ presetId, params, onPreset, onParams, lotCount }: Props) {
           <span className="mb-1 block text-caption text-muted">Scenario</span>
           <Segmented<Mode>
             label="Scenario"
-            equal
             value={mode}
             onChange={(m) => onPreset(m)}
             options={[
@@ -56,7 +55,7 @@ function ReformView({ presetId, params, onPreset, onParams, lotCount }: Props) {
             ]}
           />
           {note && <p className="mt-2 text-caption text-muted">{note}</p>}
-          {fromLever && <p className="mt-2 text-caption text-muted">Started from the lever &ldquo;{fromLever.label}&rdquo;. Any knob edit makes it custom.</p>}
+          {fromLever && <p className="mt-2 text-caption text-muted">Started from the lever &ldquo;{leverLabel(fromLever.label)}&rdquo;. Any knob edit makes it custom.</p>}
         </div>
       </div>
 
@@ -64,7 +63,7 @@ function ReformView({ presetId, params, onPreset, onParams, lotCount }: Props) {
         <div className="space-y-6 px-panel pt-4 pb-panel">
           <fieldset>
             <legend className="text-headline text-ink">Minimum lot size</legend>
-            <p className="mt-0.5 text-caption text-muted">Per density subdistrict. Step 100 sf; clear Very high for no minimum.</p>
+            <p className="mt-0.5 text-caption text-muted">Per density subdistrict. Step 100 sf; Very high has no minimum today (None).</p>
             <div className="mt-3 space-y-4">
               {LOT_KNOBS.map((k) => (
                 <AreaKnob
@@ -168,16 +167,16 @@ function AreaKnob({
 }) {
   const id = useId();
   const changed = value !== today;
+  // The value to restore when "None" is switched off.
+  const [last, setLast] = useState<number>(value ?? today ?? step * 10);
+  if (value != null && value !== last) setLast(value);
   const clamp = (n: number) => Math.max(0, Math.min(100_000, Math.round(n / step) * step));
   const dec = () => {
-    if (value == null) return;
-    if (value <= 0) {
-      if (nullable) onChange(null);
-      return;
-    }
+    if (value == null || value <= 0) return;
     onChange(clamp(value - step));
   };
   const inc = () => onChange(value == null ? step : clamp(value + step));
+  const none = nullable && value == null;
   return (
     <div>
       <div className="flex items-center justify-between gap-3">
@@ -186,7 +185,18 @@ function AreaKnob({
           <ChangedDot on={changed} />
         </label>
         <div className="flex shrink-0 items-center gap-1">
-          <StepButton label={`Decrease ${label}`} onClick={dec} disabled={value == null || (!nullable && value <= 0)}>
+          {nullable && (
+            <button
+              type="button"
+              aria-pressed={none}
+              onClick={() => onChange(none ? last : null)}
+              title={none ? "No minimum. Click to set one." : "Remove the minimum"}
+              className={`mr-1 h-7 rounded-full px-2.5 text-caption font-medium transition-colors ${none ? "bg-accent-soft text-accent" : "bg-control text-muted hover:bg-track hover:text-ink"}`}
+            >
+              None
+            </button>
+          )}
+          <StepButton label={`Decrease ${label}`} onClick={dec} disabled={value == null || value <= 0}>
             <path d="M3 6h6" />
           </StepButton>
           <div className="input-shell flex w-[84px] items-center">
@@ -194,11 +204,12 @@ function AreaKnob({
               id={id}
               inputMode="numeric"
               autoComplete="off"
+              disabled={none}
               value={value == null ? "" : value.toLocaleString("en-US")}
-              placeholder={nullable ? "None" : "0"}
+              placeholder={nullable ? "none" : "0"}
               onChange={(e) => {
                 const digits = e.target.value.replace(/[^\d]/g, "").slice(0, 6);
-                onChange(digits === "" ? (nullable ? null : 0) : Math.min(100_000, Number(digits)));
+                onChange(digits === "" ? 0 : Math.min(100_000, Number(digits)));
               }}
               className="w-full min-w-0 bg-transparent py-1 pl-2 text-right text-callout tabular-nums placeholder:text-faint"
               style={{ outline: "none" }}
@@ -217,9 +228,10 @@ function AreaKnob({
         min={0}
         max={max}
         step={step}
-        value={value ?? max}
+        value={value ?? 0}
+        disabled={none}
         onChange={(e) => onChange(Number(e.target.value))}
-        className={`mt-1.5 block w-full accent-accent ${value == null ? "opacity-40" : ""}`}
+        className={`mt-1.5 block w-full accent-accent ${none ? "cursor-not-allowed opacity-30" : ""}`}
       />
     </div>
   );

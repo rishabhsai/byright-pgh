@@ -56,6 +56,8 @@ export interface ReformPaint {
   codes: Uint8Array;
   label: string;
   pending: boolean;
+  /** Under the legend: what the lot colors leave out (a lever that only adds home types on allowed lots). */
+  note?: string | null;
 }
 
 const REFORM_LEGEND: { code: number; label: string; color: string }[] = [
@@ -66,6 +68,8 @@ const REFORM_LEGEND: { code: number; label: string; color: string }[] = [
 ];
 
 type Hover = { x: number; y: number; i: number; w: number; h: number } | null;
+
+const fmtN = (n: number) => n.toLocaleString("en-US");
 
 type GeoData = Parameters<GeoJSONSource["setData"]>[0];
 
@@ -377,20 +381,33 @@ function MapView({
         </div>
       )}
       {reform ? (
-        <div className="map-legend z-10 flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3" title={`Each City lot under “${reform.label}” against today's code: use table, minimum lot size and LNC FAR`}>
-          <span className="shrink-0 text-caption font-medium text-ink">{reform.label}</span>
-          {reform.pending ? (
-            <span aria-live="polite" className="text-caption text-muted">Recomputing…</span>
-          ) : null}
-          <ul aria-label="Legend" className={`flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-caption text-muted ${reform.pending ? "opacity-60" : ""}`}>
-            {REFORM_LEGEND.map((x) => (
-              <li key={x.code} className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: x.color }} />
-                {x.label}
-                <span className="text-ink tabular-nums">{reformCounts[x.code].toLocaleString("en-US")}</span>
+        <div className="map-legend z-10 rounded-card px-5 py-3" title={`Each City lot under “${reform.label}” against today's code: use table, minimum lot size and LNC FAR`}>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <span className="shrink-0 text-caption font-medium text-ink">
+              Lot eligibility (any home type)
+              <span className="font-normal text-muted"> · {reform.label}</span>
+            </span>
+            {reform.pending ? (
+              <span aria-live="polite" className="text-caption text-muted">Recomputing…</span>
+            ) : null}
+            <ul aria-label="Legend" className={`flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-caption text-muted ${reform.pending ? "opacity-60" : ""}`}>
+              <li className="inline-flex flex-wrap items-center gap-x-1.5 whitespace-nowrap">
+                Gained <span className="font-medium text-ink tabular-nums">{fmtN(reformCounts[1] + reformCounts[2])}</span> =
+                <span aria-hidden className="ml-0.5 h-2 w-2 rounded-full" style={{ background: "var(--color-v-byright)" }} />
+                <span className="text-ink tabular-nums">{fmtN(reformCounts[1])}</span> newly allowed +
+                <span aria-hidden className="ml-0.5 h-2 w-2 rounded-full" style={{ background: "var(--color-success-ink)" }} />
+                <span className="text-ink tabular-nums">{fmtN(reformCounts[2])}</span> newly candidates
               </li>
-            ))}
-          </ul>
+              {REFORM_LEGEND.filter((x) => x.code === 3 || x.code === 0).map((x) => (
+                <li key={x.code} className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                  <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: x.color }} />
+                  {x.label}
+                  <span className="text-ink tabular-nums">{fmtN(reformCounts[x.code])}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          {reform.note && <p className="mt-1.5 text-caption text-muted">{reform.note}</p>}
         </div>
       ) : (
         <div

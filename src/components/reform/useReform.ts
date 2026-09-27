@@ -31,7 +31,14 @@ export interface ReformState {
   base: Screen[] | null;
   /** The params `result` and `codes` were computed from. */
   computedFor: RuleParams | null;
+  /** The finance inputs `result` was computed from (its cost-screen count is at this $/sf). */
+  computedAssumptions: FinanceAssumptions | null;
+  /** Today's lots allowed and candidates, from the per-lot screen: the baseline every net is taken against. */
+  today: { allowed: number; candidates: number } | null;
+  /** True until `result` and `levers` match the current params, lots, comps and assumptions. */
   pending: boolean;
+  /** True until the lever table matches the current lots, comps and assumptions. */
+  leversPending: boolean;
 }
 
 export const scenarioLabel = (params: RuleParams) => {
@@ -81,7 +88,19 @@ export function useReform(
     return r && r.presetId === CUSTOM_ID ? [...levers.rows, r] : levers.rows;
   }, [levers, scn]);
 
+  const today = useMemo(() => {
+    if (!base) return null;
+    let allowed = 0,
+      candidates = 0;
+    for (const b of base) {
+      if (b.allowed) allowed++;
+      if (b.candidate) candidates++;
+    }
+    return { allowed, candidates };
+  }, [base]);
+
   const fresh = scn && scn.lots === lots ? scn : null;
+  const leversFresh = !!levers && levers.lots === lots && levers.comps === comps && levers.assumptions === assumptions;
   return {
     levers: rows,
     result: fresh?.result ?? null,
@@ -89,6 +108,9 @@ export function useReform(
     screens: fresh?.screens ?? null,
     base,
     computedFor: fresh?.params ?? null,
-    pending: !fresh || fresh.params !== params,
+    computedAssumptions: fresh?.assumptions ?? null,
+    today,
+    pending: !fresh || fresh.params !== params || fresh.comps !== comps || fresh.assumptions !== assumptions,
+    leversPending: !leversFresh,
   };
 }

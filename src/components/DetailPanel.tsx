@@ -446,6 +446,7 @@ function LotDetail({
       <div className={`space-y-section py-section ${pad}`}>
         <AnswerCard
           topLine={scenarioLine}
+          bodyLabel={scenarioLine ? "Today's code" : null}
           headline={nb(head.text)}
           tone={head.tone}
           typeLine={

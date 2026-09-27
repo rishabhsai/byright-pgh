@@ -44,3 +44,4 @@ pipeline/*.geojson
 pipeline/.venv
 pipeline/raw/
 .env*
+!.env.example

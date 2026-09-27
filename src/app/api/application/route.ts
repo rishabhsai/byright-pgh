@@ -3,7 +3,7 @@ import { compsFor, proformaWithFallback, triageLot } from "@/lib/finance";
 import { buildApplicationPlan, SUGGESTION_LABEL } from "@/lib/application";
 import { badRequest, complete, loadData, parseLotRequest } from "../_lib/server";
 
-export const maxDuration = 15;
+export const maxDuration = 20;
 
 /*
  * POST { lotId, ruleSet, typology } -> { source, suggestion, label }.

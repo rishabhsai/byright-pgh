@@ -461,6 +461,8 @@ function useDraft<T>(
   const inputProps = {
     value: text,
     onChange: (e: React.ChangeEvent<HTMLInputElement>) => edit(e.target.value),
+    // Select the whole value on focus so typing replaces it: clicking put the caret at the end and "250" became "225250".
+    onFocus: (e: React.FocusEvent<HTMLInputElement>) => e.currentTarget.select(),
     onBlur: flush,
     onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key === "Enter") flush();

@@ -233,6 +233,8 @@ describe.runIf(haveData)("plan exports", () => {
     const md = toBrief(plan);
     expect(md).toMatch(/^# Disposition review: Hazelwood/);
     expect(md).toMatch(/Home type: any \(lowest-shortfall allowed type per lot\)/);
+    // The assumptions line carries the site allowance: it is in every project's cost and target.
+    expect(md).toContain("$225/sf, $35,000 site allowance per project, ");
     expect(md).toContain("797 lots → 754 encoded → 285 use table → 123 for sale, no flag → 106 ≥ 1,000 sf → 0 clear cost screen");
     expect(md).toContain("Public Sale 8 · URA Transfer 98 · PLB Transfer 0");
     // The hurdle: the value each project needs against the index it is compared with.
@@ -240,13 +242,13 @@ describe.runIf(haveData)("plan exports", () => {
     // One row per mentor scenario, in rate order, then the premium row at the assumed rate.
     const rows = md.split("\n").filter((l) => /^\| (\$|1\.3)/.test(l)).map((l) => l.split(" | ")[0].slice(2));
     expect(rows).toEqual([
-      "$185/sf (prior default)",
+      "$185/sf (prior hard-cost rate, with today's site allowance)",
       "$225/sf (assumed; default, Steigerwalt mid)",
       "$250/sf (Steigerwalt high)",
       "$350/sf (Tom Hardy mid, vertical construction)",
       "1.3× index, $225/sf",
     ]);
-    expect(md).toContain("| $185/sf (prior default) | $2,978,699 | $297,870 |");
+    expect(md).toContain("| $185/sf (prior hard-cost rate, with today's site allowance) | $2,978,699 | $297,870 |");
     expect(md).toContain("| $225/sf (assumed; default, Steigerwalt mid) | $3,691,499 | $369,150 |");
     expect(md).toContain("| $250/sf (Steigerwalt high) | $4,136,999 | $413,700 |");
     expect(md).toContain("| $350/sf (Tom Hardy mid, vertical construction) | $5,918,999 | $591,900 |");
@@ -260,14 +262,18 @@ describe.runIf(haveData)("plan exports", () => {
     expect(md).toContain("Not a zoning determination or legal advice");
   });
 
-  it("the brief stays at or under 350 words, for a neighborhood and for the city", () => {
-    const words = (md: string) => md.split(/\s+/).filter((w) => /[A-Za-z0-9]/.test(w)).length;
+  it("the brief is about 350–450 words with the shipped sources, for a neighborhood and for the city", () => {
+    const words = (md: string) => md.split(/\s+/).filter(Boolean).length;
     const { plan } = hazelwood();
-    expect(words(toBrief(plan))).toBeLessThanOrEqual(350);
+    const hz = words(toBrief(plan));
     const file = JSON.parse(readFileSync(LOTS, "utf8")) as LotsFile;
     const compsFile = JSON.parse(readFileSync(COMPS, "utf8")) as CompsFile;
-    const city = wire(file.lots, file.lots.map((l) => compsFor(l, compsFile)));
-    expect(words(toBrief(city))).toBeLessThanOrEqual(350);
+    const city = wire(file.lots, file.lots.map((l) => compsFor(l, compsFile)), [...file.sources, ...compsFile.sources]);
+    const cw = words(toBrief(city));
+    for (const n of [hz, cw]) {
+      expect(n).toBeGreaterThanOrEqual(350);
+      expect(n).toBeLessThanOrEqual(450);
+    }
     expect(toBrief(city)).toMatch(/- District unconfirmed \(inventory vs zoning map\): 14/);
   }, 120_000);
 
@@ -290,13 +296,13 @@ describe.runIf(haveData)("plan exports", () => {
   });
 });
 
-function wire(lots: Lot[], comps: (Comps | null)[]) {
+function wire(lots: Lot[], comps: (Comps | null)[], sources: { name: string; url: string; vintage: string }[] = []) {
   const evals = Object.fromEntries(
     (["current", "bill-2025-1545"] as RuleSet[]).map((rs) => [rs, { findings: lots.map((l) => evaluateLot(l, rs)) }]),
   ) as Record<RuleSet, { findings: ReturnType<typeof evaluateLot>[] }>;
   const triages = lots.map((l, i) => triageLot(l, evals.current.findings[i], comps[i], DEFAULT_FINANCE));
   const evidence = lots.map((l, i) => evidenceForLot(l, evals.current.findings[i], triages[i], comps[i], DEFAULT_FINANCE, null));
-  return buildPlan(lots, evals, triages, evidence, comps, DEFAULT_FINANCE, { neighborhoods: [] }, "current", 10);
+  return buildPlan(lots, evals, triages, evidence, comps, DEFAULT_FINANCE, { neighborhoods: [] }, "current", 10, { sources });
 }
 
 const comps60k: Comps = { neighborhood: "Test", zip: "15217", zhvi: 60_000, zhviDate: "2026-08-31", zori: 900, zoriDate: "2026-08-31" };
@@ -413,7 +419,7 @@ describe("hardCostRows: the shortfall table's rate rows", () => {
   it("marks the displayed default and lists the other mentor scenarios", () => {
     const g = plan(225).gap!;
     expect(hardCostRows(g).map((r) => [r.label, r.strong])).toEqual([
-      ["$185/sf (prior default)", false],
+      ["$185/sf (prior hard-cost rate, with today's site allowance)", false],
       ["$225/sf (displayed; default, Steigerwalt mid)", true],
       ["$250/sf (Steigerwalt high)", false],
       ["$350/sf (Tom Hardy mid, vertical construction)", false],
@@ -423,7 +429,7 @@ describe("hardCostRows: the shortfall table's rate rows", () => {
   it("inserts a user's own rate in rate order", () => {
     const labels = hardCostRows(plan(300).gap!).map((r) => r.label);
     expect(labels).toEqual([
-      "$185/sf (prior default)",
+      "$185/sf (prior hard-cost rate, with today's site allowance)",
       "$225/sf (default, Steigerwalt mid)",
       "$250/sf (Steigerwalt high)",
       "$300/sf (displayed)",

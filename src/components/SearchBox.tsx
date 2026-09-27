@@ -181,7 +181,7 @@ function SearchBox({
   triage?: Triage[];
   /** Filter matches per lot, to label lots outside the current filters. */
   matches?: boolean[];
-  /** The open lot. Picking a different one elsewhere (list, map, plan) clears the query. */
+  /** The open lot. Picking a different one elsewhere (list, map, plan), or closing it, clears a picked query. */
   selectedIdx?: number | null;
 }) {
   const [q, setQ] = useState("");
@@ -189,7 +189,8 @@ function SearchBox({
   const [seenSelected, setSeenSelected] = useState(selectedIdx);
   if (selectedIdx !== seenSelected) {
     setSeenSelected(selectedIdx);
-    if (selectedIdx != null && selectedIdx !== picked) {
+    // Another lot opened elsewhere, or the picked lot's card closed: the box no longer names the open lot.
+    if ((selectedIdx != null && selectedIdx !== picked) || (selectedIdx == null && picked != null)) {
       setQ("");
       setPicked(null);
     }

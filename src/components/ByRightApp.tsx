@@ -4,9 +4,10 @@ import dynamic from "next/dynamic";
 import { countByRight, evaluateLot } from "@/lib/engine";
 import { buildSelectedCase, showsOtherThanBest, type SelectedCase } from "@/lib/selectedCase";
 import type { Comps, CompsFile, Finding, Lot, LotsFile, RuleSet, Triage, Typology, Verdict } from "@/lib/types";
+import { VERDICT_SHORT_LABEL } from "@/lib/types";
 import { TYPOLOGY_LABEL } from "@/lib/types";
 import { isParkOrGreenway, statusGroup } from "@/lib/ranking";
-import { yellowReason, pickFinding, type Evidence } from "@/lib/evidence";
+import { districtUnconfirmed, yellowReason, pickFinding, type Evidence } from "@/lib/evidence";
 import { buildPlan, type Plan } from "@/lib/plan";
 import { RULE_SETS, type Evaluations, type Triages, type TriageInput } from "@/lib/evalCompute";
 import { useCityEval } from "@/lib/useCityEval";
@@ -24,7 +25,8 @@ import type { HoverInfo, FitBounds, ReformPaint } from "./MapView";
 import ReformView from "./reform/ReformView";
 import ReformPanel from "./reform/ReformPanel";
 import { useReform } from "./reform/useReform";
-import { CUSTOM_ID, TODAY_ID, TODAY_PARAMS, lotScreen, matchPreset, presetById, shiftOf, type LotShift, type RuleParams } from "./reform/engine";
+import { CUSTOM_ID, TODAY_ID, TODAY_PARAMS, compareLot, leverLabel, matchPreset, presetById, type ChangedCheck, type LotShift, type RuleParams } from "./reform/engine";
+import { leverChanges } from "./reform/reformExport";
 import { blockerLine, money, reasonText, verdictLabel } from "./ui/answer";
 import { financeGate, NO_COMPS_REASON } from "./ui/financeGate";
 import { compsFor, countTriage, DEFAULT_FINANCE, FALLBACK_COMPS, type FinanceAssumptions } from "@/lib/finance";
@@ -38,6 +40,14 @@ export type { Evaluations, Triages };
 
 /** "Minimum lot size L 3,000 → 1,800 (§ 903.03.B.2)" → "Minimum lot size L 3,000 → 1,800" for the map legend. */
 const shortLabel = (label: string) => label.replace(/\s*\(§[^)]*\)\s*$/, "");
+
+/** "1,954 sq ft vs 1,800 required (scenario) · 3,000 required (today)"; the unit is dropped from requirements that share it. */
+function checkChangeText(c: ChangedCheck): string {
+  const unit = c.measured?.match(/[\d,.]+\s+(.+)$/)?.[1] ?? null;
+  const bare = (v: string | null) => (v == null ? "none" : unit && v.endsWith(` ${unit}`) ? v.slice(0, -unit.length - 1) : v);
+  const label = c.label.replace(/\s*\(.*\)$/, "");
+  return `${label}: ${c.measured ?? "not in the record"} vs ${bare(c.required)} required (scenario) · ${bare(c.requiredToday)} required (today)`;
+}
 
 const SHIFT_TEXT: Record<LotShift, string> = {
   "newly-candidate": "newly allowed and a candidate for staff review",
@@ -316,6 +326,8 @@ export default function ByRightApp() {
   const recomputing = commitPending || city.input !== triageInput;
 
   const reformActive = tab === "reform";
+  // While Reform is open, the header, card and exports read today's code; the scenario is the Reform tab's.
+  const shownRuleSet: RuleSet = reformActive ? "current" : ruleSet;
   const rf = useReform(lots, cityComps, cityAssumptions, reform.params, reformActive && !!city.evals);
   const reformId = matchPreset(reform.params);
   const onReformPreset = useCallback((id: string) => {
@@ -326,12 +338,42 @@ export default function ByRightApp() {
     }
   }, []);
   const onReformParams = useCallback((params: RuleParams) => setReform({ presetId: CUSTOM_ID, params }), []);
-  const reformPaint = useMemo<ReformPaint | null>(
-    () => (reformActive && rf.codes ? { codes: rf.codes, label: reformId === TODAY_ID ? "Today's code (the baseline)" : `${shortLabel(rf.result?.label ?? "Scenario")} vs today`, pending: rf.pending } : null),
-    [reformActive, rf.codes, rf.result, rf.pending, reformId],
-  );
+  const reformPaint = useMemo<ReformPaint | null>(() => {
+    if (!reformActive || !rf.codes) return null;
+    const r = rf.result;
+    const types = r ? Object.values(r.typologyDelta).some((n) => n !== 0) : false;
+    const flat = !!r && r.publicLotsNewlyAllowed === 0 && r.publicLotsNoLongerAllowed === 0;
+    return {
+      codes: rf.codes,
+      label: reformId === TODAY_ID ? "Today's code (the baseline)" : `${shortLabel(r?.label ?? "Scenario")} vs today`,
+      pending: rf.pending,
+      note: flat && types ? "This lever adds home-type options on already-allowed lots; the map measures lot eligibility." : null,
+    };
+  }, [reformActive, rf.codes, rf.result, rf.pending, reformId]);
 
-  const evidence = useMemo<Evidence[] | null>(() => city.evidence?.[ruleSet] ?? null, [city.evidence, ruleSet]);
+  // The header's scenario while Reform is open: the scenario's totals, not today's.
+  const reformHeader = useMemo(() => {
+    if (!reformActive) return null;
+    const r = rf.result;
+    const label = reformId === CUSTOM_ID ? "Custom scenario" : shortLabel(presetById(reformId)?.label ?? "Scenario");
+    return {
+      label,
+      pending: rf.pending,
+      totals:
+        r && rf.today
+          ? {
+              total: lots.length,
+              allowed: r.publicLotsAllowed,
+              candidates: r.candidates,
+              clearing: r.clearingCostScreen,
+              hardCostPerSf: rf.computedAssumptions?.hardCostPerSf ?? cityAssumptions.hardCostPerSf,
+              lots: leverChanges(r, rf.today).lots,
+            }
+          : null,
+    };
+  }, [reformActive, rf.result, rf.today, rf.pending, rf.computedAssumptions, reformId, lots.length, cityAssumptions.hardCostPerSf]);
+
+  const evidence = useMemo<Evidence[] | null>(() => city.evidence?.[shownRuleSet] ?? null, [city.evidence, shownRuleSet]);
 
   const sources = useMemo(() => [...(file?.sources ?? []), ...(compsFile?.sources ?? [])], [file, compsFile]);
 
@@ -418,6 +460,19 @@ export default function ByRightApp() {
     [lots, selectFromList],
   );
 
+  // Entering Reform closes the lot and shows every City lot once; the user's zoom stands after that.
+  const onTab = useCallback(
+    (t: Tab) => {
+      if (t === "reform" && tab !== "reform") {
+        clearSelection();
+        const b = boundsOf(lots, () => true);
+        if (b) setFitTo((prev) => ({ bounds: b, seq: (prev?.seq ?? 0) + 1 }));
+      }
+      setTab(t);
+    },
+    [tab, lots, clearSelection],
+  );
+
   // Restore ?lot= and ?hoods= once the lots are in.
   useEffect(() => {
     if (!urlRead || !lots.length) return;
@@ -486,29 +541,64 @@ export default function ByRightApp() {
   );
   const selectedLandOverride = selectedLot ? (landOverrides[selectedLot.id] ?? null) : null;
 
-  // The selected lot under the Reform scenario, evaluated on the spot so it never lags the knobs.
+  // The selected lot under the Reform scenario: evaluateLot with the scenario's registry, on the spot so it never
+  // lags the knobs, with the check that moved. The card below stays today's code.
   const scenarioLine = useMemo(() => {
     if (!reformActive || !selectedLot) return null;
-    const now = lotScreen(selectedLot, reform.params);
-    const base = lotScreen(selectedLot, TODAY_PARAMS);
-    const shift = shiftOf(now, base);
-    const label = shortLabel(presetById(reformId)?.label ?? "this custom scenario");
-    const [text, color, ink] =
-      shift === "newly-allowed" || shift === "newly-candidate"
-        ? [SHIFT_TEXT[shift], "var(--color-v-byright)", "text-success-ink"]
-        : shift === "lost"
-          ? ["no longer allowed (today it is)", "var(--color-v-prohibited)", "text-danger-ink"]
-          : now.allowed
-            ? ["allowed by the use table and lot size, as today", "var(--color-v-byright)", "text-ink"]
-            : now.relief
-              ? ["still relief needed", "var(--color-v-variance)", "text-warning-ink"]
-              : ["not allowed or not evaluated, as today", "var(--color-v-unknown)", "text-muted"];
+    const label = reformId === TODAY_ID ? "Today's code" : reformId === CUSTOM_ID ? "Custom scenario" : shortLabel(presetById(reformId)?.label ?? "Scenario");
+    const head = <span className="text-muted">Scenario: {leverLabel(label)}. </span>;
+    if (districtUnconfirmed(selectedLot)) {
+      return (
+        <p className="flex items-start gap-2">
+          <span aria-hidden className="mt-[5px] h-2 w-2 shrink-0 rounded-full" style={{ background: "var(--color-v-unknown)" }} />
+          <span>
+            {head}
+            <span className="font-medium text-warning-ink">District unconfirmed; scenario not applied</span>
+            <span className="text-muted">
+              {" "}
+              (inventory {selectedLot.zone || "none"}, map {selectedLot.zoneMap ?? "none"}).
+            </span>
+          </span>
+        </p>
+      );
+    }
+    const cmp = compareLot(selectedLot, reform.params);
+    const moved = cmp.shift !== "same" || cmp.gainedTypes.length > 0 || cmp.lostTypes.length > 0;
+    const outcome =
+      cmp.shift === "newly-candidate"
+        ? "newly allowed and a candidate for staff review"
+        : cmp.shift === "newly-allowed"
+          ? "newly allowed"
+          : cmp.shift === "lost"
+            ? "no longer allowed (today it is)"
+            : cmp.now.allowed
+              ? cmp.gainedTypes.length
+                ? `allowed, as today; adds ${cmp.gainedTypes.map((t) => TYPOLOGY_LABEL[t]).join(", ")}`
+                : "allowed, as today"
+              : cmp.now.relief
+                ? "still relief needed"
+                : "not allowed or not evaluated, as today";
+    const [color, ink] =
+      cmp.shift === "lost"
+        ? ["var(--color-v-prohibited)", "text-danger-ink"]
+        : cmp.now.allowed
+          ? ["var(--color-v-byright)", moved ? "text-success-ink" : "text-ink"]
+          : cmp.now.relief
+            ? ["var(--color-v-variance)", "text-warning-ink"]
+            : ["var(--color-v-unknown)", "text-muted"];
+    const check = moved ? (cmp.checks.find((c) => c.passed !== c.passedToday) ?? cmp.checks[0] ?? null) : null;
+    const detail = check
+      ? checkChangeText(check)
+      : moved && cmp.typology && cmp.verdict && cmp.verdictToday
+        ? `${TYPOLOGY_LABEL[cmp.typology]}: ${VERDICT_SHORT_LABEL[cmp.verdictToday].toLowerCase()} (today) · ${VERDICT_SHORT_LABEL[cmp.verdict].toLowerCase()} (scenario)`
+        : null;
     return (
       <p className="flex items-start gap-2">
         <span aria-hidden className="mt-[5px] h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />
         <span>
-          <span className="text-muted">Under {reformId === TODAY_ID ? "today's code" : label}: </span>
-          <span className={`font-medium ${ink}`}>{text}</span>
+          {head}
+          {detail && <span className="text-ink tabular-nums">{detail} → </span>}
+          <span className={`font-medium ${ink}`}>{outcome}</span>
         </span>
       </p>
     );
@@ -521,7 +611,7 @@ export default function ByRightApp() {
       selectedLot && selectedFull && selectedIdx != null
         ? buildSelectedCase({
             lot: selectedLot,
-            ruleSet,
+            ruleSet: shownRuleSet,
             findings: selectedFull,
             comps: comps[selectedIdx],
             assumptions,
@@ -530,7 +620,7 @@ export default function ByRightApp() {
             pickedTypology,
           })
         : null,
-    [selectedLot, selectedFull, selectedIdx, ruleSet, comps, assumptions, selectedLandOverride, filterTypology, pickedTypology],
+    [selectedLot, selectedFull, selectedIdx, shownRuleSet, comps, assumptions, selectedLandOverride, filterTypology, pickedTypology],
   );
 
   const onTypology = useCallback(
@@ -682,7 +772,7 @@ export default function ByRightApp() {
 
   return (
     <div className="relative flex h-dvh flex-col overflow-clip">
-      <TopBar ruleSet={ruleSet} onRuleSet={setRuleSet} stats={stats} onAbout={() => setAboutOpen(true)} />
+      <TopBar ruleSet={ruleSet} onRuleSet={setRuleSet} stats={stats} onAbout={() => setAboutOpen(true)} reform={reformHeader} />
       <div ref={shellRef} className="flex min-h-0 flex-1" style={layoutStyle(layout)}>
         <LeftRail
           lots={lots}
@@ -697,7 +787,7 @@ export default function ByRightApp() {
           evidence={evidence}
           typology={cityTypology}
           tab={tab}
-          onTab={setTab}
+          onTab={onTab}
           loading={!loadError && !city.error && !stats}
           onReadPlan={() => {
             setExpanded(false);
@@ -780,7 +870,7 @@ export default function ByRightApp() {
           <DetailPanel
             key={selectedIdx ?? "empty"}
             selected={selectedCase}
-            ruleSet={ruleSet}
+            ruleSet={shownRuleSet}
             bestNote={
               selectedCase && showsOtherThanBest(selectedCase)
                 ? `Showing: ${TYPOLOGY_LABEL[selectedCase.typology]} (${selectedCase.typologySource === "filter" ? "Home type filter" : "selected"}). Best type here: ${TYPOLOGY_LABEL[selectedCase.bestTypology!]}.`
@@ -796,7 +886,7 @@ export default function ByRightApp() {
             recomputing={recomputing}
             expanded={expanded}
             onExpanded={setExpanded}
-            stats={city.error ? undefined : (stats?.[ruleSet] ?? null)}
+            stats={city.error ? undefined : (stats?.[shownRuleSet] ?? null)}
             onSelectId={lots.length ? selectById : undefined}
             scenarioLine={scenarioLine}
             empty={
@@ -804,13 +894,15 @@ export default function ByRightApp() {
                 <ReformPanel
                   lots={lots}
                   base={rf.base}
+                  today={rf.today}
                   result={rf.result}
                   levers={rf.levers}
                   activeId={reformId}
                   params={reform.params}
                   pending={rf.pending}
+                  leversPending={rf.leversPending}
                   totalLots={lots.length}
-                  hardCostPerSf={cityAssumptions.hardCostPerSf}
+                  hardCostPerSf={rf.computedAssumptions?.hardCostPerSf ?? cityAssumptions.hardCostPerSf}
                   onPreset={onReformPreset}
                 />
               ) : undefined

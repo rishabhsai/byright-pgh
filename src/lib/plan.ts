@@ -772,7 +772,7 @@ function sourceLine(src: { name: string; url: string; vintage: string }): string
 }
 
 /**
- * The short review brief (≤ 350 words): scope and assumptions, the funnel, candidates by channel, the
+ * The short review brief (about 350–450 words with sources): scope and assumptions, the funnel, candidates by channel, the
  * financial hurdle for N projects with the hard-cost and premium scenarios, open items grouped with counts, a pointer to
  * the CSV for per-lot detail, sources with vintages, the disclaimer. Stage definitions and the per-lot
  * list live in the CSV and README.
@@ -784,7 +784,7 @@ export function toBrief(plan: Plan): string {
   const type = plan.typology ? TYPE_NAME[plan.typology] : "any (lowest-shortfall allowed type per lot)";
   const mode = a.mode === "sale" ? "sale" : `rent (${a.capRate}% cap rate)`;
   L.push(`# Disposition review: ${plan.scopeLabel}`, "");
-  L.push(`_${date} · ${RULESET_LABEL[plan.ruleSet]} · Home type: ${type} · $${a.hardCostPerSf}/sf, ${a.softCostPct}% soft, ${a.devFeePct}% fee, ${a.targetMarginPct}% target return, ${mode} mode._`, "");
+  L.push(`_${date} · ${RULESET_LABEL[plan.ruleSet]} · Home type: ${type} · $${a.hardCostPerSf}/sf, ${fmtUsd(a.siteCostPerProject)} site allowance per project, ${a.softCostPct}% soft, ${a.devFeePct}% fee, ${a.targetMarginPct}% target return, ${mode} mode._`, "");
   L.push(`**Funnel.** ${funnelLine(plan.funnel)}`, "");
   const c = plan.candidates;
   const unconfirmed = c.districtUnconfirmed

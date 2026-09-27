@@ -13,12 +13,31 @@ import {
 import Tooltip from "./ui/Tooltip";
 import { FunnelLine, FunnelSentence } from "./ui/Funnel";
 
+/** The Reform tab's scenario, shown in place of the rule-set hero while that tab is open. */
+export interface ReformHeader {
+  label: string;
+  pending: boolean;
+  totals: {
+    total: number;
+    allowed: number;
+    candidates: number;
+    clearing: number;
+    hardCostPerSf: number;
+    lots: { gained: number; lost: number; net: number };
+  } | null;
+}
+
 interface Props {
   ruleSet: RuleSet;
   onRuleSet: (r: RuleSet) => void;
   stats: Record<RuleSet, RuleSetStats> | null;
   onAbout: () => void;
+  /** Set while the Reform tab is open: one scenario on screen, the menu read-only. */
+  reform?: ReformHeader | null;
 }
+
+const fmt = (n: number) => n.toLocaleString("en-US");
+const signed = (n: number) => (n > 0 ? `+${fmt(n)}` : n < 0 ? `−${fmt(Math.abs(n))}` : "±0");
 
 const SCENARIO_LABEL: Record<RuleSet, string> = {
   current: "Today's code",
@@ -30,7 +49,7 @@ const SCENARIO_TIP: Record<RuleSet, string> = {
 };
 const OPTIONS: RuleSet[] = ["current", "bill-2025-1545"];
 
-export default function TopBar({ ruleSet, onRuleSet, stats, onAbout }: Props) {
+export default function TopBar({ ruleSet, onRuleSet, stats, onAbout, reform = null }: Props) {
   const s = stats?.[ruleSet] ?? null;
 
   return (
@@ -41,7 +60,16 @@ export default function TopBar({ ruleSet, onRuleSet, stats, onAbout }: Props) {
         </h1>
         <p className="min-w-0 text-callout text-muted">Screening Pittsburgh&apos;s vacant City lots for small homes</p>
         <div className="ml-auto flex shrink-0 items-center gap-2">
-          <ScenarioMenu ruleSet={ruleSet} onRuleSet={onRuleSet} />
+          {reform ? (
+            <Tooltip content="Set on the Reform tab. Leave Reform to choose today's code or the bill here." side="bottom" asChild>
+              <span tabIndex={0} className="inline-flex min-h-9 max-w-[380px] items-center gap-2 rounded-full bg-accent-soft px-4 py-2 text-callout text-accent">
+                <span className="shrink-0 text-muted">Scenario</span>
+                <span className="truncate font-medium">{reform.label}</span>
+              </span>
+            </Tooltip>
+          ) : (
+            <ScenarioMenu ruleSet={ruleSet} onRuleSet={onRuleSet} />
+          )}
           <button
             onClick={onAbout}
             className="button-secondary text-callout"
@@ -52,13 +80,17 @@ export default function TopBar({ ruleSet, onRuleSet, stats, onAbout }: Props) {
       </div>
 
       <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-hairline px-panel py-4">
-        <div className="min-w-0 flex-[1_1_660px]">
-          <FunnelSentence s={s} className="hero-sentence" />
-          <div className="mt-1">
-            <FunnelLine s={s} />
+        {reform ? (
+          <ScenarioHero r={reform} />
+        ) : (
+          <div className="min-w-0 flex-[1_1_660px]">
+            <FunnelSentence s={s} className="hero-sentence" />
+            <div className="mt-1">
+              <FunnelLine s={s} />
+            </div>
           </div>
-        </div>
-        <div aria-label="Lots by triage" className="flex shrink-0 items-center gap-1">
+        )}
+        <div aria-label="Lots by triage" className={`flex shrink-0 items-center gap-1 ${reform ? "hidden" : ""}`}>
           {TRIAGE_ORDER.map((t) => (
             <Tooltip key={t} content={TRIAGE_SHORT[t]} side="bottom" asChild>
               <span
@@ -81,6 +113,46 @@ export default function TopBar({ ruleSet, onRuleSet, stats, onAbout }: Props) {
         </div>
       </div>
     </header>
+  );
+}
+
+/** The hero while Reform is open: the scenario's totals, marked as the scenario, never today's. */
+function ScenarioHero({ r }: { r: ReformHeader }) {
+  const t = r.totals;
+  return (
+    <div aria-busy={r.pending || undefined} className="min-w-0 flex-[1_1_660px]">
+      <p className="text-caption text-accent">
+        Scenario: <span className="font-medium">{r.label}</span>
+        {r.pending && <span className="text-muted"> · Recomputing…</span>}
+      </p>
+      {t ? (
+        <div className={`transition-opacity duration-200 ${r.pending ? "opacity-60" : ""}`}>
+          <p className="hero-sentence text-muted">
+            <span className="funnel-number font-semibold text-ink">
+              <CountUp value={t.allowed} />
+            </span>{" "}
+            of{" "}
+            <span className="funnel-number font-semibold text-ink">
+              <CountUp value={t.total} />
+            </span>{" "}
+            vacant City lots would pass the use-table and lot-size screen.{" "}
+            <span className="funnel-second">
+              <span className="font-semibold text-ink tabular-nums">{fmt(t.candidates)}</span> candidates for staff review;{" "}
+              <span className="font-semibold text-ink tabular-nums">{fmt(t.clearing)}</span> {t.clearing === 1 ? "clears" : "clear"} the cost-and-return screen at ${fmt(t.hardCostPerSf)}/sf.
+            </span>
+          </p>
+          <p className="mt-1 text-caption text-muted tabular-nums">
+            Against today&apos;s code: {fmt(t.lots.gained)} gained · {fmt(t.lots.lost)} lost ·{" "}
+            <span className={`font-medium ${t.lots.net > 0 ? "text-success-ink" : t.lots.net < 0 ? "text-danger-ink" : "text-ink"}`}>net {signed(t.lots.net)}</span> lots.
+            Hypothetical; not a proposal.
+          </p>
+        </div>
+      ) : (
+        <p className="mt-1 text-muted">
+          <span className="inline-block h-[0.9em] w-[34ch] max-w-full animate-pulse rounded bg-surface align-middle" />
+        </p>
+      )}
+    </div>
   );
 }
 

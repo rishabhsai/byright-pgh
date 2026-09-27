@@ -36,6 +36,8 @@ describe("shared link codec", () => {
     expect(serializeUrlState(bill)).toBe("tab=reform&preset=bill-2025-1545");
     expect(parseUrlState(serializeUrlState(bill))).toEqual(bill);
     expect(parseUrlState("tab=reform&preset=custom&rp=garbage").reformParams).toBeNull();
+    // Lever ids carry the subdistrict letter in capitals.
+    expect(parseUrlState("tab=reform&preset=min-lot-L-1800").reformPreset).toBe("min-lot-L-1800");
   });
 
   it("writes nothing at the defaults", () => {

@@ -98,4 +98,12 @@ describe.runIf(haveData)("worker parity: the slimmed worker payload builds the s
     const duplex = triageAll(lots, evals, { ...input(lots), typology: "duplex" });
     expect(duplex.current.greenAtPremium).toBe(0);
   }, 120_000);
+
+  it("the premium count is the whole Green total at 1.3x, lots already Green included ($150/sf: 11 Green, 21 at the premium)", () => {
+    const lots = file!.lots;
+    const evals = evaluateAll(lots);
+    const at150 = triageAll(lots, evals, { ...input(lots), assumptions: { ...DEFAULT_FINANCE, hardCostPerSf: 150 } });
+    expect(at150.current.results.filter((r) => r.triage === "green")).toHaveLength(11);
+    expect(at150.current.greenAtPremium).toBe(21);
+  }, 120_000);
 });

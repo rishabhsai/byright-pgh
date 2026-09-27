@@ -18,6 +18,7 @@ const TONE: Record<AnswerTone, { bar: string; ink: string }> = {
 /** The panel's first answer: can I, should I, how. */
 export default function AnswerCard({
   topLine,
+  bodyLabel = null,
   headline,
   tone,
   typeLine,
@@ -37,6 +38,8 @@ export default function AnswerCard({
 }: {
   /** A line above the headline (the Reform scenario's result for this lot). */
   topLine?: ReactNode;
+  /** Names the rules the card body reads when the top line is a different scenario ("Today's code"). */
+  bodyLabel?: string | null;
   headline: string;
   tone: AnswerTone;
   typeLine: ReactNode;
@@ -67,6 +70,7 @@ export default function AnswerCard({
       <span aria-hidden className="absolute inset-y-0 left-0 w-[3px]" style={{ background: t.bar }} />
       <div className="p-card">
         {topLine && <div className="mb-3 border-b border-hairline pb-3 text-callout">{topLine}</div>}
+        {bodyLabel && <h3 className="mb-1 text-caption font-medium text-muted">{bodyLabel}</h3>}
         <p className="text-title" style={{ color: t.ink }}>
           {headline}
         </p>

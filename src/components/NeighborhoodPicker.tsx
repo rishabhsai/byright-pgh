@@ -52,13 +52,14 @@ export default function NeighborhoodPicker({ options, selected, onChange }: Prop
   const activeIdx = Math.min(active, Math.max(0, results.length - 1));
   const optionId = (i: number) => `${id}-opt-${i}`;
 
-  // Selecting clears the typed query, so the chip is not followed by the same name as text.
+  // Selecting clears the typed query, so the chip is not followed by the same name as text, and closes the list.
   const toggle = (name: string) => {
     if (selectedSet.has(name)) onChange(selected.filter((s) => s !== name));
     else {
       onChange([...selected, name]);
       setQuery("");
       setActive(0);
+      setOpen(false);
     }
   };
 
@@ -225,7 +226,7 @@ export default function NeighborhoodPicker({ options, selected, onChange }: Prop
                   )}
                 </span>
                 <span className={`min-w-0 flex-1 truncate ${sel ? "font-medium text-ink" : "text-ink"}`}>{o.name}</span>
-                <span className="shrink-0 text-caption text-muted tabular-nums">{o.lots.toLocaleString()} lots</span>
+                <span className="shrink-0 text-caption text-muted tabular-nums">{o.lots.toLocaleString()} {o.lots === 1 ? "lot" : "lots"}</span>
                 <span
                   className={`inline-flex w-[58px] shrink-0 items-center justify-end gap-1 text-caption tabular-nums ${
                     o.green ? "text-success-ink" : "text-faint"
