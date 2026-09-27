@@ -129,6 +129,11 @@ interface Props {
   plan: ReactNode;
   /** The Reform tab's rail content (scenario presets and knobs). */
   reform?: ReactNode;
+  /** Ask ByRight: sends a question from the search box. */
+  onAsk?: (q: string) => void;
+  lastQuestion?: string | null;
+  /** The Ask ByRight transcript, shown under the search box. */
+  ask?: ReactNode;
 }
 
 export type Tab = "lots" | "plan" | "reform";
@@ -187,6 +192,9 @@ function LeftRail({
   onReadPlan,
   plan,
   reform,
+  onAsk,
+  lastQuestion,
+  ask,
 }: Props) {
   const [filtersOpen, setFiltersOpen] = useState(true);
   const filtersId = useId();
@@ -303,7 +311,17 @@ function LeftRail({
   return (
     <aside className="pane-rail flex shrink-0 flex-col border-r border-hairline bg-panel">
       <div className="shrink-0 space-y-4 px-panel pt-panel pb-4">
-        <SearchBox lots={lots} onPick={onSelect} onScope={(h) => set("neighborhoods", [h])} triage={searchTriage} matches={matches} selectedIdx={selectedIdx} />
+        <SearchBox
+          lots={lots}
+          onPick={onSelect}
+          onScope={(h) => set("neighborhoods", [h])}
+          triage={searchTriage}
+          matches={matches}
+          selectedIdx={selectedIdx}
+          onAsk={onAsk}
+          lastQuestion={lastQuestion}
+        />
+        {ask}
         <Segmented<Tab>
           kind="tabs"
           label="Rail view"

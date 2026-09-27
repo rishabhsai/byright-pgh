@@ -33,6 +33,7 @@ const AI_USE = [
   "Claude extracted the use and dimensional tables for the encoded districts from saved ecode360 captures of Title Nine (docs/sources). The rows were checked against those captures during development and re-checked by automated audits; an independent practitioner validation is not complete.",
   "No model sits in the decision path. Every verdict, triage color, count and dollar figure comes from those tables, public data and arithmetic you can read in the code.",
   "Where a model rewrites text (the optional wording suggestion in the filing packet), it is labeled as unverified model output and never replaces the deterministic text.",
+  "Ask ByRight (the search box) lets a model turn a question into filter and lever changes, each shown and undoable; the answer sentence is computed by the engine, never written by the model.",
 ];
 
 /** The one statement about hazard layers, here and on the lot. */

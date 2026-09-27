@@ -116,36 +116,72 @@ function provider(): Provider | null {
 
 export type Completion = { text: string; model: string } | { text: null; error: string };
 
-/** One chat completion with a 12 s timeout. Never throws. */
-export async function complete(system: string, user: string, maxTokens: number): Promise<Completion> {
+type ChatResult = { ok: true; message: unknown; model: string } | { ok: false; error: string };
+
+/** One chat completion request with a timeout. Never throws. */
+async function chat(body: Record<string, unknown>, timeoutMs: number, model?: string): Promise<ChatResult> {
   const p = provider();
-  if (!p) return { text: null, error: "no-llm-credentials" };
+  if (!p) return { ok: false, error: "no-llm-credentials" };
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), PROVIDER_TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  const m = model || p.model;
   try {
     const res = await fetch(p.url, {
       method: "POST",
       signal: ctrl.signal,
       headers: { "content-type": "application/json", authorization: `Bearer ${p.token}` },
-      body: JSON.stringify({
-        model: p.model,
-        max_tokens: maxTokens,
-        temperature: 0.2,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-      }),
+      body: JSON.stringify({ model: m, ...body }),
     });
-    if (!res.ok) return { text: null, error: `provider-${res.status}` };
-    const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-    const text = data.choices?.[0]?.message?.content?.trim();
-    return text ? { text, model: p.model } : { text: null, error: "empty" };
+    if (!res.ok) return { ok: false, error: `provider-${res.status}` };
+    const data = (await res.json()) as { choices?: { message?: unknown }[] };
+    const message = data.choices?.[0]?.message;
+    return message ? { ok: true, message, model: m } : { ok: false, error: "empty" };
   } catch (err) {
-    return { text: null, error: ctrl.signal.aborted ? "timeout" : err instanceof Error ? err.name : "error" };
+    return { ok: false, error: ctrl.signal.aborted ? "timeout" : err instanceof Error ? err.name : "error" };
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** One chat completion with a 12 s timeout. Never throws. */
+export async function complete(system: string, user: string, maxTokens: number): Promise<Completion> {
+  const r = await chat(
+    {
+      max_tokens: maxTokens,
+      temperature: 0.2,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+    },
+    PROVIDER_TIMEOUT_MS,
+  );
+  if (!r.ok) return { text: null, error: r.error };
+  const text = (r.message as { content?: unknown }).content;
+  return typeof text === "string" && text.trim() ? { text: text.trim(), model: r.model } : { text: null, error: "empty" };
+}
+
+export type ToolCompletion = ChatResult;
+
+/**
+ * One function-calling completion (OpenAI-style `tools`), temperature 0. Returns the raw assistant message for
+ * the caller's own parser and guards. `ASK_MODEL` overrides the provider's default model. Never throws.
+ */
+export function completeTools(system: string, user: string, tools: unknown[], maxTokens: number, timeoutMs = PROVIDER_TIMEOUT_MS): Promise<ToolCompletion> {
+  return chat(
+    {
+      max_tokens: maxTokens,
+      temperature: 0,
+      tools,
+      tool_choice: "auto",
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+    },
+    timeoutMs,
+    process.env.ASK_MODEL,
+  );
 }
 
 export const badRequest = (err: unknown) =>

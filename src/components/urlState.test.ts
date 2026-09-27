@@ -25,6 +25,8 @@ const base: UrlState = {
   reading: false,
   reformPreset: null,
   reformParams: null,
+  ask: null,
+  askTopics: [],
 };
 
 describe("shared link codec", () => {
@@ -38,6 +40,19 @@ describe("shared link codec", () => {
     expect(parseUrlState("tab=reform&preset=custom&rp=garbage").reformParams).toBeNull();
     // Lever ids carry the subdistrict letter in capitals.
     expect(parseUrlState("tab=reform&preset=min-lot-L-1800").reformPreset).toBe("min-lot-L-1800");
+  });
+
+  it("round-trips an Ask ByRight question so a shared link reopens its answer", () => {
+    const q = "Hazelwood lots where a duplex passes if the L minimum drops to 1,800";
+    const s = { ...base, hoods: ["Hazelwood"], ask: q };
+    const qs = serializeUrlState(s);
+    expect(qs).toContain("ask=");
+    expect(parseUrlState(`?${qs}`).ask).toBe(q);
+    expect(parseUrlState(`?ask=${"x".repeat(400)}`).ask).toBeNull();
+    expect(parseUrlState("?ask=%20%20").ask).toBeNull();
+    const why = serializeUrlState({ ...base, ask: "Why isn't anything Green?", askTopics: ["green-policy"] });
+    expect(parseUrlState(`?${why}`).askTopics).toEqual(["green-policy"]);
+    expect(parseUrlState("?ask=x&explain=green-policy,secrets").askTopics).toEqual(["green-policy"]);
   });
 
   it("writes nothing at the defaults", () => {

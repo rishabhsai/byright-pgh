@@ -5,6 +5,7 @@ import { acceptedValue, DEFAULT_FINANCE, FINANCE_RANGES, type FinanceAssumptions
 import { TYPOLOGIES } from "./verdict";
 import type { RuleParams } from "@/lib/types";
 import { decodeParams, encodeParams } from "./reform/engine";
+import { EXPLAIN_TOPICS, type ExplainTopic } from "@/lib/ask/tools";
 
 /**
  * ?lot=<id>&type=duplex&filterType=townhome&hoods=a,b&scenario=bill&tab=plan&n=12&hc=195
@@ -38,7 +39,14 @@ export interface UrlState {
   includeParks: boolean;
   /** The plan's wide reading view is open. */
   reading: boolean;
+  /** The Ask ByRight question on screen (`ask=`); the answer is recomputed from the rest of the state. */
+  ask: string | null;
+  /** Explanations that question showed (`explain=`), shown again from the app's fixed text. */
+  askTopics: ExplainTopic[];
 }
+
+/** Longest question a link may carry (the /api/ask limit). */
+export const MAX_ASK = 300;
 
 type RangedKey = keyof typeof FINANCE_RANGES;
 /** Short URL keys for the ranged finance inputs. */
@@ -108,6 +116,11 @@ export function parseUrlState(search: string): UrlState {
     onlyByRight: p.get("byRight") === "1",
     includeParks: p.get("parks") === "1",
     reading: p.get("read") === "1",
+    ask: (() => {
+      const q = (p.get("ask") ?? "").trim();
+      return q && q.length <= MAX_ASK ? q : null;
+    })(),
+    askTopics: (p.get("explain") ?? "").split(",").filter((t): t is ExplainTopic => (EXPLAIN_TOPICS as readonly string[]).includes(t)),
   };
 }
 
@@ -138,5 +151,7 @@ export function serializeUrlState(s: UrlState): string {
   if (s.onlyByRight) p.set("byRight", "1");
   if (s.includeParks) p.set("parks", "1");
   if (s.reading) p.set("read", "1");
+  if (s.ask) p.set("ask", s.ask);
+  if (s.ask && s.askTopics.length) p.set("explain", s.askTopics.join(","));
   return p.toString().replace(/%2C/g, ",").replace(/%3A/g, ":");
 }

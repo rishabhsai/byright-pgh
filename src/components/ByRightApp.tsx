@@ -30,6 +30,10 @@ import { leverChanges } from "./reform/reformExport";
 import { blockerLine, money, reasonText, verdictLabel } from "./ui/answer";
 import { financeGate, NO_COMPS_REASON } from "./ui/financeGate";
 import { compsFor, countTriage, DEFAULT_FINANCE, FALLBACK_COMPS, type FinanceAssumptions } from "@/lib/finance";
+import { applyAll, compactAskState, scenarioOf, undoApplied, type AskState } from "@/lib/ask/apply";
+import { explainText, type AnswerInput } from "@/lib/ask/answer";
+import type { ToolCall } from "@/lib/ask/tools";
+import AskTranscript, { ASK_TIMEOUT_MS, askTopicsOf, useAskAnswer, type AskEntry } from "./ask/AskBox";
 
 const MapView = dynamic(() => import("./MapView"), {
   ssr: false,
@@ -199,6 +203,9 @@ export default function ByRightApp() {
     assumptions: DEFAULT_FINANCE,
     landOverrides: {},
   });
+  // Ask ByRight: the latest question, its applied actions, and the last question for ↑.
+  const [askEntry, setAskEntry] = useState<AskEntry | null>(null);
+  const [lastQuestion, setLastQuestion] = useState<string | null>(null);
   // Parcel ID from the URL, selected once the lots arrive.
   const pendingLot = useRef<string | null>(null);
   const [urlRead, setUrlRead] = useState(false);
@@ -223,6 +230,10 @@ export default function ByRightApp() {
       includeParks: u.includeParks,
     }));
     if (u.reading) setPlanReading(true);
+    if (u.ask) {
+      setAskEntry({ id: 0, q: u.ask, phase: "restored", applied: [], topics: u.askTopics });
+      setLastQuestion(u.ask);
+    }
     if (u.projects !== DEFAULT_PROJECTS) setProjects(u.projects);
     // Assumptions and land figures go straight to the committed pass, so the first city-wide run uses them.
     const land = Object.keys(u.land).length ? u.land : null;
@@ -517,8 +528,10 @@ export default function ByRightApp() {
       reading: planReading,
       reformPreset: reform.presetId,
       reformParams: reform.presetId === CUSTOM_ID ? reform.params : null,
+      ask: askEntry && (askEntry.phase === "done" || askEntry.phase === "restored") ? askEntry.q : null,
+      askTopics: askEntry ? askTopicsOf(askEntry) : [],
     });
-  }, [urlRead, lots.length, selectedLot, pickedTypology, filterTypology, filters, ruleSet, tab, projects, committed, planReading, reform]);
+  }, [urlRead, lots.length, selectedLot, pickedTypology, filterTypology, filters, ruleSet, tab, projects, committed, planReading, reform, askEntry]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -527,12 +540,13 @@ export default function ByRightApp() {
         if (aboutOpen) setAboutOpen(false);
         else if (planReading) setPlanReading(false);
         else if (expanded) setExpanded(false);
+        else if (selectedIdx == null && askEntry) setAskEntry(null);
         else clearSelection();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [aboutOpen, planReading, expanded, clearSelection]);
+  }, [aboutOpen, planReading, expanded, clearSelection, selectedIdx, askEntry]);
 
   // City-wide findings arrive slimmed from the worker; the panel gets the full text for its one lot.
   const selectedFull = useMemo<Record<RuleSet, Finding[]> | null>(
@@ -765,6 +779,108 @@ export default function ByRightApp() {
     setLoadAttempt((n) => n + 1);
   }, []);
 
+  // ---- Ask ByRight ----------------------------------------------------------------------------------------
+  // The model picks validated tool calls; they apply through the same setters as the controls, and the answer
+  // is composed from the engine for whatever state results. Undoing one chip restores what that call changed.
+  const askState = useMemo<AskState>(
+    () => ({
+      neighborhoods: filters.neighborhoods,
+      homeType: filters.typology,
+      status: filters.status,
+      triage: filters.triage,
+      ruleSet,
+      tab,
+      reform,
+      finance: assumptions,
+      lotId: selectedLot?.id ?? null,
+    }),
+    [filters.neighborhoods, filters.typology, filters.status, filters.triage, ruleSet, tab, reform, assumptions, selectedLot],
+  );
+  const writeAskState = useCallback(
+    (from: AskState, to: AskState) => {
+      if (from.tab !== to.tab) onTab(to.tab);
+      if (from.ruleSet !== to.ruleSet) setRuleSet(to.ruleSet);
+      if (from.reform !== to.reform) setReform(to.reform);
+      if (from.neighborhoods !== to.neighborhoods || from.homeType !== to.homeType || from.status !== to.status || from.triage !== to.triage)
+        onFilters({ ...filters, neighborhoods: to.neighborhoods, typology: to.homeType, status: to.status, triage: to.triage });
+      if (from.finance !== to.finance) setAssumptions(to.finance);
+      if (from.lotId !== to.lotId) {
+        if (to.lotId) selectById(to.lotId);
+        else clearSelection();
+      }
+    },
+    [onTab, onFilters, filters, selectById, clearSelection],
+  );
+  // The fetch resolves later: it applies to the state as it is then, through the setters of that render.
+  const askLatest = useRef({ state: askState, write: writeAskState });
+  useEffect(() => {
+    askLatest.current = { state: askState, write: writeAskState };
+  }, [askState, writeAskState]);
+  const askSeq = useRef(0);
+  const askAbort = useRef<AbortController | null>(null);
+
+  const onAsk = useCallback(async (q: string) => {
+    const id = ++askSeq.current;
+    askAbort.current?.abort();
+    const ctrl = new AbortController();
+    askAbort.current = ctrl;
+    const timer = window.setTimeout(() => ctrl.abort(), ASK_TIMEOUT_MS);
+    setAskEntry({ id, q, phase: "asking", applied: [] });
+    setLastQuestion(q);
+    const started = performance.now();
+    try {
+      const res = await fetch("/api/ask", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ q, state: compactAskState(askLatest.current.state) }),
+        signal: ctrl.signal,
+      });
+      const j = (await res.json().catch(() => null)) as { actions?: ToolCall[] } | null;
+      if (id !== askSeq.current) return;
+      if (!res.ok || !Array.isArray(j?.actions) || !j.actions.length) throw new Error("no actions");
+      const { state: from, write } = askLatest.current;
+      const { state: to, applied } = applyAll(from, j.actions);
+      write(from, to);
+      setAskEntry({ id, q, phase: "done", applied, ms: Math.round(performance.now() - started) });
+    } catch {
+      if (id === askSeq.current) setAskEntry({ id, q, phase: "failed", applied: [] });
+    } finally {
+      window.clearTimeout(timer);
+    }
+  }, []);
+
+  const onAskUndo = useCallback(
+    (k: number) => {
+      const a = askEntry?.applied[k];
+      if (!a || a.undone) return;
+      const from = askLatest.current.state;
+      askLatest.current.write(from, undoApplied(from, a));
+      setAskEntry((e) => (e && e.id === askEntry!.id ? { ...e, applied: e.applied.map((x, i) => (i === k ? { ...x, undone: true } : x)) } : e));
+    },
+    [askEntry],
+  );
+
+  const askScenario = useMemo(() => scenarioOf(askState), [askState]);
+  const askShowsAnswer = !!askEntry && (askEntry.phase === "done" || askEntry.phase === "restored");
+  const askInput = useMemo<AnswerInput | null>(() => {
+    if (!askShowsAnswer || !stats || !lots.length) return null;
+    // Every record in scope, parks included, as the header and the plan funnel count them.
+    const keep = lotFilter({ ...filters, onlyByRight: false, includeParks: true }, mapVerdicts, mapTriage);
+    return {
+      lots,
+      comps,
+      assumptions,
+      inScope: lots.map(keep),
+      neighborhoods: filters.neighborhoods,
+      status: filters.status,
+      triage: filters.triage,
+      typology: filterTypology,
+      scenario: askScenario,
+    };
+  }, [askShowsAnswer, stats, lots, filters, mapVerdicts, mapTriage, comps, assumptions, filterTypology, askScenario]);
+  const askAnswer = useAskAnswer(askInput);
+  const askExplanations = useMemo(() => (askEntry ? askTopicsOf(askEntry).map((t) => explainText(t, askScenario)) : []), [askEntry, askScenario]);
+
   // Pane widths: user-set via the handles, persisted, and dropped when they would squeeze the map.
   const layout = useSyncExternalStore(subscribeLayout, getLayout, getServerLayout);
   const shellRef = useRef<HTMLDivElement>(null);
@@ -793,6 +909,13 @@ export default function ByRightApp() {
             setExpanded(false);
             setPlanReading(true);
           }}
+          onAsk={onAsk}
+          lastQuestion={lastQuestion}
+          ask={
+            askEntry ? (
+              <AskTranscript entry={askEntry} answer={askAnswer} explanations={askExplanations} onUndo={onAskUndo} onClose={() => setAskEntry(null)} />
+            ) : null
+          }
           reform={
             <ReformView presetId={reform.presetId} params={reform.params} onPreset={onReformPreset} onParams={onReformParams} lotCount={lots.length} />
           }
