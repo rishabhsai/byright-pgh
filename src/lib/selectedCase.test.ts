@@ -39,6 +39,11 @@ describe.skipIf(!haveData)("selected case", () => {
     expect(duplex.bestTypology).toBe(best.typology);
   });
 
+  it("carries the shared first open item: the district for 0 Old Kirkpatrick St, the shortfall for a Hazelwood lot", () => {
+    expect(caseFor("0011F00200000000", null).firstOpenItem).toEqual({ id: "district-conflict", label: "Resolve district: inventory R2-VH vs map UPR-B" });
+    expect(caseFor("0056N00203000000", null).firstOpenItem).toEqual({ id: "finance", label: "Financing review (modeled shortfall $301,863)" });
+  });
+
   it("applies the lot's land figure to finance and to the application description", () => {
     const c = caseFor("0056N00203000000", null, 0);
     expect(c.proforma?.landSource).toBe("override");

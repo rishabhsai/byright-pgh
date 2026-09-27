@@ -22,11 +22,11 @@ OUT = ROOT / "docs" / "validation-set.md"
 
 # (parcel id, why it is in the set)
 SET = [
-    ("0023F00165000000", "Green: allowed, pencils, for sale"),
+    ("0023F00165000000", "Green: allowed, clears the cost-and-return screen, for sale"),
     ("0086L00500000000", "Sliver: 259 sf LNC lot, FAR 2:1"),
     ("0055R00106000000", "Hillside: administrator exception, slope flag"),
     ("0085K00296000000", "Missing frontage; inventory and map disagree"),
-    ("0086L00060000000", "Pencils but Hold for Study (not for sale)"),
+    ("0086L00060000000", "Clears the cost-and-return screen but Hold for Study (not for sale)"),
     ("0082B00053000000", "Park record in the P district"),
     ("0056N00203000000", "Hazelwood, 19.5 ft lot: attached prototype"),
     ("0056N00206000000", "Hazelwood, 19.5 ft lot"),

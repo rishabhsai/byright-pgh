@@ -2,7 +2,7 @@
 // assumptions (with this lot's land figure) and results. Nothing downstream recomputes a proposal.
 import type { Comps, Finding, Lot, RuleSet, TriageResult, Typology } from "./types";
 import { triageLot } from "./triage";
-import { evidenceForLot, pickFinding, type Evidence } from "./evidence";
+import { evidenceForLot, firstOpenItem, pickFinding, type Evidence, type OpenItem } from "./evidence";
 import { proformaWithFallback, type FinanceAssumptions, type Proforma } from "./finance";
 
 /** Where the selected proposal came from. */
@@ -29,6 +29,8 @@ export interface SelectedCase {
   landOverride: number | null;
   proforma: Proforma | null;
   evidence: Evidence;
+  /** The shared first open item for this proposal (evidence.ts firstOpenItem): what the memo names first after the headline. */
+  firstOpenItem: OpenItem | null;
   comps: Comps | null;
 }
 
@@ -67,6 +69,7 @@ export function buildSelectedCase(args: {
     landOverride,
     proforma,
     evidence,
+    firstOpenItem: finding ? firstOpenItem(lot, finding, evidence, proforma) : null,
     comps,
   };
 }

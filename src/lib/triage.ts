@@ -16,11 +16,11 @@ import { compsForLot, DEFAULT_FINANCE, fmtNum, fmtUsd, isNarrowLot, runProforma,
 /** The one statement of what Green means. Shown in the UI and About; meetsGreenPolicy implements it. */
 export const GREEN_POLICY =
   "Green means the lot passes this preliminary screen under the displayed assumptions: its best home type is allowed by right; " +
-  "the Use, Lot size, Width and Site checks all pass (Use is Unknown when the City zoning map names a different district than the inventory at the lot's point); " +
+  "the Use, Lot size, Width and Site checks all pass (Use is Unknown when the City zoning map names a different district than the inventory at the lot's point, or none); " +
   "Fit is not failing (setbacks, height and coverage are not modeled, so Fit is usually Not checked); " +
-  "Finance passes the cost-and-return screen; and the City records the lot as Available for Sale and not as a park, greenway or infrastructure-protection parcel. " +
+  "Finance passes the cost-and-return screen; and the City records the lot as Available for Sale, not as a park, greenway or infrastructure-protection parcel and not as privately owned. " +
   "Required parking and other unverified items stay listed on the lot. " +
-  "Green is a candidate for staff review, not a determination that the lot can be built or released.";
+  "Green is a candidate for staff review, not a determination that the lot can be built or offered for sale.";
 
 const GREEN_MUST_PASS: EvidenceId[] = ["use", "lotSize", "width", "site", "finance"];
 

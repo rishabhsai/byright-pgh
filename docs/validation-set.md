@@ -24,11 +24,11 @@ Reproduce: `pipeline/.venv/bin/python pipeline/build.py && pipeline/.venv/bin/py
 
 | Parcel | Address | Why in the set | Inventory zone | Map zone | Agree? | Our screen (best type) | Triage | Evidence | Hand check |
 |---|---|---|---|---|---|---|---|---|---|
-| 0023F00165000000 | 126 Carrington | Green: allowed, pencils, for sale | R1A-VH | R1A-VH | yes | Townhouse: Allowed by the use table and lot-size standards; other standards not checked (§ 911.02, § 903.03.E.2) | Green | 5 pass · 1 not checked | ☐ |
+| 0023F00165000000 | 126 Carrington | Green: allowed, clears the cost-and-return screen, for sale | R1A-VH | R1A-VH | yes | Townhouse: Allowed by the use table and lot-size standards; other standards not checked (§ 911.02, § 903.03.E.2) | Green | 5 pass · 1 not checked | ☐ |
 | 0086L00500000000 | 0 Forbes Av | Sliver: 259 sf LNC lot, FAR 2:1 | LNC | LNC | yes | Triplex: Relief needed (smaller building or variance) (§ 911.02, § 904.02.C) | Yellow | 3 pass · 2 fail · 1 not checked | ☐ |
 | 0055R00106000000 | 4613 Hazelwood Ave | Hillside: administrator exception, slope flag | H | H | yes | House: Staff approval (administrator exception) (§ 911.02, § 905.02.C) | Yellow | 2 pass · 1 fail · 1 unknown · 2 not checked | ☐ |
 | 0085K00296000000 | 5724 Murray Hill Pl | Missing frontage; inventory and map disagree | RM-M | R1D-L | **no** | Triplex: Allowed by the use table and lot-size standards; other standards not checked (§ 911.02, § 903.03.C.2) | Yellow | 2 pass · 2 unknown · 2 not checked | ☐ |
-| 0086L00060000000 | 1702 Shady Av | Pencils but Hold for Study (not for sale) | LNC | LNC | yes | Triplex: Allowed by the use table and lot-size standards; other standards not checked (§ 911.02, § 904.02.C) | Yellow | 5 pass · 1 not checked | ☐ |
+| 0086L00060000000 | 1702 Shady Av | Clears the cost-and-return screen but Hold for Study (not for sale) | LNC | LNC | yes | Triplex: Allowed by the use table and lot-size standards; other standards not checked (§ 911.02, § 904.02.C) | Yellow | 5 pass · 1 not checked | ☐ |
 | 0082B00053000000 | 1408 Chislett St | Park record in the P district | P | P | yes | Not checked yet | Gray | 1 fail · 3 unknown · 2 not checked | ☐ |
 | 0056N00203000000 | 5118 Ladora Wy | Hazelwood, 19.5 ft lot: attached prototype | R1A-VH | R1A-VH | yes | Townhouse: Allowed by the use table and lot-size standards; other standards not checked (§ 911.02, § 903.03.E.2) | Yellow | 4 pass · 1 fail · 1 not checked | ☐ |
 | 0056N00206000000 | 5124 Ladora Way | Hazelwood, 19.5 ft lot | R1A-VH | R1A-VH | yes | Townhouse: Allowed by the use table and lot-size standards; other standards not checked (§ 911.02, § 903.03.E.2) | Yellow | 4 pass · 1 fail · 1 not checked | ☐ |
