@@ -76,8 +76,15 @@ export function FunnelLine({ s }: { s: FunnelStats | null }) {
 }
 
 /** Large funnel for the empty panel: one bar per step, width proportional to the count. */
-export function FunnelBars({ s }: { s: FunnelStats }) {
-  const steps = funnelSteps(s);
+export function FunnelBars({
+  s,
+  steps: given,
+}: {
+  s?: FunnelStats;
+  steps?: readonly { key: string; n: number; label: string }[];
+}) {
+  const steps = given ?? (s ? funnelSteps(s) : []);
+  if (!steps.length) return null;
   const max = steps[0].n || 1;
   return (
     <ol aria-label="Lot funnel" className="space-y-2.5">

@@ -201,7 +201,8 @@ describe("triageLot", () => {
 
 describe("GREEN_POLICY", () => {
   it("states the policy in plain English, including that fit is not checked and parking is listed", () => {
-    expect(GREEN_POLICY).toMatch(/allowed by right/);
+    expect(GREEN_POLICY).toMatch(/allowed by the use table and lot-size standards/);
+    expect(GREEN_POLICY).not.toMatch(/by right/);
     expect(GREEN_POLICY).toMatch(/Use, Lot size, Width and Site checks all pass/);
     expect(GREEN_POLICY).toMatch(/Fit is not failing/);
     expect(GREEN_POLICY).toMatch(/Finance passes/);

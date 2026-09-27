@@ -107,7 +107,9 @@ export function slimEvidence(evidence: EvidenceByRuleSet): EvidenceByRuleSet {
   for (const rs of RULE_SETS) {
     out[rs] = evidence[rs].map((e) => ({
       ...e,
-      checks: e.checks.map((c) => (c.state === "pass" || c.state === "fail" ? { id: c.id, state: c.state, label: c.label, detail: "" } : c)),
+      checks: e.checks.map((c) =>
+        c.state === "pass" || c.state === "fail" ? { id: c.id, state: c.state, label: c.label, detail: "", ...(c.belowFloor ? { belowFloor: true } : {}) } : c,
+      ),
     }));
   }
   return out;

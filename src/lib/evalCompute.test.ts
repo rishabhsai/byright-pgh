@@ -56,6 +56,12 @@ describe.runIf(haveData)("worker parity: the slimmed worker payload builds the s
     typology: null,
   });
 
+  it("keeps the screening-floor flag on a slimmed lot-size check (0 Forbes Av, 259 sf LNC)", () => {
+    const lots = file!.lots.filter((l) => l.id === "0086L00500000000");
+    const lotSize = viaWorker(lots, input(lots)).evidence.current[0].checks.find((c) => c.id === "lotSize");
+    expect(lotSize).toMatchObject({ state: "fail", label: "Below floor", belowFloor: true });
+  });
+
   it("Hazelwood in full: same plan, brief and CSV, and the bill line keeps today's parking requirement", () => {
     const lots = file!.lots.filter((l) => l.neighborhood === "Hazelwood");
     const w = plans(lots, compsFile!, viaWorker(lots, input(lots)), ["Hazelwood"]);

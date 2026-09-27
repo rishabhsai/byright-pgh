@@ -50,19 +50,95 @@ export function parcelPrefix(q: string): string | null {
   return `${m[1].padStart(4, "0")}${m[2]}${m[3].padStart(5, "0")}${m[4] ? m[4].padStart(4, "0") : ""}`;
 }
 
-/** Address (suffix-normalized) or parcel/block-lot prefix, case-insensitive; prefix matches rank first. */
-export function searchLots(index: { addr: string; id: string }[], q: string, limit = LIMIT): number[] {
-  const s = normalizeAddress(q);
-  if (!s) return [];
-  const id = parcelPrefix(q);
-  const starts: number[] = [];
-  const contains: number[] = [];
-  for (let i = 0; i < index.length && starts.length < limit; i++) {
-    const r = index[i];
-    if ((id && r.id.startsWith(id)) || r.addr.startsWith(s)) starts.push(i);
-    else if (contains.length < limit && r.addr.includes(s)) contains.push(i);
+export interface SearchEntry {
+  /** normalizeAddress(address) */
+  addr: string;
+  /** Parcel ID, lowercase. */
+  id: string;
+  /** normalizeAddress(neighborhood); lets "forbes squirrel" narrow to one section of a long street. */
+  hood?: string;
+  /** False for lots the screen does not evaluate; they rank after evaluated lots with the same score. */
+  evaluated?: boolean;
+}
+
+/**
+ * How well one lot matches the query tokens; 0 when any token matches nothing. Exact street-name and
+ * house-number tokens beat prefixes, which beat neighborhood tokens, which beat loose substrings.
+ */
+function tokenScore(r: SearchEntry, tokens: string[], whole: string): number {
+  const words = r.addr.split(" ");
+  const hood = r.hood ? r.hood.split(" ") : [];
+  let score = 0;
+  for (const t of tokens) {
+    const numeric = /^\d+$/.test(t);
+    if (words.includes(t)) score += numeric && words[0] === t ? 16 : 10;
+    else if (!numeric && words.some((w) => w.startsWith(t))) score += 6;
+    else if (hood.some((w) => w === t || (!numeric && w.startsWith(t))))
+      score += 4;
+    else if (!numeric && t.length >= 3 && r.addr.includes(t)) score += 2;
+    else return 0;
   }
-  return [...starts, ...contains].slice(0, limit);
+  if (r.addr === whole) score += 20;
+  else if (r.addr.startsWith(whole)) score += 3;
+  return score;
+}
+
+/**
+ * Address tokens (suffix-normalized), neighborhood tokens, parcel/block-lot prefix, or a parcel ID
+ * substring, case-insensitive. Ranked by match quality, then evaluated lots first; within a tie, one
+ * lot per neighborhood before a second from any, so a street that crosses neighborhoods shows each.
+ */
+export function searchLots(
+  index: SearchEntry[],
+  q: string,
+  limit = LIMIT,
+): number[] {
+  const whole = normalizeAddress(q);
+  if (!whole) return [];
+  const tokens = whole.split(" ");
+  const id = parcelPrefix(q);
+  const compact = q.trim().toLowerCase().replace(/[\s-]/g, "");
+  const idSub =
+    /^[0-9a-z]{4,}$/.test(compact) && /\d/.test(compact) ? compact : null;
+  const hits: { i: number; score: number; evaluated: boolean; hood: string }[] =
+    [];
+  for (let i = 0; i < index.length; i++) {
+    const r = index[i];
+    let score = 0;
+    if (id && r.id.startsWith(id)) score = 1000;
+    else if (idSub && r.id.includes(idSub)) score = 500;
+    else score = tokenScore(r, tokens, whole);
+    if (score > 0)
+      hits.push({
+        i,
+        score,
+        evaluated: r.evaluated !== false,
+        hood: r.hood ?? "",
+      });
+  }
+  hits.sort(
+    (a, b) =>
+      b.score - a.score ||
+      Number(b.evaluated) - Number(a.evaluated) ||
+      a.i - b.i,
+  );
+  // Within each score-and-evaluated tier, interleave neighborhoods: each lot's rank within its neighborhood.
+  const seen = new Map<string, number>();
+  const tierOf = (h: (typeof hits)[number]) => `${h.score}|${h.evaluated}`;
+  const ranked = hits.map((h, k) => {
+    const key = `${tierOf(h)}|${h.hood}`;
+    const n = seen.get(key) ?? 0;
+    seen.set(key, n + 1);
+    return { ...h, k, n };
+  });
+  ranked.sort(
+    (a, b) =>
+      b.score - a.score ||
+      Number(b.evaluated) - Number(a.evaluated) ||
+      a.n - b.n ||
+      a.k - b.k,
+  );
+  return ranked.slice(0, limit).map((h) => h.i);
 }
 
 function SearchBox({
@@ -85,7 +161,16 @@ function SearchBox({
   const root = useRef<HTMLDivElement>(null);
   const listId = useId();
 
-  const index = useMemo(() => lots.map((l) => ({ addr: normalizeAddress(l.address || ""), id: l.id.toLowerCase() })), [lots]);
+  const index = useMemo<SearchEntry[]>(
+    () =>
+      lots.map((l, i) => ({
+        addr: normalizeAddress(l.address || ""),
+        id: l.id.toLowerCase(),
+        hood: normalizeAddress(l.neighborhood || ""),
+        evaluated: triage?.[i] !== "gray",
+      })),
+    [lots, triage],
+  );
   const results = useMemo(() => searchLots(index, q), [index, q]);
 
   // ⌘K / Ctrl-K focuses the field from anywhere.

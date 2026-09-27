@@ -3,7 +3,13 @@ import { useEffect, useRef, useState } from "react";
 import type { RuleSet } from "@/lib/types";
 import CountUp from "./CountUp";
 import type { RuleSetStats } from "./ByRightApp";
-import { TIP, TRIAGE_ORDER, TRIAGE_SHORT, TriageDot } from "./verdict";
+import {
+  TIP,
+  TRIAGE_ORDER,
+  TRIAGE_SHORT,
+  TRIAGE_WORD,
+  TriageDot,
+} from "./verdict";
 import Tooltip from "./ui/Tooltip";
 import { FunnelLine, FunnelSentence } from "./ui/Funnel";
 
@@ -60,7 +66,10 @@ export default function TopBar({ ruleSet, onRuleSet, stats, onAbout }: Props) {
                 className="inline-flex h-[22px] items-center gap-1.5 rounded-full border border-hairline bg-white px-2 text-[12px] font-medium text-ink tabular-nums"
               >
                 <TriageDot triage={t} size={7} />
-                <span className="sr-only">{TRIAGE_SHORT[t]}: </span>
+                <span className="text-[10px] font-normal text-muted">
+                  {TRIAGE_WORD[t]}
+                </span>
+                <span className="sr-only">, {TRIAGE_SHORT[t]}: </span>
                 {s ? (
                   <CountUp value={s.triage[t]} />
                 ) : (

@@ -525,7 +525,7 @@ export default function ByRightApp() {
           const prefix = `${TYPOLOGY_LABEL[pick.typology]}: `;
           line = `${typeName}: ${blocker.text.startsWith(prefix) ? blocker.text.slice(prefix.length) : blocker.text}`;
         } else {
-          const reason = ev ? reasonText(yellowReason(t, ev)) : null;
+          const reason = ev ? reasonText(yellowReason(t, ev, l)) : null;
           const money_ = t.pencils
             ? t.margin != null
               ? `~${money(t.margin)} margin at the reference value`
@@ -545,7 +545,11 @@ export default function ByRightApp() {
   );
 
   // One plan for the rail and the reading view: same count, shortlist, totals and exports.
-  const planOpen = tab === "plan" || planReading;
+  // The empty lot panel follows the neighborhood scope, so the plan is also derived then.
+  const planOpen =
+    tab === "plan" ||
+    planReading ||
+    (selectedIdx == null && filters.neighborhoods.length > 0);
   const plan = useMemo<Plan | null>(
     () =>
       planOpen && evals && triages && evidence
@@ -665,6 +669,11 @@ export default function ByRightApp() {
             onExpanded={setExpanded}
             stats={city.error ? undefined : (stats?.[ruleSet] ?? null)}
             onSelectId={lots.length ? selectById : undefined}
+            scope={
+              plan && filters.neighborhoods.length > 0
+                ? { label: plan.scopeLabel, funnel: plan.funnel }
+                : null
+            }
           />
           {planReading && plan && (
             <PlanReader

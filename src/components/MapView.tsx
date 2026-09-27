@@ -9,7 +9,7 @@ import {
 } from "maplibre-gl";
 import type { ExpressionSpecification } from "maplibre-gl";
 import type { Lot, RuleSet, Triage, Typology } from "@/lib/types";
-import { TYPOLOGY_LABEL } from "@/lib/types";
+import { TRIAGE_LABEL, TYPOLOGY_LABEL } from "@/lib/types";
 import { TRIAGE_COLOR, TRIAGE_INK, TRIAGE_ORDER, TRIAGE_WORD } from "./verdict";
 
 // Turbopack cannot resolve MapLibre 6's module worker; serve a copy from /public.
@@ -94,12 +94,8 @@ const RADIUS: ExpressionSpecification = ["interpolate", ["linear"], ["zoom"], 9,
 const MATCHED: ExpressionSpecification = ["==", ["get", "m"], 1];
 const RINGED: ExpressionSpecification = ["==", ["get", "c"], 1];
 
-const STRIP_TRIAGE: Record<Triage, string> = {
-  green: "Passes the screen",
-  yellow: "Needs review, data, or a modeled shortfall",
-  red: "Blocked",
-  gray: "Not checked",
-};
+/** Legend words: the lib's TRIAGE_LABEL, so the map, the header and About say the same thing. */
+const STRIP_TRIAGE: Record<Triage, string> = TRIAGE_LABEL;
 
 function MapView({
   lots,
@@ -204,6 +200,18 @@ function MapView({
           "circle-stroke-width": 2,
         },
       });
+      // The selected lot always draws in its triage color, even when the filters ghost it.
+      map.addLayer({
+        id: "sel-dot",
+        type: "circle",
+        source: "sel",
+        paint: {
+          "circle-color": TRIAGE_PAINT,
+          "circle-radius": RADIUS,
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-width": 1.5,
+        },
+      });
       map.on("click", "lots", (e: MapLayerMouseEvent) => {
         const f = e.features?.[0];
         if (f) onSelectRef.current(f.properties.i as number);
@@ -240,11 +248,17 @@ function MapView({
     const data = {
       type: "FeatureCollection",
       features: l
-        ? [{ type: "Feature", geometry: { type: "Point", coordinates: [l.lon, l.lat] }, properties: {} }]
+        ? [
+            {
+              type: "Feature",
+              geometry: { type: "Point", coordinates: [l.lon, l.lat] },
+              properties: { t: triages[selectedIdx!] ?? "gray" },
+            },
+          ]
         : [],
     } as GeoData;
     (map.getSource("sel") as GeoJSONSource | undefined)?.setData(data);
-  }, [ready, selectedIdx, lots]);
+  }, [ready, selectedIdx, lots, triages]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -314,17 +328,27 @@ function MapView({
         </div>
       )}
       <div
-        className="absolute bottom-3 left-3 z-10 flex max-w-[calc(100%-64px)] items-center gap-3 overflow-hidden rounded-lg border border-hairline bg-panel/95 px-3 py-1.5 whitespace-nowrap shadow-sm backdrop-blur"
+        className="absolute bottom-3 left-3 z-10 flex max-w-[calc(100%-64px)] flex-wrap items-center gap-x-3 gap-y-0.5 rounded-lg border border-hairline bg-panel/95 px-3 py-1.5 shadow-sm backdrop-blur"
         title={`Triage for ${colorBy ? `a ${TYPOLOGY_LABEL[colorBy].toLowerCase()} (Home type filter)` : "each lot's best home type"}; ${ruleSet === "current" ? "today's code" : "with Bill 2025-1545"}`}
       >
         <span className="shrink-0 text-[11px] font-medium text-ink">{colorBy ? TYPOLOGY_LABEL[colorBy] : "Best home type"}</span>
         {loading ? (
           <span className="text-[12px] text-muted">Evaluating 11,000+ lots…</span>
         ) : (
-          <ul aria-label="Legend" className="flex min-w-0 items-center gap-2.5 text-[11px] text-muted">
+          <ul
+            aria-label="Legend"
+            className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-muted"
+          >
             {TRIAGE_ORDER.map((t) => (
-              <li key={t} className="inline-flex items-center gap-1.5">
-                <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: TRIAGE_COLOR[t] }} />
+              <li
+                key={t}
+                className="inline-flex items-center gap-1.5 whitespace-nowrap"
+              >
+                <span
+                  aria-hidden
+                  className="h-2 w-2 rounded-full"
+                  style={{ background: TRIAGE_COLOR[t] }}
+                />
                 {STRIP_TRIAGE[t]}
               </li>
             ))}

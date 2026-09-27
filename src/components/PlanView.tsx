@@ -1,10 +1,22 @@
 "use client";
 import { useState } from "react";
 import type { RuleSet, Typology } from "@/lib/types";
+import { TYPOLOGY_LABEL } from "@/lib/types";
+import { nb } from "./ui/answer";
 import { fmtUsdShort } from "@/lib/evidence";
 import { fmtNum, fmtUsd } from "@/lib/proforma";
 import { RULESET_LABEL, TYPOLOGY_ORDER } from "@/lib/rules";
-import { CHANNELS, gapSentence, rowChecks, toBrief, toCsv, TYPE_NAME, type Gap, type GapScenario, type Plan } from "@/lib/plan";
+import {
+  CHANNELS,
+  gapSentence,
+  reliefSentence,
+  rowChecks,
+  toBrief,
+  toCsv,
+  type Gap,
+  type GapScenario,
+  type Plan,
+} from "@/lib/plan";
 import { PREMIUM_LABEL } from "@/lib/proforma";
 
 interface Props {
@@ -153,7 +165,12 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
           <ul className="mt-0.5 space-y-0.5">
             {types.length === 0 && <li className="px-1.5 text-[13px] text-muted">None</li>}
             {types.map((t) => (
-              <SplitRow key={t} label={TYPE_NAME[t]} n={plan.candidates.byType[t]!} total={plan.candidates.total} />
+              <SplitRow
+                key={t}
+                label={TYPOLOGY_LABEL[t]}
+                n={plan.candidates.byType[t]!}
+                total={plan.candidates.total}
+              />
             ))}
           </ul>
         </div>
@@ -178,7 +195,7 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
           projects
         </label>
       </div>
-      <p className="mt-1.5 text-[13px] leading-5">{gapSentence(plan)}</p>
+      <p className="mt-1.5 text-[13px] leading-5">{nb(gapSentence(plan))}</p>
       {g && (
         <table className="mt-2 w-full text-[13px] tabular-nums">
           <thead>
@@ -191,10 +208,27 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
           </thead>
           <tbody>
             {[
-              { label: `$${g.hardCostPerSf}/sf (yours)`, s: g as GapScenario, strong: true },
-              { label: "$150/sf", s: g.at150, strong: false },
-              { label: "$215/sf", s: g.at215, strong: false },
-              ...(premium ? [{ label: PREMIUM_LABEL, s: premium, strong: false, premium: true }] : []),
+              {
+                label: `$${g.hardCostPerSf}/sf (displayed)`,
+                s: g as GapScenario,
+                strong: true,
+              },
+              ...(g.hardCostPerSf === 150
+                ? []
+                : [{ label: "$150/sf", s: g.at150, strong: false }]),
+              ...(g.hardCostPerSf === 215
+                ? []
+                : [{ label: "$215/sf", s: g.at215, strong: false }]),
+              ...(premium
+                ? [
+                    {
+                      label: PREMIUM_LABEL,
+                      s: premium,
+                      strong: false,
+                      premium: true,
+                    },
+                  ]
+                : []),
             ].map((r) => (
               <tr
                 key={r.label}
@@ -219,17 +253,21 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
   const relief = (
     <section aria-label="Needs relief, Hillside and the bill" className={`${card} space-y-2 text-[13px] leading-5`}>
       <p>
-        <span className="font-medium tabular-nums">{fmtNum(plan.needsRelief)}</span> lots fail only lot size;{" "}
-        <span className="font-medium tabular-nums">{fmtNum(plan.needsReliefWithApproval)}</span> of them also keep a Hillside use approval.
-        Relief addresses the size standard only; adjacent City lots are not computed.
+        {reliefSentence(plan)} Relief addresses the size standard only; adjacent
+        City lots are not computed.
       </p>
       <p>
-        <span className="font-medium tabular-nums">{fmtNum(plan.hillsideReview)}</span> Hillside lots need an Administrator or Special
-        Exception (§ 911.04.A.69); site conditions not checked.
+        <span className="font-medium tabular-nums">
+          {fmtNum(plan.hillsideReview)}
+        </span>{" "}
+        Hillside lots need an Administrator or Special Exception
+        (§&nbsp;911.04.A.69); site conditions not checked.
       </p>
       <p className="border-t border-hairline pt-2 text-ink">
-        <span className="text-[12px] text-[#6b5200]">If Bill 2025-1545 passes: </span>
-        {plan.billLine.replace(/^If Bill 2025-1545 passes:\s*/, "")}
+        <span className="text-[12px] text-[#6b5200]">
+          If Bill 2025-1545 passes:{" "}
+        </span>
+        {nb(plan.billLine.replace(/^If Bill 2025-1545 passes:\s*/, ""))}
       </p>
     </section>
   );
@@ -243,56 +281,48 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
       {plan.shortlist.length === 0 ? (
         <p className="mt-1.5 text-[13px] text-muted">No candidates in this scope.</p>
       ) : (
-        <table className="mt-1.5 w-full table-fixed text-[13px]">
-          <thead>
-            <tr className="border-b border-hairline text-[12px] text-faint">
-              <th className="w-[38%] pb-1 text-left font-normal">Address</th>
-              <th className="pb-1 text-left font-normal">Channel, type</th>
-              <th className={`${reading ? "w-[120px]" : "w-[62px]"} pb-1 text-right font-normal`}>Checks</th>
-              <th className="w-[64px] pb-1 text-right font-normal">Shortfall</th>
-            </tr>
-          </thead>
-          <tbody>
-            {plan.shortlist.map((r) => (
-              <tr
-                key={r.parcel_id}
+        <ol className="mt-1.5 border-t border-hairline text-[13px]">
+          {plan.shortlist.map((r) => (
+            <li key={r.parcel_id} className="border-b border-hairline/60">
+              <button
+                type="button"
                 onClick={() => onSelect(r.lotIndex)}
                 title={String(r.next_action)}
-                className="cursor-pointer border-b border-hairline/60 align-top hover:bg-surface"
+                className="group block w-full py-1.5 text-left hover:bg-surface focus-visible:bg-surface"
               >
-                <td className="py-1.5 pr-1">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelect(r.lotIndex);
-                    }}
-                    className="block w-full truncate text-left font-medium text-ink hover:underline focus-visible:underline"
-                  >
+                <span className="flex items-baseline gap-2">
+                  <span className="min-w-0 flex-1 truncate font-medium text-ink group-hover:underline">
                     {r.address || r.parcel_id}
-                  </button>
-                  <span className="block truncate text-[12px] text-muted">{r.neighborhood}</span>
-                </td>
-                <td className="py-1.5 pr-1">
-                  <span className="block truncate">{r.channel}</span>
-                  <span className="block truncate text-[12px] text-muted">{r.best_type ? TYPE_NAME[r.best_type as Typology] : ""}</span>
-                </td>
-                <td className="py-1.5 text-right text-[11px] leading-[14px] tabular-nums" title={rowChecks(r)}>
-                  {rowChecks(r)
-                    .split(" · ")
-                    .map((p) => (
-                      <span key={p} className="block whitespace-nowrap">
-                        {p}
-                      </span>
-                    ))}
-                </td>
-                <td className="py-1.5 text-right tabular-nums">
-                  {r.shortfall_to_target === "" ? "n/a" : fmtUsdShort(Number(r.shortfall_to_target))}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                  </span>
+                  <span className="shrink-0 tabular-nums">
+                    {r.shortfall_to_target === ""
+                      ? "n/a"
+                      : fmtUsdShort(Number(r.shortfall_to_target))}
+                  </span>
+                </span>
+                <span className="mt-0.5 flex items-baseline gap-2 text-[12px] leading-4 text-muted">
+                  <span className="min-w-0 flex-1">
+                    {[
+                      r.neighborhood,
+                      r.channel,
+                      r.best_type
+                        ? TYPOLOGY_LABEL[r.best_type as Typology]
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </span>
+                  <span
+                    className="shrink-0 text-[11px] whitespace-nowrap tabular-nums"
+                    title={rowChecks(r)}
+                  >
+                    {rowChecks(r)}
+                  </span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ol>
       )}
     </section>
   );

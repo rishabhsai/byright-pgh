@@ -1,7 +1,13 @@
 "use client";
 import { useState } from "react";
 import Tooltip from "./Tooltip";
-import { EVIDENCE_STATE_LABEL as EVIDENCE_WORD, summary, type Evidence, type EvidenceState } from "@/lib/evidence";
+import {
+  EVIDENCE_LABEL,
+  EVIDENCE_STATE_LABEL as EVIDENCE_WORD,
+  summary,
+  type Evidence,
+  type EvidenceState,
+} from "@/lib/evidence";
 import { evidenceSummary } from "./evidenceText";
 
 export { evidenceSummary } from "./evidenceText";
@@ -17,8 +23,13 @@ const FILL: Record<EvidenceState, string> = {
 export function EvidenceGlyphs({ evidence, extra }: { evidence: Evidence; extra?: string[] }) {
   const title = [
     summary(evidence),
-    ...evidence.checks.map((c) => `${c.label}: ${EVIDENCE_WORD[c.state]}`),
-    ...(evidence.unresolved ?? []).map((u) => `${u.label}: unresolved, confirm on the site plan`),
+    ...evidence.checks.map(
+      (c) =>
+        `${EVIDENCE_LABEL[c.id]}: ${c.belowFloor && c.state === "fail" ? "Below floor" : EVIDENCE_WORD[c.state]}`,
+    ),
+    ...(evidence.unresolved ?? []).map(
+      (u) => `${u.label}: unresolved, confirm on the site plan`,
+    ),
     ...(extra ?? []),
   ].join("\n");
   return (
@@ -44,7 +55,15 @@ export default function EvidenceRow({ evidence, useRoute }: { evidence: Evidence
   const open = evidence.checks.find((c) => c.id === pinned) ?? null;
   // An exception use is a route (staff or Board approval), never shown as "Unknown".
   const word = (c: Evidence["checks"][number], full = false) =>
-    useRoute && c.id === "use" && c.state === "unknown" ? (full ? useRoute.full : useRoute.short) : EVIDENCE_WORD[c.state];
+    useRoute && c.id === "use" && c.state === "unknown"
+      ? full
+        ? useRoute.full
+        : useRoute.short
+      : c.belowFloor && c.state === "fail"
+        ? full
+          ? "Below the 1,000 sf screening floor (not a code minimum)"
+          : "Below floor"
+        : EVIDENCE_WORD[c.state];
   return (
     <div>
       <p className="mb-2 text-[12px] leading-snug text-ink">{evidenceSummary(evidence, useRoute?.full)}</p>
@@ -58,7 +77,7 @@ export default function EvidenceRow({ evidence, useRoute }: { evidence: Evidence
                 content={
                   <>
                     <span className="block font-medium">
-                      {c.label}: {word(c, true)}
+                      {EVIDENCE_LABEL[c.id]}: {word(c, true)}
                     </span>
                     <span className="mt-0.5 block text-white/80">{c.detail}</span>
                   </>
@@ -67,19 +86,29 @@ export default function EvidenceRow({ evidence, useRoute }: { evidence: Evidence
                 <button
                   onClick={() => setPinned(on ? null : c.id)}
                   aria-expanded={on}
-                  aria-label={`${c.label}: ${word(c, true)}`}
+                  aria-label={`${EVIDENCE_LABEL[c.id]}: ${word(c, true)}`}
                   className={`group block w-full rounded-md px-px pt-1 pb-1.5 min-[1440px]:px-0.5 text-left transition-colors hover:bg-surface ${on ? "bg-surface" : ""}`}
                 >
                   <span
                     aria-hidden
                     className="block h-[6px] rounded-full"
                     style={{
-                      background: word(c) !== EVIDENCE_WORD[c.state] ? "#2563eb" : FILL[c.state],
-                      boxShadow: c.state === "notChecked" ? "inset 0 0 0 1px #b9c0bb" : undefined,
+                      background:
+                        word(c) !== EVIDENCE_WORD[c.state] && c.id === "use"
+                          ? "#2563eb"
+                          : FILL[c.state],
+                      boxShadow:
+                        c.state === "notChecked"
+                          ? "inset 0 0 0 1px #b9c0bb"
+                          : undefined,
                     }}
                   />
-                  <span className="mt-1.5 block truncate text-[12px] leading-tight tracking-[-0.015em] text-ink">{c.label}</span>
-                  <span className={`block text-[11px] leading-tight ${c.state === "fail" ? "text-[#c2410c]" : word(c) !== EVIDENCE_WORD[c.state] ? "text-[#1d4ed8]" : "text-muted"}`}>
+                  <span className="mt-1.5 block truncate text-[12px] leading-tight tracking-[-0.015em] text-ink">
+                    {EVIDENCE_LABEL[c.id]}
+                  </span>
+                  <span
+                    className={`block text-[11px] leading-tight ${c.state === "fail" ? "text-[#c2410c]" : word(c) !== EVIDENCE_WORD[c.state] ? "text-[#1d4ed8]" : "text-muted"}`}
+                  >
                     {word(c)}
                   </span>
                 </button>
@@ -91,7 +120,7 @@ export default function EvidenceRow({ evidence, useRoute }: { evidence: Evidence
       {open && (
         <p className="fade-in mt-2 rounded-md bg-surface px-3 py-2 text-[12px] leading-snug text-ink">
           <span className="font-medium">
-            {open.label}: {word(open, true)}.
+            {EVIDENCE_LABEL[open.id]}: {word(open, true)}.
           </span>{" "}
           {open.detail}
           {open.citation && (

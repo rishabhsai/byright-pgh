@@ -60,7 +60,7 @@ describe("deriveEvidence", () => {
     expect(check(evidence, "use").detail).toContain("§ 911.02");
     expect(check(evidence, "lotSize").detail).toBe("3,000 sf ≥ 2,400 sf minimum · § 903.03.C.2");
     expect(check(evidence, "fit")).toMatchObject({ state: "notChecked" });
-    expect(check(evidence, "fit").detail).toMatch(/^Setbacks, height, lot coverage not modeled/);
+    expect(check(evidence, "fit").detail).toBe("Setbacks, height, lot coverage not modeled");
     expect(check(evidence, "site").detail).toMatch(/at the inventory point.*[Aa]ccess, water\/sewer, soils not checked/);
     expect(check(evidence, "finance")).toMatchObject({ state: "pass" });
     expect(check(evidence, "finance").detail).toMatch(/Screen, not underwriting/);
@@ -119,6 +119,12 @@ describe("deriveEvidence", () => {
     expect(evidence.needsApproval).toBe(true);
   });
 
+  it("names the LNC FAR check only on LNC lots", () => {
+    for (const zone of ["R2-M", "R1D-H"]) {
+      expect(check(evidenceFor(lot({ zone }), RICH).evidence, "fit").detail).not.toMatch(/LNC|FAR/);
+    }
+  });
+
   it("an LNC FAR pass is not a building-fit pass: fit stays not checked", () => {
     const { evidence } = evidenceFor(lot({ zone: "LNC", lotAreaSqFt: 3000 }), RICH);
     expect(check(evidence, "fit")).toMatchObject({
@@ -145,6 +151,18 @@ describe("deriveEvidence", () => {
       state: "fail",
       detail: "FAR 2:1 caps floor area at 518 sf · § 904.02.C. The 2,550 sf proposal does not fit.",
     });
+  });
+
+  it("a lot under the 1,000 sf screening floor that meets the code minimum fails as Below floor, not as a code failure", () => {
+    const { evidence } = evidenceFor(lot({ zone: "LNC", lotAreaSqFt: 259 }), RICH, "triplex");
+    expect(check(evidence, "lotSize")).toMatchObject({
+      state: "fail",
+      belowFloor: true,
+      label: "Below floor",
+      detail: "259 sq ft; below our 1,000 sf screening floor (not a code minimum); code minimum 0 here",
+    });
+    expect(check(evidenceFor(lot(), RICH).evidence, "lotSize")).toMatchObject({ label: "Lot size", belowFloor: false });
+    expect(check(evidenceFor(lot({ lotAreaSqFt: 1860 }), RICH).evidence, "lotSize")).toMatchObject({ label: "Lot size", belowFloor: false });
   });
 
   it("fails lot size with the relief-path copy", () => {

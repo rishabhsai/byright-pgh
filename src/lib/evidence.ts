@@ -23,6 +23,8 @@ export interface EvidenceCheck {
   label: string;
   detail: string;
   citation?: Citation;
+  /** Lot size only: the code minimum passes but the lot is under the screening floor (MIN_PRACTICAL_LOT_SQFT). */
+  belowFloor?: boolean;
 }
 
 export interface EvidenceCounts {
@@ -157,7 +159,7 @@ function permittedUseCheck(lot: Lot, f: Finding): EvidenceCheck {
 }
 
 function lotSizeCheck(lot: Lot, f: Finding): EvidenceCheck {
-  const base = { id: "lotSize" as const, label: EVIDENCE_LABEL.lotSize };
+  const base = { id: "lotSize" as const, label: EVIDENCE_LABEL.lotSize, belowFloor: false };
   const c = find(f, "lot-area");
   if (f.verdict === "unknown" || !c) return { ...base, state: "unknown", detail: "District not encoded; lot size not evaluated." };
   if (lot.lotAreaSqFt === null) return { ...base, state: "unknown", detail: "Area not in the County record. Survey needed.", citation: c.citation };
@@ -178,7 +180,9 @@ function lotSizeCheck(lot: Lot, f: Finding): EvidenceCheck {
     return {
       ...base,
       state: "fail",
-      detail: `${area} ${min ? `meets the ${min} minimum` : `meets the code (no minimum in ${lot.zone})`} · ${sec}, but is under the ${fmtNum(MIN_PRACTICAL_LOT_SQFT)} sf screening floor; likely needs consolidation (assumption, not code).`,
+      belowFloor: true,
+      label: "Below floor",
+      detail: `${fmtNum(lot.lotAreaSqFt)} sq ft; below our ${fmtNum(MIN_PRACTICAL_LOT_SQFT)} sf screening floor (not a code minimum); code minimum ${min ?? "0"} here`,
       citation: c.citation,
     };
   }
@@ -222,7 +226,7 @@ function widthCheck(lot: Lot, f: Finding): EvidenceCheck {
 function fitCheck(lot: Lot, f: Finding): EvidenceCheck {
   const base = { id: "fit" as const, label: EVIDENCE_LABEL.fit };
   const far = find(f, "far");
-  if (!far) return { ...base, state: "notChecked", detail: "Setbacks, height, lot coverage not modeled; LNC FAR only" };
+  if (!far) return { ...base, state: "notChecked", detail: `Setbacks, height, lot coverage not modeled${lot.zone === "LNC" ? "; LNC FAR only" : ""}` };
   // FAR is the only encoded fit requirement; setbacks, height and coverage are not, so a FAR pass stays Not checked.
   const sec = far.citation.section;
   const ratio = far.required?.match(/(\d+(?:\.\d+)?):1/)?.[1] ?? "";

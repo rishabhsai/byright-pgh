@@ -3,7 +3,8 @@ import { TYPOLOGY_LABEL } from "@/lib/types";
 import { verdictLabel } from "./ui/answer";
 import { RULESET_LABEL } from "@/lib/engine";
 import { fmtUsd } from "@/lib/finance";
-import { EVIDENCE_STATE_LABEL } from "@/lib/evidence";
+import { EVIDENCE_LABEL, EVIDENCE_STATE_LABEL } from "@/lib/evidence";
+import { todayET } from "@/lib/dates";
 import type { SelectedCase } from "@/lib/selectedCase";
 import { evidenceSummary } from "./ui/evidenceText";
 import { approvalRoute } from "./ui/answer";
@@ -18,7 +19,7 @@ export function buildMemo(c: SelectedCase, shown: { headline: string; districtNa
   const otherRs: RuleSet = ruleSet === "current" ? "bill-2025-1545" : "current";
   const other = c.findings[otherRs];
   const L: string[] = [];
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayET();
   const name = TYPOLOGY_LABEL[typology];
   L.push(`# Lot brief: ${lot.address || lot.id}`, "");
   L.push(`Prepared ${today} with ByRight PGH under ${RULESET_LABEL[ruleSet]}. A screen, not a zoning decision. The City's Zoning Administrator decides.`, "");
@@ -27,26 +28,52 @@ export function buildMemo(c: SelectedCase, shown: { headline: string; districtNa
   const source = c.typologySource === "filter" ? "Home type filter" : c.typologySource === "picked" ? "selected in the panel" : "best type for this lot";
   L.push(`- Proposal: ${name} (${source})${c.bestTypology && c.bestTypology !== typology ? `. Best type here: ${TYPOLOGY_LABEL[c.bestTypology]}` : ""}`);
   L.push(`- Answer: ${shown.headline}`);
-  if (finding) L.push(`- Zoning: ${verdictLabel(finding)}${finding.summary ? `. ${finding.summary}` : ""}`);
-  L.push(`- Evidence: ${evidenceSummary(evidence, approvalRoute(finding, lot)?.full)}`);
+  if (c.firstOpenItem) L.push(`- First open item: ${c.firstOpenItem.label}`);
+  if (finding)
+    L.push(
+      `- Zoning: ${verdictLabel(finding)}${finding.summary ? `. ${finding.summary}` : ""}`,
+    );
+  L.push(
+    `- Evidence: ${evidenceSummary(evidence, approvalRoute(finding, lot)?.full)}`,
+  );
   for (const ch of shown.changes) L.push(`- What would change this: ${ch}`);
   L.push("");
 
   L.push("## Parcel");
   L.push(`- Parcel ID: ${lot.id}`);
-  L.push(`- Neighborhood: ${lot.neighborhood}${lot.councilDistrict ? ` (Council District ${lot.councilDistrict})` : ""}`);
-  L.push(`- Zone: ${lot.zone || "none"}${shown.districtName ? ` (${shown.districtName})` : ""}`);
-  L.push(`- Lot area: ${lot.lotAreaSqFt != null ? `${lot.lotAreaSqFt.toLocaleString()} sf` : "not in record"}`);
-  L.push(`- Street frontage (approx.): ${lot.frontageFt != null ? `${lot.frontageFt} ft, parsed from the legal description; a survey governs` : "not in record"}`);
-  L.push(`- County land value: ${lot.landValue != null ? `$${lot.landValue.toLocaleString()}` : "not in record"} (2012-base assessment, not a market price)`);
-  L.push(`- City status: ${lot.status} (City inventory; not proof of current ownership or availability)`);
+  L.push(
+    `- Neighborhood: ${lot.neighborhood}${lot.councilDistrict ? ` (Council District ${lot.councilDistrict})` : ""}`,
+  );
+  L.push(
+    `- Zone: ${lot.zone || "none"}${shown.districtName ? ` (${shown.districtName})` : ""}`,
+  );
+  L.push(
+    `- Lot area: ${lot.lotAreaSqFt != null ? `${lot.lotAreaSqFt.toLocaleString()} sf` : "not in record"}`,
+  );
+  L.push(
+    `- Street frontage (approx.): ${lot.frontageFt != null ? `${lot.frontageFt} ft, parsed from the County legal description; approximate; a survey governs` : "Unknown, not in the County record; survey needed"}`,
+  );
+  L.push(
+    `- County land value: ${lot.landValue != null ? `$${lot.landValue.toLocaleString()}` : "not in record"} (2012-base assessment, not a market price)`,
+  );
+  L.push(
+    `- City status: ${lot.status} (City inventory; not proof of current ownership or availability)`,
+  );
   L.push("");
 
   L.push(`## Six screening checks for the ${name.toLowerCase()}`);
   for (const e of evidence.checks) {
-    const cite = e.citation ? ` [${e.citation.section}](${e.citation.url})` : "";
-    const word = (e.id === "use" && e.state === "unknown" && approvalRoute(finding, lot)?.full) || EVIDENCE_STATE_LABEL[e.state];
-    L.push(`- ${e.label}: ${word}. ${e.detail}${cite}`);
+    const cite = e.citation
+      ? ` [${e.citation.section}](${e.citation.url})`
+      : "";
+    const word =
+      (e.id === "use" &&
+        e.state === "unknown" &&
+        approvalRoute(finding, lot)?.full) ||
+      (e.belowFloor && e.state === "fail"
+        ? "Below the screening floor (not a code minimum)"
+        : EVIDENCE_STATE_LABEL[e.state]);
+    L.push(`- ${EVIDENCE_LABEL[e.id]}: ${word}. ${e.detail}${cite}`);
   }
   const open = (finding?.checks ?? []).filter((k) => k.passed === null);
   if (open.length) {

@@ -3,15 +3,16 @@ import type { Finding, Lot, RuleSet, TriageResult, Typology } from "@/lib/types"
 import { TYPOLOGY_LABEL, verdictLabel as libVerdictLabel, verdictShort, type LabelInput, type Verdict } from "@/lib/types";
 import { evaluateLot } from "@/lib/rules";
 import type { Proforma } from "@/lib/finance";
-import type { Evidence } from "@/lib/evidence";
-import { isParkOrGreenway } from "@/lib/ranking";
+import { districtUnconfirmed, type Evidence } from "@/lib/evidence";
+import { isDispositionEligible } from "@/lib/ranking";
 
 /** Every UI verdict label goes through these (they keep the approval route). */
 export { verdictShort };
 
 /** What a by-right verdict establishes: the use table and the lot-size standard, nothing about the building. */
 export const ALLOWED_LABEL = "Allowed by use table";
-export const ALLOWED_TIP = "Use permitted (§ 911.02) and lot-size standard met; setbacks, height, coverage not checked";
+export const ALLOWED_TIP =
+  "Use permitted (§\u00a0911.02) and lot-size standard met; setbacks, height, coverage not checked";
 
 /** The lib's label, with by-right worded as what was actually checked (never "no hearing"). */
 export function verdictLabel(f: LabelInput): string {
@@ -39,23 +40,52 @@ export function money(n: number): string {
   return `$${Math.round(a)}`;
 }
 
+/** districtUnconfirmed for partial lot shapes (fixtures may omit zoneMap; undefined is not "no map district"). */
+function unconfirmedDistrict(
+  lot: Partial<Pick<Lot, "zoneAgrees" | "zoneMap">>,
+): boolean {
+  return districtUnconfirmed({
+    zoneAgrees: lot.zoneAgrees,
+    zoneMap: lot.zoneMap,
+  });
+}
+
 export type AnswerTone = "ready" | "money" | "hearing" | "blocked" | "none";
 
 export function answerHeadline(
   t: TriageResult | null,
   best: Finding | null,
   pf: Proforma | null,
-  lot?: (Pick<Lot, "status" | "inventoryType"> & Partial<Pick<Lot, "zoneAgrees">>) | null,
+  lot?:
+    | (Pick<Lot, "status" | "inventoryType"> &
+        Partial<Pick<Lot, "zoneAgrees" | "zoneMap">>)
+    | null,
 ): { text: string; tone: AnswerTone } {
   if (!t || t.triage === "gray") return { text: "Not checked", tone: "none" };
   if (t.triage === "red") return { text: "Blocked", tone: "blocked" };
-  if (t.triage === "green") return { text: "Passes the screen: candidate for staff review", tone: "ready" };
-  if (lot?.zoneAgrees === false && best?.verdict !== "prohibited") return { text: "District unconfirmed: confirm the zoning first", tone: "hearing" };
-  if (best?.verdict === "variance" || best?.verdict === "review") return { text: verdictLabel(best), tone: "hearing" };
-  if (lot && !cityStatus(lot).available) return { text: "Allowed by use table, but not for sale", tone: "money" };
-  if (lot && isParkOrGreenway(lot.inventoryType)) return { text: "Allowed by use table, but not a disposition candidate", tone: "money" };
-  if (pf && !pf.pencils) return { text: "Allowed by use table; modeled shortfall", tone: "money" };
-  if (!pf) return { text: "Allowed by use table; finance not checked", tone: "money" };
+  if (t.triage === "green")
+    return {
+      text: "Passes the screen: candidate for staff review",
+      tone: "ready",
+    };
+  if (lot && unconfirmedDistrict(lot) && best?.verdict !== "prohibited")
+    return {
+      text: "District unconfirmed: confirm the zoning first",
+      tone: "hearing",
+    };
+  if (best?.verdict === "variance" || best?.verdict === "review")
+    return { text: verdictLabel(best), tone: "hearing" };
+  if (lot && !cityStatus(lot).available)
+    return { text: "Allowed by use table, but not for sale", tone: "money" };
+  if (lot && !isDispositionEligible(lot))
+    return {
+      text: "Allowed by use table, but not a disposition candidate",
+      tone: "money",
+    };
+  if (pf && !pf.pencils)
+    return { text: "Allowed by use table; modeled shortfall", tone: "money" };
+  if (!pf)
+    return { text: "Allowed by use table; finance not checked", tone: "money" };
   return { text: "Allowed by use table; needs a check on site", tone: "money" };
 }
 
@@ -81,9 +111,13 @@ export function blockerLine(
   const name = TYPOLOGY_LABEL[typology];
   const state = (id: string) => evidence?.checks.find((c) => c.id === id)?.state;
   const useFails = finding?.verdict === "prohibited" || state("use") === "fail";
-  if (useFails) return { text: `${name}: not allowed here (use)`, why: "allowed" };
-  if (lot.zoneAgrees === false)
-    return { text: `${name}: district unconfirmed (inventory ${lot.zone || "none"}, map ${lot.zoneMap ?? "other"})`, why: "allowed" };
+  if (useFails)
+    return { text: `${name}: not allowed here (use)`, why: "allowed" };
+  if (unconfirmedDistrict(lot))
+    return {
+      text: `${name}: district unconfirmed (inventory ${lot.zone || "none"}, map ${lot.zoneMap ?? "other"})`,
+      why: "allowed",
+    };
   if (state("fit") === "fail") {
     const far = finding?.checks.some((c) => c.id === "far" && c.passed === false);
     return { text: `${name}: not buildable as proposed (${far ? "FAR" : "building fit"})`, why: "fits" };
@@ -92,7 +126,11 @@ export function blockerLine(
     const raw = (lot.status || "").trim();
     return { text: `${name}: not for sale${raw ? ` (${raw})` : ""}`, why: null };
   }
-  if (isParkOrGreenway(lot.inventoryType)) return { text: `${name}: not a disposition candidate (${lot.inventoryType})`, why: null };
+  if (!isDispositionEligible(lot))
+    return {
+      text: `${name}: not a disposition candidate (${lot.inventoryType})`,
+      why: null,
+    };
   return null;
 }
 
@@ -192,8 +230,49 @@ export function typologyPhrase(t: Typology, f: Finding | null): string {
  * The approval route an exception use needs, for the evidence row's Use pill (never "Unknown").
  * Null when the zoning map disagrees with the inventory district: then Use is genuinely unknown.
  */
-export function approvalRoute(f: Pick<Finding, "reviewKind"> | null, lot?: Pick<Lot, "zoneAgrees"> | null): { short: string; full: string } | null {
-  if (!f?.reviewKind || lot?.zoneAgrees === false) return null;
+export function approvalRoute(
+  f: Pick<Finding, "reviewKind"> | null,
+  lot?: Partial<Pick<Lot, "zoneAgrees" | "zoneMap">> | null,
+): { short: string; full: string } | null {
+  if (!f?.reviewKind || (lot && unconfirmedDistrict(lot))) return null;
   const route = { verdict: "review" as const, reviewKind: f.reviewKind };
   return { short: verdictShort(route), full: verdictLabel(route) };
+}
+
+const STANDARD_WORD: Record<string, string> = {
+  far: "fit",
+  "building-fit": "fit",
+  "lot-area": "lot size",
+  "lot-area-per-unit": "lot size",
+  "lot-width": "width",
+};
+
+/**
+ * The Allowed? summary, from the Use check alone: "5 of 5 allowed by use table · fit fails".
+ * "District unconfirmed" when the inventory and the zoning map disagree (then no type counts as allowed).
+ */
+export function useTableSummary(
+  lot: Pick<Lot, "zoneAgrees" | "zoneMap">,
+  findings: Pick<Finding, "verdict" | "checks">[],
+): string {
+  if (districtUnconfirmed(lot)) return "District unconfirmed";
+  const permitted = findings.filter((f) =>
+    f.checks.some((c) => c.id === "use" && c.passed === true),
+  );
+  const fails = new Set<string>();
+  for (const f of permitted)
+    for (const c of f.checks)
+      if (c.passed === false && STANDARD_WORD[c.id])
+        fails.add(STANDARD_WORD[c.id]);
+  return [
+    `${permitted.length} of ${findings.length} allowed by use table`,
+    ...[...fails].map((w) => `${w} fails`),
+  ].join(" · ");
+}
+
+/** Non-breaking spaces where a line break misleads: after "§" and inside "1 → 0". */
+export function nb(s: string): string {
+  return s
+    .replace(/§ /g, "§\u00a0")
+    .replace(/(\d) → (\d)/g, "$1\u00a0→\u00a0$2");
 }

@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Segmented from "./ui/Segmented";
 import type { Comps, Finding, Lot, Typology } from "@/lib/types";
 import { TYPOLOGY_LABEL } from "@/lib/types";
@@ -43,7 +43,15 @@ interface Props {
   blocked?: string | null;
 }
 
-const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+/** The Pays headline for a blocked proposal: why the cost-and-return screen did not run. */
+function blockedHeadline(blocked: string): string {
+  if (/not for sale|not a disposition candidate/.test(blocked))
+    return "lot not offered for sale";
+  if (/district unconfirmed/.test(blocked))
+    return "zoning district unconfirmed";
+  if (/zoning not checked/.test(blocked)) return "zoning not checked";
+  return "proposal not buildable as checked";
+}
 
 export const NO_COMPS = "No Zillow comps for this neighborhood; finance not assessed";
 
@@ -112,17 +120,127 @@ export default function ProForma({
       : `Modeled shortfall: ${fmtUsd(r.gap)} below a ${target}% return`
     : "";
 
+  const ladderView = r && (
+    <div>
+      <div aria-hidden className="mb-3 space-y-1.5">
+        <div className="flex h-2.5 overflow-hidden rounded-full bg-surface">
+          <span
+            className="h-full bg-[#8a938e]"
+            style={{ width: `${(r.land / scale) * 100}%` }}
+          />
+          <span
+            className="h-full bg-[#5d6762]"
+            style={{ width: `${(r.hard / scale) * 100}%` }}
+          />
+          <span
+            className="h-full bg-[#aeb6b1]"
+            style={{ width: `${((r.soft + r.devFee) / scale) * 100}%` }}
+          />
+        </div>
+        <div className="flex h-2.5 overflow-hidden rounded-full bg-surface">
+          <span
+            className="h-full rounded-full"
+            style={{
+              width: `${(r.revenue / scale) * 100}%`,
+              background: r.pencils ? "var(--accent)" : "#d9a441",
+            }}
+          />
+        </div>
+      </div>
+      <dl className="divide-y divide-hairline border-y border-hairline text-[13px]">
+        <Row
+          label={
+            r.landSource === "assessed" ? (
+              <Tooltip content={TIP.landValue}>Land, County land value</Tooltip>
+            ) : r.landSource === "override" ? (
+              "Land, your figure"
+            ) : (
+              "Land, assumed (no assessment)"
+            )
+          }
+          swatch="#8a938e"
+          value={fmtUsd(r.land)}
+        />
+        <Row
+          label={`Construction, ${r.buildingSf.toLocaleString()} sq ft × $${a.hardCostPerSf}`}
+          swatch="#5d6762"
+          value={fmtUsd(r.hard)}
+        />
+        <Row
+          label="Fees, design and developer's fee"
+          swatch="#aeb6b1"
+          value={fmtUsd(r.soft + r.devFee)}
+        />
+        <Row
+          label={
+            <Tooltip content={<CompsTip comps={comps} mode={r.mode} />}>
+              {r.mode === "rent"
+                ? "Value as a rental (rent ÷ cap rate)"
+                : "Value at today's prices"}
+            </Tooltip>
+          }
+          swatch={r.pencils ? "var(--accent)" : "#d9a441"}
+          value={fmtUsd(r.revenue)}
+        />
+        <div className="flex items-baseline justify-between gap-3 py-2.5">
+          <dt className="min-w-0">
+            <span className="font-medium text-ink">
+              {r.pencils ? "Margin" : `Short of a ${target}% return`}
+            </span>
+            <span className="block text-[12px] text-muted tabular-nums">
+              {r.pencils
+                ? `${Math.round(r.marginPct)}% on ${fmtUsd(r.totalCost)} total cost`
+                : `Value minus ${fmtUsd(r.totalCost)} total cost, minus the ${target}% return`}
+            </span>
+          </dt>
+          <dd
+            className={`shrink-0 font-serif text-[20px] leading-none tabular-nums ${r.pencils ? "text-accent" : "text-[#9a3412]"}`}
+          >
+            {r.pencils ? fmtUsd(r.margin) : `−${fmtUsd(r.gap)}`}
+          </dd>
+        </div>
+      </dl>
+      <p className="mt-2 text-[12px] leading-snug text-muted">
+        Sources: Zillow{" "}
+        {comps.zhvi != null
+          ? `home price ${comps.neighborhood} (${comps.zhviDate?.slice(0, 7) ?? "latest"})`
+          : ""}
+        {comps.zhvi != null && comps.zori != null ? ", " : ""}
+        {comps.zori != null
+          ? `rent ZIP ${comps.zip} (${comps.zoriDate?.slice(0, 7) ?? "latest"})`
+          : ""}
+        ; Allegheny County assessment (2012 base).{" "}
+        <a
+          href={ZILLOW_DATA_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="text-accent underline decoration-accent/30 underline-offset-2"
+        >
+          Zillow Research
+        </a>
+      </p>
+    </div>
+  );
+
   return (
     <div className="space-y-4">
-      {r ? (
+      {r && blocked ? (
         <div>
-          {blocked && (
-            <p className="mb-1.5 text-[13px] leading-snug font-medium text-[#7a5400]">
-              Finance not assessed: {TYPOLOGY_LABEL[typology].toLowerCase()} {blocked.replace(/^[^:]+:\s*/, "")}. The numbers below are hypothetical.
-            </p>
-          )}
-          <p className={`font-serif text-[22px] leading-tight ${blocked ? "text-muted" : r.pencils ? "text-accent" : "text-[#9a3412]"}`}>
-            {blocked ? `Hypothetically, ${lowerFirst(mainLine)}` : mainLine}
+          <p className="font-serif text-[22px] leading-tight text-ink">
+            Not screened: {blockedHeadline(blocked)}
+          </p>
+          <p className="mt-1 text-[13px] leading-snug text-muted">
+            {TYPOLOGY_LABEL[typology]}: {blocked.replace(/^[^:]+:\s*/, "")}. The
+            cost-and-return screen only runs on a proposal that passes the
+            checks above.
+          </p>
+        </div>
+      ) : r ? (
+        <div>
+          <p
+            className={`font-serif text-[22px] leading-tight ${r.pencils ? "text-accent" : "text-[#9a3412]"}`}
+          >
+            {mainLine}
           </p>
           <p className="mt-1 text-[13px] leading-snug text-muted">
             {r.pencils
@@ -158,77 +276,30 @@ export default function ProForma({
             </option>
           ))}
         </select>
-        <span className="text-muted tabular-nums">{plan.note}</span>
-        {selectedVerdict !== "by-right" && (
+        <span className="text-muted tabular-nums">
+          {TYPOLOGY_LABEL[typology]}{" "}
+          {plan.note.replace(/ × /g, "\u00a0×\u00a0")}
+        </span>
+        {selectedVerdict !== "by-right" && !blocked && (
           <span className="block w-full text-[12px] text-[#7a5400]">
             Zoning: {selectedFinding ? verdictLabel(selectedFinding).toLowerCase() : "not checked"} for this type; these numbers assume it gets approved.
           </span>
         )}
       </div>
 
-      {r && (
-        <div>
-          <div aria-hidden className="mb-3 space-y-1.5">
-            <div className="flex h-2.5 overflow-hidden rounded-full bg-surface">
-              <span className="h-full bg-[#8a938e]" style={{ width: `${(r.land / scale) * 100}%` }} />
-              <span className="h-full bg-[#5d6762]" style={{ width: `${(r.hard / scale) * 100}%` }} />
-              <span className="h-full bg-[#aeb6b1]" style={{ width: `${((r.soft + r.devFee) / scale) * 100}%` }} />
-            </div>
-            <div className="flex h-2.5 overflow-hidden rounded-full bg-surface">
-              <span
-                className="h-full rounded-full"
-                style={{ width: `${(r.revenue / scale) * 100}%`, background: r.pencils ? "var(--accent)" : "#d9a441" }}
-              />
-            </div>
-          </div>
-          <dl className="divide-y divide-hairline border-y border-hairline text-[13px]">
-            <Row
-              label={
-                r.landSource === "assessed" ? (
-                  <Tooltip content={TIP.landValue}>Land, County land value</Tooltip>
-                ) : r.landSource === "override" ? (
-                  "Land, your figure"
-                ) : (
-                  "Land, assumed (no assessment)"
-                )
-              }
-              swatch="#8a938e"
-              value={fmtUsd(r.land)}
-            />
-            <Row label={`Construction, ${r.buildingSf.toLocaleString()} sq ft × $${a.hardCostPerSf}`} swatch="#5d6762" value={fmtUsd(r.hard)} />
-            <Row label="Fees, design and developer's fee" swatch="#aeb6b1" value={fmtUsd(r.soft + r.devFee)} />
-            <Row
-              label={
-                <Tooltip content={<CompsTip comps={comps} mode={r.mode} />}>
-                  {r.mode === "rent" ? "Value as a rental (rent ÷ cap rate)" : "Value at today's prices"}
-                </Tooltip>
-              }
-              swatch={r.pencils ? "var(--accent)" : "#d9a441"}
-              value={fmtUsd(r.revenue)}
-            />
-            <div className="flex items-baseline justify-between gap-3 py-2.5">
-              <dt className="min-w-0">
-                <span className="font-medium text-ink">{r.pencils ? "Margin" : `Short of a ${target}% return`}</span>
-                <span className="block text-[12px] text-muted tabular-nums">
-                  {r.pencils
-                    ? `${Math.round(r.marginPct)}% on ${fmtUsd(r.totalCost)} total cost`
-                    : `Value minus ${fmtUsd(r.totalCost)} total cost, minus the ${target}% return`}
-                </span>
-              </dt>
-              <dd className={`shrink-0 font-serif text-[20px] leading-none tabular-nums ${r.pencils ? "text-accent" : "text-[#9a3412]"}`}>
-                {r.pencils ? fmtUsd(r.margin) : `−${fmtUsd(r.gap)}`}
-              </dd>
-            </div>
-          </dl>
-          <p className="mt-2 text-[12px] leading-snug text-muted">
-            Sources: Zillow {comps.zhvi != null ? `home price ${comps.neighborhood} (${comps.zhviDate?.slice(0, 7) ?? "latest"})` : ""}
-            {comps.zhvi != null && comps.zori != null ? ", " : ""}
-            {comps.zori != null ? `rent ZIP ${comps.zip} (${comps.zoriDate?.slice(0, 7) ?? "latest"})` : ""}; Allegheny County assessment (2012 base).{" "}
-            <a href={ZILLOW_DATA_URL} target="_blank" rel="noreferrer" className="text-accent underline decoration-accent/30 underline-offset-2">
-              Zillow Research
-            </a>
+      {r && blocked ? (
+        <details className="group/hyp text-[13px]">
+          <summary className="cursor-pointer text-accent select-none">
+            Show hypothetical numbers
+          </summary>
+          <p className="mt-2 mb-3 text-[12px] leading-snug text-muted">
+            If the {TYPOLOGY_LABEL[typology].toLowerCase()} were approved as
+            proposed. Not a screen result.
           </p>
-        </div>
+          {ladderView}
+        </details>
+      ) : (
+        r && ladderView
       )}
 
       <details className="group rounded-lg border border-hairline bg-white" onBlur={onCommit}>
@@ -259,36 +330,49 @@ export default function ProForma({
             )}
           </div>
           <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
-            <Num k="hardCostPerSf" label="Construction $/sq ft" value={a.hardCostPerSf} onChange={(v) => set("hardCostPerSf", v)} />
-            <Num k="softCostPct" label="Fees & design (% of construction)" value={a.softCostPct} onChange={(v) => set("softCostPct", v)} />
-            <Num k="devFeePct" label="Developer's fee (%)" value={a.devFeePct} onChange={(v) => set("devFeePct", v)} />
-            <Num k="targetMarginPct" label="Required return (%)" value={a.targetMarginPct} onChange={(v) => set("targetMarginPct", v)} />
-            {(r?.mode ?? mode) === "sale" &&
-              (typology === "single" ? (
-                <Num k="typicalHomeSf" label="Typical home size (sq ft)" value={a.typicalHomeSf} onChange={(v) => set("typicalHomeSf", v)} step={50} />
-              ) : (
-                <div>
-                  <span className="mb-1 block text-[12px] text-muted">Home size</span>
-                  <span className="block py-1.5 text-[13px] text-ink tabular-nums">
-                    {plan.units} × {plan.sfPerUnit.toLocaleString()} sq ft
-                  </span>
-                </div>
-              ))}
-            <label className="block">
-              <span className="mb-1 block text-[12px] text-muted">Land cost, this lot only ($)</span>
-              <input
-                type="number"
-                min={0}
-                step={1000}
-                value={a.landOverride ?? ""}
-                placeholder={lot.landValue != null ? `${lot.landValue} county` : `${a.defaultLand} default`}
-                onChange={(e) => {
-                  const n = Number(e.target.value);
-                  set("landOverride", e.target.value === "" || !Number.isFinite(n) ? null : Math.max(0, n));
-                }}
-                className="w-full rounded-md border border-hairline bg-white px-2 py-1.5 text-[13px] tabular-nums"
+            <Num
+              k="hardCostPerSf"
+              label="Construction $/sq ft"
+              value={a.hardCostPerSf}
+              onChange={(v) => set("hardCostPerSf", v)}
+            />
+            <Num
+              k="softCostPct"
+              label="Fees & design (% of construction)"
+              value={a.softCostPct}
+              onChange={(v) => set("softCostPct", v)}
+            />
+            <Num
+              k="devFeePct"
+              label="Developer's fee (%)"
+              value={a.devFeePct}
+              onChange={(v) => set("devFeePct", v)}
+            />
+            <Num
+              k="targetMarginPct"
+              label="Required return (%)"
+              value={a.targetMarginPct}
+              onChange={(v) => set("targetMarginPct", v)}
+            />
+            {(r?.mode ?? mode) === "sale" && (
+              <Num
+                k="typicalHomeSf"
+                label="Typical home size (sq ft)"
+                value={a.typicalHomeSf}
+                onChange={(v) => set("typicalHomeSf", v)}
+                step={50}
+                hint={`Scales the sale-value index only; the ${TYPOLOGY_LABEL[typology].toLowerCase()} is still modeled as ${plan.note}.`}
               />
-            </label>
+            )}
+            <LandInput
+              value={a.landOverride ?? null}
+              placeholder={
+                lot.landValue != null
+                  ? `${lot.landValue} county`
+                  : `${a.defaultLand} default`
+              }
+              onChange={(v) => set("landOverride", v)}
+            />
             {(r?.mode ?? mode) === "rent" && (
               <>
                 <Num k="opexPct" label="Operating costs (% of rent)" value={a.opexPct} onChange={(v) => set("opexPct", v)} />
@@ -341,6 +425,55 @@ function CompsTip({ comps, mode }: { comps: Comps; mode: RevenueMode }) {
   );
 }
 
+/** How long a typing pause lasts before a draft is committed to the app (and the map). */
+const COMMIT_PAUSE_MS = 500;
+
+/**
+ * A draft that commits to the app on blur, on Enter, or after a typing pause; never mid-keystroke.
+ * The draft follows `value` when it changes from outside, unless the draft already maps to it.
+ */
+function useDraft<T>(
+  value: T,
+  toText: (v: T) => string,
+  parse: (text: string) => T,
+  onCommit: (v: T) => void,
+) {
+  const [text, setText] = useState(() => toText(value));
+  const [prev, setPrev] = useState(value);
+  if (!Object.is(prev, value)) {
+    setPrev(value);
+    if (!Object.is(parse(text), value)) setText(toText(value));
+  }
+  const timer = useRef<number | null>(null);
+  const latest = useRef({ text, value, parse, onCommit });
+  useEffect(() => {
+    latest.current = { text, value, parse, onCommit };
+  });
+  const flush = () => {
+    if (timer.current != null) window.clearTimeout(timer.current);
+    timer.current = null;
+    const l = latest.current;
+    const v = l.parse(l.text);
+    if (!Object.is(v, l.value)) l.onCommit(v);
+  };
+  useEffect(() => () => flush(), []);
+  const edit = (t: string) => {
+    setText(t);
+    latest.current = { ...latest.current, text: t };
+    if (timer.current != null) window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(flush, COMMIT_PAUSE_MS);
+  };
+  const inputProps = {
+    value: text,
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => edit(e.target.value),
+    onBlur: flush,
+    onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Enter") flush();
+    },
+  };
+  return { text, inputProps };
+}
+
 /**
  * A numeric assumption. The typed text stays as typed; the committed number is the value the model
  * accepts (clamped to range, or the default for blanks), and a note says when the two differ.
@@ -351,45 +484,98 @@ function Num({
   value,
   onChange,
   step = 1,
+  hint,
 }: {
   k: RangedKey;
   label: React.ReactNode;
   value: number;
   onChange: (v: number) => void;
   step?: number;
+  hint?: string;
 }) {
-  const [text, setText] = useState(String(value));
-  const parsed = text.trim() === "" ? NaN : Number(text);
+  const toNum = (t: string) => (t.trim() === "" ? NaN : Number(t));
+  const { text, inputProps } = useDraft(
+    value,
+    String,
+    (t) => acceptedValue(k, toNum(t)),
+    onChange,
+  );
+  const parsed = toNum(text);
   const used = acceptedValue(k, parsed);
-  if (used !== value) setText(String(value));
   const { min, max } = FINANCE_RANGES[k];
   return (
     <label className="block">
       <span className="mb-1 block text-[12px] text-muted">{label}</span>
       <input
         type="number"
-        value={text}
+        {...inputProps}
         step={step}
         min={min}
         max={max}
         aria-invalid={used !== parsed}
-        onChange={(e) => {
-          setText(e.target.value);
-          const n = e.target.value.trim() === "" ? NaN : Number(e.target.value);
-          onChange(acceptedValue(k, n));
-        }}
         className={`w-full rounded-md border bg-white px-2 py-1.5 text-[13px] tabular-nums ${used !== parsed ? "border-[#d97706]" : "border-hairline"}`}
       />
-      {used !== parsed && (
+      {used !== parsed ? (
         <span className="mt-0.5 block text-[12px] leading-tight text-[#a16207]">
           Outside the accepted range ({min}–{max}), using {used}
         </span>
+      ) : (
+        hint && (
+          <span className="mt-0.5 block text-[12px] leading-tight text-muted">
+            {hint}
+          </span>
+        )
       )}
     </label>
   );
 }
 
-function Row({ label, value, swatch }: { label: React.ReactNode; value: string; swatch: string }) {
+/** This lot's acquisition cost; blank uses the assessed value. Commits like Num. */
+function LandInput({
+  value,
+  placeholder,
+  onChange,
+}: {
+  value: number | null;
+  placeholder: string;
+  onChange: (v: number | null) => void;
+}) {
+  const parse = (t: string): number | null => {
+    const n = Number(t);
+    return t.trim() === "" || !Number.isFinite(n) ? null : Math.max(0, n);
+  };
+  const { inputProps } = useDraft(
+    value,
+    (v) => (v == null ? "" : String(v)),
+    parse,
+    onChange,
+  );
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[12px] text-muted">
+        Land cost, this lot only ($)
+      </span>
+      <input
+        type="number"
+        min={0}
+        step={1000}
+        {...inputProps}
+        placeholder={placeholder}
+        className="w-full rounded-md border border-hairline bg-white px-2 py-1.5 text-[13px] tabular-nums"
+      />
+    </label>
+  );
+}
+
+function Row({
+  label,
+  value,
+  swatch,
+}: {
+  label: React.ReactNode;
+  value: string;
+  swatch: string;
+}) {
   return (
     <div className="flex items-baseline justify-between gap-3 py-2">
       <dt className="flex min-w-0 items-baseline gap-2 text-muted">

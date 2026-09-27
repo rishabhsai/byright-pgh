@@ -51,8 +51,15 @@ export default function NeighborhoodPicker({ options, selected, onChange }: Prop
   const activeIdx = Math.min(active, Math.max(0, results.length - 1));
   const optionId = (i: number) => `${id}-opt-${i}`;
 
-  const toggle = (name: string) =>
-    onChange(selectedSet.has(name) ? selected.filter((s) => s !== name) : [...selected, name]);
+  // Selecting clears the typed query, so the chip is not followed by the same name as text.
+  const toggle = (name: string) => {
+    if (selectedSet.has(name)) onChange(selected.filter((s) => s !== name));
+    else {
+      onChange([...selected, name]);
+      setQuery("");
+      setActive(0);
+    }
+  };
 
   const moveTo = (i: number) => {
     setActive(i);

@@ -1,11 +1,11 @@
 import { existsSync, readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Comps, CompsFile, Lot, LotsFile, RuleSet } from "./types";
 import { evaluateLot } from "./rules";
 import { triageLot } from "./triage";
 import { compsFor, DEFAULT_FINANCE } from "./finance";
 import { evidenceForLot } from "./evidence";
-import { buildPlan, CSV_COLUMNS, gapSentence, toBrief, toCsv } from "./plan";
+import { buildPlan, CSV_COLUMNS, gapSentence, reliefSentence, toBrief, toCsv } from "./plan";
 import type { FinanceAssumptions } from "./proforma";
 
 const LOTS = "public/data/lots.json";
@@ -58,6 +58,7 @@ describe.runIf(haveData)("buildPlan: Hazelwood", () => {
     expect(plan.shortlist).toHaveLength(10);
     expect(g.perProject).toBeCloseTo(g.total / 10, 6);
     expect(g.perDwelling).toBeCloseTo(g.total / 10, 6);
+    expect(gapSentence(plan)).toMatch(/^The 10 lowest-shortfall candidates are 10 projects\. Modeled shortfall about \$2\.59M at \$185\/sf \(\$259k per project\)\./);
     // The rounded shortlist rows sum to $2,593,700; the unrounded total is about $1.43 less.
     const rounded = plan.shortlist.reduce((sum, r) => sum + Number(r.shortfall_to_target), 0);
     expect(rounded).toBe(2_593_700);
@@ -165,17 +166,21 @@ describe.runIf(haveData)("plan exports", () => {
     const { plan } = hazelwood();
     const md = toBrief(plan);
     expect(md).toMatch(/^# Disposition review: Hazelwood/);
-    const f = plan.funnel;
-    expect(md).toContain(`${f.records.toLocaleString("en-US")} lots → ${f.encoded.toLocaleString("en-US")} in encoded districts → ${f.byRight} by right`);
+    expect(md).toContain("797 lots → 754 encoded → 285 use table → 123 for sale, no flag → 106 ≥ 1,000 sf → 0 clear cost screen");
+    expect(md).toContain("pass the use table and lot-size standards");
     expect(md).toContain("Zillow Home Value Index");
     expect(md).toContain("Not a zoning determination or legal advice");
     expect(md).toMatch(/\$150\/sf/);
+    expect(md).toContain("241 lots fail only lot size; 211 of them also need a use approval (Hillside) that relief does not remove.");
   });
 
   it("brief and CSV never use readiness, release, no-hearing, subsidy-need or pays-for-itself wording", () => {
     const { plan } = hazelwood();
     const text = `${toBrief(plan)}\n${toCsv(plan.rows)}`;
     expect(text).not.toMatch(/\bready\b|releas|no hearing|needs subsidy|pays? for (it|them)sel/i);
+    // "by right" overstates a use-table and lot-size screen. Only the legacy column name and the bill's
+    // own wording (the bill permits ADUs by right) keep it.
+    expect(text.replace(/by_right_types/g, "").replace(plan.billLine, "")).not.toMatch(/by right/i);
     expect(toBrief(plan)).toMatch(/may address the size standard only, if eligible and approved/);
   });
 
@@ -228,7 +233,8 @@ describe("buildPlan: relief and Hillside counts", () => {
     expect(plan.candidates.total).toBe(1);
     expect(plan.gap).toBeNull();
     const md = toBrief(plan);
-    expect(md).toMatch(/1 of them also need a use approval \(Hillside\) that relief does not remove/);
+    expect(reliefSentence(plan)).toBe("2 lots fail only lot size; 1 of them also needs a use approval (Hillside) that relief does not remove.");
+    expect(md).toContain(reliefSentence(plan));
   });
 
   it("a protected-purpose record (Greenway) stays searchable and exportable but never enters the candidate cohort", () => {
@@ -292,5 +298,17 @@ describe("buildPlan: projects and dwellings", () => {
     expect(g.perDwelling).toBeCloseTo(g.total / 6, 6);
     expect(g.perProject).toBeCloseTo(g.total / 3, 6);
     expect(gapSentence(plan)).toMatch(/3 projects \(6 dwellings\)/);
+  });
+});
+
+describe("buildPlan: export date", () => {
+  afterEach(() => vi.useRealTimers());
+  it("dates the plan, its CSV rows and the brief heading by the Pittsburgh calendar day", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-27T01:12:00Z")); // 21:12 EDT, Sept 26
+    const plan = wire([testLot("a", "R2-M", 3000)], [null]);
+    expect(plan.generatedAt).toBe("2026-09-26");
+    expect(plan.rows[0].generated_at).toBe("2026-09-26");
+    expect(toBrief(plan)).toMatch(/^_2026-09-26 · /m);
   });
 });

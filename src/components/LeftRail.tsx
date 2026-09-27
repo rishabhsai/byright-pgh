@@ -81,11 +81,20 @@ function statusChip(status: string): string {
 }
 
 const TYPE_CHIP: Record<Typology, string> = {
-  single: "Single",
-  single_adu: "+ADU",
+  single: "House",
+  single_adu: "+ Unit",
   duplex: "Duplex",
   triplex: "Triplex",
-  townhome: "Townhome",
+  townhome: "Townhouse",
+};
+
+/** One letter per home type for the list's column header; unique, in TYPOLOGIES order. */
+const TYPE_LETTER: Record<Typology, string> = {
+  single: "H",
+  single_adu: "B",
+  duplex: "D",
+  triplex: "T",
+  townhome: "W",
 };
 
 /** Base minimum lot sizes of the density subdistricts, Title Nine §903.03. */
@@ -508,15 +517,39 @@ function LeftRail({
             </div>
           </div>
 
-          <div className="flex h-9 items-center justify-between gap-2 px-4">
-            <span className="min-w-0 truncate text-[12px] text-muted" aria-live="polite">
+          <div className="flex min-h-9 items-center justify-between gap-2 px-4 py-1">
+            <span
+              className="min-w-0 text-[12px] leading-4 text-muted"
+              aria-live="polite"
+            >
               {loading ? (
                 "Evaluating lots…"
               ) : (
                 <>
-                  Showing <span className="font-medium text-ink tabular-nums">{matchCount.toLocaleString()}</span> of{" "}
-                  <span className="tabular-nums">{lots.length.toLocaleString()}</span>
-                  {ranked.total > LIST_LIMIT && <span className="text-faint">, top {LIST_LIMIT} listed</span>}
+                  Showing{" "}
+                  <span className="font-medium text-ink tabular-nums">
+                    {matchCount.toLocaleString()}
+                  </span>{" "}
+                  of{" "}
+                  <span className="tabular-nums">
+                    {lots.length.toLocaleString()}
+                  </span>
+                  {ranked.total > LIST_LIMIT && (
+                    <span className="text-faint">
+                      , top {LIST_LIMIT} listed
+                    </span>
+                  )}
+                  {filtersOpen && !filters.includeParks && (
+                    <span className="whitespace-nowrap text-faint">
+                      {" · "}parks and greenways hidden ·{" "}
+                      <button
+                        onClick={() => set("includeParks", true)}
+                        className="text-accent hover:underline"
+                      >
+                        show
+                      </button>
+                    </span>
+                  )}
                 </>
               )}
             </span>
@@ -525,10 +558,20 @@ function LeftRail({
                 Reset
               </button>
             ) : (
-              <span className="flex shrink-0 items-center gap-1 text-[11px] text-faint" aria-hidden>
+              <span
+                className="flex shrink-0 cursor-help items-center gap-1 text-[11px] text-faint"
+                title={TYPOLOGIES.map(
+                  (t) => `${TYPE_LETTER[t]} ${TYPOLOGY_LABEL[t]}`,
+                ).join(" · ")}
+                aria-hidden
+              >
                 {TYPOLOGIES.map((t) => (
-                  <span key={t} title={TYPOLOGY_LABEL[t]} className="w-3 text-center">
-                    {TYPOLOGY_SHORT[t][0]}
+                  <span
+                    key={t}
+                    title={TYPOLOGY_LABEL[t]}
+                    className="w-3 text-center"
+                  >
+                    {TYPE_LETTER[t]}
                   </span>
                 ))}
               </span>
@@ -552,7 +595,11 @@ function LeftRail({
                 const f = evals![ruleSet].findings[i];
                 const selected = i === selectedIdx;
                 const ev = evidence?.[i];
-                const reason = ev ? reasonText(yellowReason(triages![ruleSet].results[i], ev)) : null;
+                const reason = ev
+                  ? reasonText(
+                      yellowReason(triages![ruleSet].results[i], ev, lot),
+                    )
+                  : null;
                 return (
                   <li
                     key={lot.id}

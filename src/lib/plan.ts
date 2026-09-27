@@ -11,6 +11,7 @@ import {
   type Proforma,
   type RevenueMode,
 } from "./proforma";
+import { todayET } from "./dates";
 import { hasHazardFlag, isAvailable, isDispositionEligible } from "./ranking";
 import {
   districtUnconfirmed,
@@ -79,7 +80,7 @@ export interface RowFinance {
 
 export type PlanRow = Record<CsvColumn, string | number> & {
   lotIndex: number;
-  /** Candidate for staff review (by right, recorded available, no hazard flag, ≥ 1,000 sf). */
+  /** Candidate for staff review (use table and lot size pass, recorded available, no hazard flag, ≥ 1,000 sf). */
   candidate: boolean;
   /** @deprecated Same as `candidate`. */
   ready: boolean;
@@ -138,6 +139,7 @@ export interface Gap extends GapScenario {
 export interface Plan {
   scopeLabel: string;
   ruleSet: RuleSet;
+  /** YYYY-MM-DD, the Pittsburgh calendar date (todayET) unless PlanOptions supplies one. */
   generatedAt: string;
   assumptions: FinanceAssumptions;
   funnel: Funnel;
@@ -233,7 +235,7 @@ function candidateStage(lot: Lot, fs: Finding[], typology: Typology | null): num
 }
 
 /**
- * Candidate for staff review: by right (for the Home type filter, or any type), recorded Available for Sale,
+ * Candidate for staff review: passes the use table and lot-size standards (for the Home type filter, or any type), recorded Available for Sale,
  * disposition-eligible (not a protected-purpose or privately owned record: isDispositionEligible), no hazard flag at the inventory point, at least 1,000 sf. Open items (fit, parking, finance, unknowns,
  * channel) stay on the row as its next action; this is a review queue, not a release list.
  */
@@ -377,7 +379,7 @@ export function buildPlan(
 ): Plan {
   const typology = scope.typology ?? null;
   const hoods = scope.neighborhoods.length ? new Set(scope.neighborhoods) : null;
-  const generatedAt = opts.generatedAt ?? new Date().toISOString();
+  const generatedAt = opts.generatedAt ?? todayET();
   const findings = evals[ruleSet].findings;
   const other: RuleSet = ruleSet === "current" ? "bill-2025-1545" : "current";
 
@@ -624,9 +626,15 @@ export function toCsv(rows: PlanRow[]): string {
   return lines.join("\n") + "\n";
 }
 
+/** The funnel with the UI's stage names, then what each stage means (the brief defines them once). */
 export function funnelLine(f: Funnel): string {
-  return `${fmtNum(f.records)} lots → ${fmtNum(f.encoded)} in encoded districts → ${fmtNum(f.byRight)} by right → ${fmtNum(f.availableNoFlag)} recorded available, disposition-eligible, no hazard flag → ${fmtNum(f.atLeast1000)} ≥ 1,000 sf (candidates for staff review) → ${fmtNum(f.pencil)} clear the cost-and-return screen`;
+  return `${fmtNum(f.records)} lots → ${fmtNum(f.encoded)} encoded → ${fmtNum(f.byRight)} use table → ${fmtNum(f.availableNoFlag)} for sale, no flag → ${fmtNum(f.atLeast1000)} ≥ 1,000 sf → ${fmtNum(f.pencil)} clear cost screen`;
 }
+
+export const FUNNEL_STAGES =
+  "Encoded: in a zoning district the rules engine encodes. Use table: lots that pass the use table and lot-size standards for at least one small home type we screened (other standards not checked). " +
+  "For sale, no flag: recorded Available for Sale, not a protected-purpose record, no hazard flag at the inventory point. " +
+  "≥ 1,000 sf: at least 1,000 sf, the candidates for staff review. Clear cost screen: candidates whose modeled value covers cost plus the target return.";
 
 const VALUE_WORD: Record<Gap["valueMode"], string> = { sale: "sale value", rent: "capitalized value", mixed: "value (sale or capitalized)" };
 
@@ -639,10 +647,11 @@ const plural = (n: number, one: string, many: string) => `${fmtNum(n)} ${n === 1
 export function gapSentence(plan: Plan): string {
   const g = plan.gap;
   if (!g) return "No candidate in scope has comps, so the shortfall was not modeled.";
+  const dwellings = g.projects === g.dwellings ? "" : ` (${plural(g.dwellings, "dwelling", "dwellings")})`;
   const who =
     g.projects === 1
-      ? `The lowest-shortfall candidate is ${plural(g.projects, "project", "projects")} (${plural(g.dwellings, "dwelling", "dwellings")})`
-      : `The ${fmtNum(g.projects)} lowest-shortfall candidates are ${plural(g.projects, "project", "projects")} (${plural(g.dwellings, "dwelling", "dwellings")})`;
+      ? `The lowest-shortfall candidate is ${plural(g.projects, "project", "projects")}${dwellings}`
+      : `The ${fmtNum(g.projects)} lowest-shortfall candidates are ${plural(g.projects, "project", "projects")}${dwellings}`;
   const per = g.projects === g.dwellings ? `${fmtUsdShort(g.perProject)} per project` : `${fmtUsdShort(g.perProject)} per project, ${fmtUsdShort(g.perDwelling)} per dwelling`;
   const basis = g.valueBasis.map(basisText).join(", ");
   return `${who}. Modeled shortfall about ${fmtUsdShort(g.total)} at $${g.hardCostPerSf}/sf (${per}). Target ${VALUE_WORD[g.valueMode]} ${fmtUsdShort(g.targetValueAvg)} per project, cost plus the ${plan.assumptions.targetMarginPct}% target return${basis ? `; ${basis}` : ""}.`;
@@ -654,6 +663,12 @@ export function rowChecks(r: PlanRow): string {
   const unknown = Number(r.checks_unknown);
   const notChecked = Number(r.checks_not_checked);
   return summary({ counts: { pass, fail: 6 - pass - unknown - notChecked, unknown, notChecked } });
+}
+
+/** "241 lots fail only lot size; 211 of them also need a use approval (Hillside) that relief does not remove." Shared by the rail and the brief. */
+export function reliefSentence(plan: Pick<Plan, "needsRelief" | "needsReliefWithApproval">): string {
+  const n = plan.needsReliefWithApproval;
+  return `${plural(plan.needsRelief, "lot fails", "lots fail")} only lot size; ${fmtNum(n)} of them also ${n === 1 ? "needs" : "need"} a use approval (Hillside) that relief does not remove.`;
 }
 
 function districtLine(n: number): string {
@@ -669,7 +684,7 @@ export function toBrief(plan: Plan): string {
   L.push(`# Disposition review: ${plan.scopeLabel}`, "");
   L.push(`_${date} · ${RULESET_LABEL[plan.ruleSet]} · ByRight PGH screening at $${a.hardCostPerSf}/sf hard cost, ${a.softCostPct}% soft, ${a.devFeePct}% fee, ${a.targetMarginPct}% target return, ${a.mode === "sale" ? "sale" : `rent (${a.capRate}% cap rate, ${a.opexPct}% expenses)`} mode._`, "");
 
-  L.push("## Funnel", "", funnelLine(f), "");
+  L.push("## Funnel", "", funnelLine(f), "", FUNNEL_STAGES, "");
   L.push(`${fmtNum(plan.needsRelief)} need relief (lot size) · ${fmtNum(plan.hillsideReview)} Hillside exception · ${fmtNum(plan.notEvaluated)} not evaluated`, "");
 
   L.push("## Candidates for staff review", "");
@@ -697,7 +712,7 @@ export function toBrief(plan: Plan): string {
 
   L.push("## Needs relief", "");
   L.push(
-    `${fmtNum(plan.needsRelief)} lots fail only lot size; ${fmtNum(plan.needsReliefWithApproval)} of them also need a use approval (Hillside) that relief does not remove. Consolidation or a § 921.04 exception may address the size standard only, if eligible and approved; status, site and finance would still need review. Adjacent City lots are not computed.`,
+    `${reliefSentence(plan)} Consolidation or a § 921.04 exception may address the size standard only, if eligible and approved; status, site and finance would still need review. Adjacent City lots are not computed.`,
     "",
   );
 

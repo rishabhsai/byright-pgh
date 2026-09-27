@@ -1,6 +1,6 @@
 import type { LabelInput, Triage, Typology, Verdict } from "@/lib/types";
 import { TRIAGE_LABEL, VERDICT_SHORT_LABEL, verdictShort } from "@/lib/types";
-import { ALLOWED_TIP, verdictLabel } from "./ui/answer";
+import { ALLOWED_TIP, nb, verdictLabel } from "./ui/answer";
 import Tooltip from "./ui/Tooltip";
 import { districtName } from "./district";
 
@@ -8,7 +8,7 @@ export const TYPOLOGIES: Typology[] = ["single", "single_adu", "duplex", "triple
 
 export const TYPOLOGY_SHORT: Record<Typology, string> = {
   single: "House",
-  single_adu: "House + backyard",
+  single_adu: "House + backyard unit",
   duplex: "Duplex",
   triplex: "Triplex",
   townhome: "Townhouse",
@@ -25,19 +25,45 @@ export const VERDICT_COLOR: Record<Verdict, string> = {
 /** Generic short labels (legend). For one finding use verdictShort(finding), which names the approval route. */
 export const VERDICT_SHORT: Record<Verdict, string> = VERDICT_SHORT_LABEL;
 
+/** The day the bill's status was last checked; shown as "status checked Sept 26, 2026". */
+export const BILL_STATUS_CHECKED = "2026-09-26";
+
+/** "Sept 26, 2026" from an ISO date, in AP month style. */
+export function checkedDate(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const MONTH = [
+    "Jan.",
+    "Feb.",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "Aug.",
+    "Sept",
+    "Oct.",
+    "Nov.",
+    "Dec.",
+  ];
+  return `${MONTH[m - 1]} ${d}, ${y}`;
+}
+
 /** Plain-language glossary for the terms that have to stay (UX copy pass, cycle 1). */
 export const TIP = {
   byRight: `${ALLOWED_TIP}. Staff zoning review still applies.`,
   review:
-    "Administrator exception (§ 922.08): zoning staff decide. Special exception (§ 922.07): the Zoning Board of Adjustment decides after a hearing. Both apply written criteria.",
+    "Administrator exception (§\u00a0922.08): zoning staff decide. Special exception (§\u00a0922.07): the Zoning Board of Adjustment decides after a hearing. Both apply written criteria.",
   hearing:
-    "A size rule fails. Relief may be a dimensional variance (Zoning Board hearing) or, for a qualifying nonconforming lot, a § 921.04 exception; for floor area, a smaller building. Zoning staff determine the path.",
-  notChecked: "ByRight only encodes residential, LNC and Hillside districts. Parks, industrial and downtown are out of scope.",
+    "A size rule fails. Relief may be a dimensional variance (Zoning Board hearing) or, for a qualifying nonconforming lot, a §\u00a0921.04 exception; for floor area, a smaller building. Zoning staff determine the path.",
+  notChecked:
+    "ByRight only encodes residential, LNC and Hillside districts. Parks, industrial and downtown are out of scope.",
   adu: "ADU: accessory dwelling unit, a small second home on the same lot (garage apartment, cottage).",
   landValue: "The County's 2012-base assessment, not a market price.",
-  frontage: "Parsed from the legal description. A survey governs.",
-  cityStatus: "The City's own recorded disposition status. 'Available for Sale' is a listing, not proof a sale can close; confirm with the City or URA.",
-  bill: "Bill 2025-1545 (substitute, heard Sept 23 2026): citywide ADUs, no parking minimums, affordable bonus. Not voted as of Sept 26, 2026.",
+  frontage:
+    "Parsed from the County legal description; approximate. A survey governs.",
+  cityStatus:
+    "The City's own recorded disposition status. 'Available for Sale' is a listing, not proof a sale can close; confirm with the City or URA.",
+  bill: `Bill 2025-1545 (substitute, heard Sept 23, 2026): citywide ADUs, no parking minimums, affordable bonus. Not yet voted; status checked ${checkedDate(BILL_STATUS_CHECKED)}.`,
   capRate: "Yield a buyer expects from rent; lower means a higher value.",
 } as const;
 
@@ -87,7 +113,7 @@ export function VerdictChip({ verdict, full = false, finding }: { verdict: Verdi
       style={{ background: `${c}14`, color: VERDICT_INK[verdict] }}
     >
       <VerdictDot verdict={verdict} size={6} />
-      {full ? verdictLabel(f) : verdictShort(f)}
+      {full ? nb(verdictLabel(f)) : verdictShort(f)}
     </span>
   );
 }

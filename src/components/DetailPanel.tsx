@@ -20,16 +20,19 @@ import {
   cityStatus,
   financeLine,
   HIGH_MARGIN_PCT,
+  nb,
   typologyPhrase,
+  useTableSummary,
   verdictLabel,
   verdictWord,
   whatWouldChange,
 } from "./ui/answer";
-import { MIN_PRACTICAL_LOT_SQFT } from "@/lib/evidence";
+import { districtUnconfirmed, MIN_PRACTICAL_LOT_SQFT } from "@/lib/evidence";
 import { prototypeNote } from "@/lib/proforma";
 import { FunnelBars, FunnelSentence, type FunnelStats } from "./ui/Funnel";
+import type { Funnel } from "@/lib/plan";
 
-/** 5118 Ladora Way, Hazelwood: R1A-VH, URA Transfer, a 19.5 ft lot screened for the attached prototype. */
+/** 5118 Ladora Wy, Hazelwood: R1A-VH, URA Transfer, a 19.5 ft lot screened for the attached prototype. */
 export const DEMO_LOT_ID = "0056N00203000000";
 
 interface Props {
@@ -58,6 +61,14 @@ interface Props {
   stats?: FunnelStats | null;
   /** Select a lot by parcel ID (the empty state's demo link). No-op when absent. */
   onSelectId?: (id: string) => void;
+  /** The neighborhood scope's plan funnel when the neighborhood filter is set; the empty state follows it. */
+  scope?: EmptyScope | null;
+}
+
+/** The plan's funnel for the neighborhood filter, for the empty state. */
+export interface EmptyScope {
+  label: string;
+  funnel: Funnel;
 }
 
 export default function DetailPanel(props: Props) {
@@ -87,7 +98,12 @@ export default function DetailPanel(props: Props) {
           </div>
         </div>
       ) : (
-        <EmptyState stats={props.stats} ruleSet={props.ruleSet} onSelectId={props.onSelectId} />
+        <EmptyState
+          stats={props.stats}
+          ruleSet={props.ruleSet}
+          onSelectId={props.onSelectId}
+          scope={props.scope ?? null}
+        />
       )}
     </aside>
   );
@@ -97,12 +113,15 @@ function EmptyState({
   stats,
   ruleSet,
   onSelectId,
+  scope,
 }: {
   /** null while loading; undefined when the caller does not provide stats (no funnel then). */
   stats: FunnelStats | null | undefined;
   ruleSet: RuleSet;
   onSelectId?: (id: string) => void;
+  scope: EmptyScope | null;
 }) {
+  if (scope) return <ScopeEmptyState scope={scope} onSelectId={onSelectId} />;
   if (stats === undefined)
     return (
       <div className="flex flex-1 flex-col justify-center px-8">
@@ -111,14 +130,20 @@ function EmptyState({
       </div>
     );
   return (
-    <div className="scroll-thin flex flex-1 flex-col justify-center overflow-y-auto px-8 py-8">
-      <FunnelSentence s={stats} className="font-serif text-[25px] leading-[1.22] tracking-[-0.005em]" />
-      {stats && ruleSet === "bill-2025-1545" && (stats.lotsGaining ?? 0) > 0 && (
-        <p className="mt-3 text-[13px] text-[#6b5200]">
-          <Tooltip content={TIP.bill}>If the housing bill passes</Tooltip>, +{stats.lotsGaining!.toLocaleString("en-US")} lots could also add a
-          backyard home.
-        </p>
-      )}
+    <div className="scroll-thin flex flex-1 flex-col overflow-y-auto px-8 pt-10 pb-8">
+      <FunnelSentence
+        s={stats}
+        className="font-serif text-[25px] leading-[1.22] tracking-[-0.005em]"
+      />
+      {stats &&
+        ruleSet === "bill-2025-1545" &&
+        (stats.lotsGaining ?? 0) > 0 && (
+          <p className="mt-3 text-[13px] text-[#6b5200]">
+            <Tooltip content={TIP.bill}>If the housing bill passes</Tooltip>, +
+            {stats.lotsGaining!.toLocaleString("en-US")} lots could also add a
+            backyard unit.
+          </p>
+        )}
       <div className="mt-7">
         {stats ? (
           <FunnelBars s={stats} />
@@ -137,7 +162,71 @@ function EmptyState({
             onClick={() => onSelectId(DEMO_LOT_ID)}
             className="mt-1.5 text-left text-[13px] text-accent underline decoration-accent/30 underline-offset-[3px] hover:decoration-accent"
           >
-            Try a demo lot: 5118 Ladora Way, Hazelwood
+            Try a demo lot: 5118 Ladora Wy, Hazelwood
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** The empty state for a neighborhood scope: the same funnel the Plan tab shows, as a sentence and bars. */
+function ScopeEmptyState({
+  scope,
+  onSelectId,
+}: {
+  scope: EmptyScope;
+  onSelectId?: (id: string) => void;
+}) {
+  const f = scope.funnel;
+  const n = (v: number) => (
+    <span className="font-semibold text-ink tabular-nums">
+      {v.toLocaleString("en-US")}
+    </span>
+  );
+  const steps = [
+    { key: "records", n: f.records, label: "vacant City lots" },
+    { key: "encoded", n: f.encoded, label: "evaluated" },
+    {
+      key: "byRight",
+      n: f.byRight,
+      label: "pass the use-table and lot-size screen",
+    },
+    { key: "sale", n: f.availableNoFlag, label: "for sale, no hazard flag" },
+    {
+      key: "floor",
+      n: f.atLeast1000,
+      label: "1,000+ sf: candidates for staff review",
+    },
+    {
+      key: "pencil",
+      n: f.pencil,
+      label: "also clear the cost-and-return screen",
+    },
+  ];
+  return (
+    <div className="scroll-thin flex flex-1 flex-col overflow-y-auto px-8 pt-10 pb-8">
+      <p className="text-[12px] text-muted">{scope.label}</p>
+      <p className="mt-1 font-serif text-[25px] leading-[1.22] tracking-[-0.005em] text-muted">
+        {n(f.byRight)} of {n(f.records)} vacant City lots pass the use-table and
+        lot-size screen. {n(f.atLeast1000)}{" "}
+        {f.atLeast1000 === 1 ? "is a candidate" : "are candidates"} for staff
+        review; {n(f.pencil)} also clear the cost-and-return screen.
+      </p>
+      <div className="mt-7">
+        <FunnelBars steps={steps} />
+      </div>
+      <div className="mt-9 border-t border-hairline pt-5">
+        <p className="text-[14px] text-ink">
+          Pick a lot on the map or in the list. The Plan tab has this
+          scope&apos;s shortlist.
+        </p>
+        {onSelectId && scope.label.includes("Hazelwood") && (
+          <button
+            onClick={() => onSelectId(DEMO_LOT_ID)}
+            className="mt-1.5 text-left text-[13px] text-accent underline decoration-accent/30 underline-offset-[3px] hover:decoration-accent"
+          >
+            Try a demo lot: 5118 Ladora Wy, Hazelwood
           </button>
         )}
       </div>
@@ -255,7 +344,7 @@ function LotDetail({
   const fitPass = fitRows.filter((r) => r.state === "pass").length;
   const fitFail = fitRows.filter((r) => r.state === "fail").length;
   const fitSite = fitRows.filter((r) => r.state === "site").length;
-  const allowedCount = findings.filter((f) => f.verdict === "by-right").length;
+  const unconfirmed = districtUnconfirmed(lot);
   const pad = expanded ? "px-10" : "px-5";
 
   return (
@@ -275,10 +364,14 @@ function LotDetail({
                 <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted">
                   <span>{lot.neighborhood}</span>
                   <ZoneChip zone={lot.zone} tip />
-                  {lot.zoneAgrees === false && (
-                    <Tooltip content={`Inventory says ${lot.zone || "no district"}; the City zoning map says ${lot.zoneMap ?? "a different district"} at this point. Confirm the district before relying on the use result.`}>
+                  {unconfirmed && (
+                    <Tooltip
+                      content={`Inventory says ${lot.zone || "no district"}; ${lot.zoneMap === null ? "no City zoning map district contains this point" : `the City zoning map says ${lot.zoneMap ?? "a different district"} at this point`}. Confirm the district before relying on the use result.`}
+                    >
                       <span className="inline-flex shrink-0 items-center rounded border border-gold/60 bg-gold-soft px-1.5 py-px text-[11px] font-medium whitespace-nowrap text-[#6b5200]">
-                        Map says {lot.zoneMap ? zoneLabel(lot.zoneMap) : "other"}
+                        {lot.zoneMap === null
+                          ? "Not on the zoning map"
+                          : `Map says ${lot.zoneMap ? zoneLabel(lot.zoneMap) : "other"}`}
                       </span>
                     </Tooltip>
                   )}
@@ -339,12 +432,12 @@ function LotDetail({
 
       <div className={`space-y-7 py-5 ${pad}`}>
         <AnswerCard
-          headline={head.text}
+          headline={nb(head.text)}
           tone={head.tone}
           typeLine={
             <>
               <span className="font-medium">{TYPOLOGY_LABEL[typology]}</span>
-              {chosen && <span className="text-muted">, {lowerFirst(verdictLabel(chosen))}</span>}
+              {chosen && <span className="text-muted">, {nb(lowerFirst(verdictLabel(chosen)))}</span>}
             </>
           }
           financeLine={fin}
@@ -361,8 +454,20 @@ function LotDetail({
           onPlan={() => goTo("file")}
         />
 
-        <Section id="allowed" title="Allowed?" summary={`${allowedCount} of ${findings.length} home types allowed by use table`}>
+        <Section
+          id="allowed"
+          title="Allowed?"
+          summary={useTableSummary(lot, findings)}
+        >
+          {unconfirmed && (
+            <p className="mb-2 text-[12px] leading-snug text-[#6b5200]">
+              Checked against the inventory district {lot.zone || "(none)"}; the
+              City zoning map says {lot.zoneMap ?? "no district"} here. No home
+              type counts as allowed until the district is confirmed.
+            </p>
+          )}
           <VerdictList
+            unconfirmed={unconfirmed}
             findings={findings}
             other={otherFindings}
             ruleSet={ruleSet}
@@ -516,23 +621,36 @@ function fitChecks(lot: Lot, f: Finding): FitItem[] {
   out.push({
     key: "area",
     label: "Lot area",
-    value: lot.lotAreaSqFt != null ? `${lot.lotAreaSqFt.toLocaleString()} sq ft` : "Not in the record",
-    required: [
-      area?.required && area.required !== "none" ? (area.required.startsWith("0 ") ? "min 0 here" : `min ${area.required}`) : null,
-      perUnit?.required && perUnit.required !== "none" ? `${perUnit.required} for the units` : null,
-    ]
-      .filter(Boolean)
-      .join("; ") || "No minimum here",
+    value:
+      lot.lotAreaSqFt != null
+        ? `${lot.lotAreaSqFt.toLocaleString()} sq ft`
+        : "Unknown",
+    required:
+      lot.lotAreaSqFt == null
+        ? NOT_IN_RECORD
+        : [
+            area?.required && area.required !== "none"
+              ? area.required.startsWith("0 ")
+                ? "min 0 here"
+                : `min ${area.required}`
+              : null,
+            perUnit?.required && perUnit.required !== "none"
+              ? `${perUnit.required} for the units`
+              : null,
+          ]
+            .filter(Boolean)
+            .join("; ") || "No minimum here",
     state: areaState,
+    word: lot.lotAreaSqFt == null ? "Unknown" : undefined,
     citation: (area ?? perUnit)?.citation,
   });
   // Our screening floor, not code: its own row, so the code row can pass while the evidence row's Lot size fails.
   if (areaState === "pass" && lot.lotAreaSqFt != null && lot.lotAreaSqFt < MIN_PRACTICAL_LOT_SQFT)
     out.push({
       key: "floor",
-      label: `Below ${MIN_PRACTICAL_LOT_SQFT.toLocaleString()} sf`,
+      label: `Below ${MIN_PRACTICAL_LOT_SQFT.toLocaleString()}\u00a0sf screening floor (not a code minimum)`,
       value: "Consolidation candidate",
-      required: "our screening floor, not a code minimum",
+      required: null,
       state: "fail",
       word: "Below floor",
     });
@@ -540,9 +658,16 @@ function fitChecks(lot: Lot, f: Finding): FitItem[] {
   out.push({
     key: "width",
     label: <Tooltip content={TIP.frontage}>Street frontage (approx.)</Tooltip>,
-    value: lot.frontageFt != null ? `≈ ${Math.round(lot.frontageFt)} ft` : "Not in the record",
-    required: width?.required && width.required !== "none" ? `min ${width.required}` : "No minimum here",
-    state: st(width),
+    value:
+      lot.frontageFt != null ? `≈ ${Math.round(lot.frontageFt)} ft` : "Unknown",
+    required:
+      lot.frontageFt == null
+        ? NOT_IN_RECORD
+        : width?.required && width.required !== "none"
+          ? `min ${width.required}`
+          : "No minimum here",
+    state: lot.frontageFt == null ? "site" : st(width),
+    word: lot.frontageFt == null ? "Unknown" : undefined,
     citation: width?.citation,
   });
   const parking = get("parking");
@@ -580,7 +705,14 @@ function fitChecks(lot: Lot, f: Finding): FitItem[] {
   return out;
 }
 
-const FIT_WORD: Record<FitState, string> = { pass: "Pass", fail: "Fails", site: "Check on site" };
+const FIT_WORD: Record<FitState, string> = {
+  pass: "Pass",
+  fail: "Fail",
+  site: "Check on site",
+};
+
+/** A value missing from the County record: the same words as the evidence pill's "Unknown". */
+const NOT_IN_RECORD = "not in the County record · survey needed";
 
 function FitRow({ r }: { r: FitItem }) {
   return (
@@ -603,7 +735,7 @@ function FitRow({ r }: { r: FitItem }) {
                 rel="noreferrer"
                 className="text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent"
               >
-                {r.citation.section}
+                {nb(r.citation.section)}
               </a>
             </>
           )}
@@ -626,7 +758,10 @@ function VerdictList({
   open,
   onOpen,
   columns,
+  unconfirmed = false,
 }: {
+  /** The zoning district is unconfirmed: no chip may read "Allowed"; each reads "Unconfirmed". */
+  unconfirmed?: boolean;
   findings: Finding[];
   other: Finding[] | null;
   ruleSet: RuleSet;
@@ -647,7 +782,7 @@ function VerdictList({
               {row.map((f) => {
                 const isOpen = f === opened;
                 const ov = otherVerdict(f.typology);
-                const diff = ov && ov !== f.verdict ? ov : null;
+                const diff = !unconfirmed && ov && ov !== f.verdict ? ov : null;
                 const tip = VERDICT_TIP[f.verdict];
                 return (
                   <div key={f.typology} className={`flex items-stretch ${row.length < columns ? "col-span-2" : ""}`}>
@@ -662,15 +797,28 @@ function VerdictList({
                         {diff && (
                           <span className="mt-0.5 block text-[12px] leading-snug text-[#7a5a00]">
                             {ruleSet === "current"
-                              ? `→ ${verdictWord(diff)} if the housing bill passes`
-                              : `Today: ${lowerFirst(verdictWord(diff))}`}
+                              ? nb(`→ ${verdictWord(diff)} if the housing bill passes`)
+                              : nb(`Today: ${lowerFirst(verdictWord(diff))}`)}
                           </span>
                         )}
                       </span>
                       <Chevron open={isOpen} />
                     </button>
                     <span className="flex shrink-0 items-center pr-3">
-                      {tip ? (
+                      {unconfirmed && f.verdict !== "unknown" ? (
+                        <Tooltip
+                          content="The inventory and the City zoning map disagree on this lot's district. Confirm the district first."
+                          asChild
+                        >
+                          <span
+                            tabIndex={0}
+                            className="inline-flex cursor-help items-center gap-1.5 rounded-full bg-[#9ca3af14] px-2 py-0.5 text-[12px] font-medium whitespace-nowrap text-[#5d6762]"
+                          >
+                            <span className="inline-block h-1.5 w-1.5 rounded-full border border-[#9ca3af]" />
+                            Unconfirmed
+                          </span>
+                        </Tooltip>
+                      ) : tip ? (
                         <Tooltip content={tip} asChild>
                           <span tabIndex={0} className="cursor-help rounded-full">
                             <VerdictChip verdict={f.verdict} finding={f} full={columns === 2} />
@@ -734,7 +882,7 @@ function CheckRow({ c }: { c: Check }) {
           rel="noreferrer"
           className="mt-1 inline-block text-[12px] text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent"
         >
-          {c.citation.section} {c.citation.title}
+          {nb(c.citation.section)} {c.citation.title}
         </a>
       </div>
     </li>
@@ -751,7 +899,13 @@ function StatusIcon({ state }: { state: FitState }) {
     );
   if (state === "fail")
     return (
-      <svg width="16" height="16" viewBox="0 0 16 16" className="mt-px shrink-0" aria-label="Fails">
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 16 16"
+        className="mt-px shrink-0"
+        aria-label="Fail"
+      >
         <circle cx="8" cy="8" r="7.5" fill="#c2410c" />
         <path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" />
       </svg>

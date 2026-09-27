@@ -16,6 +16,7 @@ import {
 } from "@/lib/application";
 import { VERDICT_COLOR } from "./verdict";
 import { REVIEW_CHECKLIST } from "./memo";
+import { districtUnconfirmed } from "@/lib/evidence";
 
 interface Props {
   /** The selected case: the packet is for its proposal, rule set and effective land cost. */
@@ -46,7 +47,21 @@ export default function ApplicationPlanner({ selected, onChangeType, onFlash, wi
 
   /** Deterministic plan for the selected proposal. Model text never replaces any of it. */
   const plan = useMemo<ApplicationPlan | null>(
-    () => (evaluable ? buildApplicationPlan(lot, findings, ruleSet, triage, proforma, comps, typology) : null),
+    () =>
+      evaluable
+        ? withKnownZip(
+            buildApplicationPlan(
+              lot,
+              findings,
+              ruleSet,
+              triage,
+              proforma,
+              comps,
+              typology,
+            ),
+            comps?.zip ?? null,
+          )
+        : null,
     [evaluable, typology, lot, findings, ruleSet, triage, proforma, comps],
   );
 
@@ -127,7 +142,11 @@ export default function ApplicationPlanner({ selected, onChangeType, onFlash, wi
             </span>
           </p>
 
-          {plan && <p className="font-serif text-[20px] leading-tight text-ink">{packetHeadline(plan, lot.zoneAgrees === false)}</p>}
+          {plan && (
+            <p className="font-serif text-[20px] leading-tight text-ink">
+              {packetHeadline(plan, districtUnconfirmed(lot))}
+            </p>
+          )}
         </>
       )}
 
@@ -185,13 +204,42 @@ export default function ApplicationPlanner({ selected, onChangeType, onFlash, wi
 }
 
 /** "3 filings · staff zoning review" or "4 filings · Zoning Board hearing required (§ 922.09.E)" */
-function packetHeadline(plan: ApplicationPlan, districtUnconfirmed = false): string {
+/** The purchase form's address with the lot's ZIP (from the comps file's parcel-to-ZIP table) when known. */
+function withKnownZip(
+  plan: ApplicationPlan,
+  zip: string | null,
+): ApplicationPlan {
+  if (!zip) return plan;
+  return {
+    ...plan,
+    purchaseForm: plan.purchaseForm.map((f) =>
+      f.label === "Property to be Purchased Address" &&
+      typeof f.value === "string" &&
+      f.value.endsWith(", Pittsburgh, PA")
+        ? {
+            ...f,
+            value: `${f.value} ${zip}`,
+            note:
+              f.note
+                ?.replace(/\s*Add the ZIP code from the County record\./, "")
+                .trim() || undefined,
+          }
+        : f,
+    ),
+  };
+}
+
+function packetHeadline(
+  plan: ApplicationPlan,
+  districtUnconfirmed = false,
+): string {
   const filings = plan.steps.filter((s) => s.id !== "bill").length;
   const base = `${filings} filing${filings === 1 ? "" : "s"}`;
   if (districtUnconfirmed) return `${base} · confirm the zoning district first`;
   if (plan.verdict === "by-right") return `${base} · staff zoning review; other standards not checked`;
   if (plan.verdict === "review") return `${base} · staff approval needed`;
-  if (plan.verdict === "variance") return `${base} · Zoning Board hearing likely (§ 922.09.E)`;
+  if (plan.verdict === "variance")
+    return `${base} · Zoning Board hearing likely (§\u00a0922.09.E)`;
   return `${base} · confirm the path with the Zoning Administrator`;
 }
 
