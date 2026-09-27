@@ -32,7 +32,7 @@ State colors identify screening results; blue accent identifies interaction. Use
 | `text-caption` | 12 / 16px | 500 | normal |
 | `text-status` (status pills only) | 11 / 16px | 500 | .04em, uppercase |
 
-Use `empty-sentence` for the regular-weight 22px empty-state story and its 48px figures. Hero numbers and financial totals align to the label baseline where space permits. Dense figure groups wrap into rows; keep every label and value available. No serif styling.
+Empty states lead with `StatBlocks` (ui/Funnel.tsx): two `text-display` figures with caption labels on one row, then the sentence in `text-body`, muted. No display-size figures inside empty-state prose. Hero numbers and financial totals align to the label baseline where space permits. Dense figure groups wrap into rows; keep every label and value available. No serif styling.
 
 ## Surfaces and components
 

@@ -130,6 +130,8 @@ describe.runIf(haveData)("buildPlan: Hazelwood", () => {
     expect(g.atPremium.total).toBeLessThan(g.total);
     // At 1.3x a $83,082 index the 1,200 sf house is valued at $92,577 against a ~$440k target: the gap narrows, it does not close.
     expect(Math.round(g.atPremium.total)).toBe(3_477_859);
+    // The premium narrows every Hazelwood gap but closes none.
+    expect(plan.candidates.clearAtPremium).toBe(0);
     expect(toBrief(plan)).toMatch(/\| 1\.3× index, \$225\/sf \| \$[\d,]+ \|/);
   });
 });
@@ -144,6 +146,15 @@ describe.runIf(haveData)("buildPlan: citywide eligibility", () => {
     for (const id of ["0116J00315000000", "0047N00323000000"]) expect(plan.rows.find((r) => r.parcel_id === id)!.candidate).toBe(false);
     expect(plan.candidates.total).toBe(1_038);
     expect(plan.candidates.byChannel).toEqual({ "Public Sale": 772, "URA Transfer": 257, "PLB Transfer": 9, Other: 0 });
+  }, 60_000);
+
+  it("counts the candidates that clear the screen only at the 1.3x premium, from screened rows", () => {
+    const file = JSON.parse(readFileSync(LOTS, "utf8")) as LotsFile;
+    const compsFile = JSON.parse(readFileSync(COMPS, "utf8")) as CompsFile;
+    const plan = wire(file.lots, file.lots.map((l) => compsFor(l, compsFile)));
+    expect(plan.funnel.pencil).toBe(0);
+    expect(plan.candidates.clearAtPremium).toBe(plan.rows.filter((r) => r.candidate && r.finance?.gapPremium === 0).length);
+    expect(plan.candidates.clearAtPremium).toBe(7);
   }, 60_000);
 });
 

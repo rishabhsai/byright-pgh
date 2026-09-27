@@ -149,13 +149,18 @@
   .segmented::before { content: ""; position: absolute; z-index: -1; top: 2px; bottom: 2px; left: 0; width: var(--thumb-width); transform: translateX(var(--thumb-left)); border-radius: 8px; background: var(--color-panel); box-shadow: var(--shadow-thumb); transition: transform var(--duration-ui) var(--ease-physical), width var(--duration-ui) var(--ease-physical); }
   .evidence-meter { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); border-radius: var(--radius-control); background: var(--color-surface); }
   .evidence-meter > li + li { border-left: 1px solid var(--color-hairline); }
-  .evidence-cell { height: 100%; padding: 0 3px 8px; border-radius: 4px; }
+  .evidence-meter-wrap { container-type: inline-size; }
+  .evidence-cell { height: 100%; padding: 0 3px 8px; border-radius: 4px; hyphens: none; overflow-wrap: normal; word-break: normal; }
+  /* Six cells need ~64px each for the longest single words ("Unknown", "approval", "Finance"); narrower meters use two rows of three. */
+  @container (max-width: 383px) {
+    .evidence-meter { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .evidence-meter > li:nth-child(3n + 1) { border-left: 0; }
+    .evidence-meter > li:nth-child(n + 4) { border-top: 1px solid var(--color-hairline); }
+  }
   .evidence-cell > [aria-hidden] { margin-bottom: 8px; }
   .hero-sentence { font-size: var(--text-caption); line-height: 24px; }
   .hero-sentence .funnel-number { font-size: var(--text-display); line-height: var(--text-display--line-height); font-weight: 600; letter-spacing: -.02em; vertical-align: baseline; }
-  .empty-sentence { font-size: var(--text-title); line-height: 32px; font-weight: 400; letter-spacing: var(--text-title--letter-spacing); }
-  .empty-sentence .funnel-number { font-size: var(--text-hero); line-height: var(--text-hero--line-height); font-weight: 600; letter-spacing: -.02em; }
-  .empty-sentence .funnel-number:nth-of-type(2)::after { content: ""; display: block; height: 8px; }
+  .hero-sentence .funnel-second { display: block; font-size: var(--text-callout); line-height: var(--text-callout--line-height); }
   .plan-view { container-type: inline-size; }
   .plan-funnel { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 8px; }
   .plan-funnel > li { position: relative; }

@@ -67,56 +67,58 @@ export default function EvidenceRow({ evidence, useRoute }: { evidence: Evidence
   return (
     <div>
       <p className="mb-2 text-caption text-ink">{evidenceSummary(evidence, useRoute?.full)}</p>
-      <ul className="evidence-meter" aria-label="Screening checks">
-        {evidence.checks.map((c) => {
-          const on = pinned === c.id;
-          return (
-            <li key={c.id} className="min-w-0">
-              <Tooltip
-                asChild
-                content={
-                  <>
-                    <span className="block font-medium">
-                      {EVIDENCE_LABEL[c.id]}: {word(c, true)}
-                    </span>
-                    <span className="mt-0.5 block text-white/80">{c.detail}</span>
-                  </>
-                }
-              >
-                <button
-                  onClick={() => setPinned(on ? null : c.id)}
-                  aria-expanded={on}
-                  aria-label={`${EVIDENCE_LABEL[c.id]}: ${word(c, true)}`}
-                  className={`evidence-cell group block w-full text-left transition-colors hover:bg-track ${on ? "bg-track" : ""}`}
+      <div className="evidence-meter-wrap">
+        <ul className="evidence-meter" aria-label="Screening checks">
+          {evidence.checks.map((c) => {
+            const on = pinned === c.id;
+            return (
+              <li key={c.id} className="min-w-0">
+                <Tooltip
+                  asChild
+                  content={
+                    <>
+                      <span className="block font-medium">
+                        {EVIDENCE_LABEL[c.id]}: {word(c, true)}
+                      </span>
+                      <span className="mt-0.5 block text-white/80">{c.detail}</span>
+                    </>
+                  }
                 >
-                  <span
-                    aria-hidden
-                    className="block h-[3px] rounded-full"
-                    style={{
-                      background:
-                        word(c) !== EVIDENCE_WORD[c.state] && c.id === "use"
-                          ? "var(--color-v-review)"
-                          : FILL[c.state],
-                      boxShadow:
-                        c.state === "notChecked"
-                          ? "inset 0 0 0 1px var(--color-control-edge)"
-                          : undefined,
-                    }}
-                  />
-                  <span className="block text-caption text-ink">
-                    {EVIDENCE_LABEL[c.id]}
-                  </span>
-                  <span
-                    className={`mt-1 block text-callout [overflow-wrap:anywhere] ${c.state === "fail" ? "text-danger-ink" : word(c) !== EVIDENCE_WORD[c.state] ? "text-review-ink" : "text-muted"}`}
+                  <button
+                    onClick={() => setPinned(on ? null : c.id)}
+                    aria-expanded={on}
+                    aria-label={`${EVIDENCE_LABEL[c.id]}: ${word(c, true)}`}
+                    className={`evidence-cell group block w-full text-left transition-colors hover:bg-track ${on ? "bg-track" : ""}`}
                   >
-                    {word(c)}
-                  </span>
-                </button>
-              </Tooltip>
-            </li>
-          );
-        })}
-      </ul>
+                    <span
+                      aria-hidden
+                      className="block h-[3px] rounded-full"
+                      style={{
+                        background:
+                          word(c) !== EVIDENCE_WORD[c.state] && c.id === "use"
+                            ? "var(--color-v-review)"
+                            : FILL[c.state],
+                        boxShadow:
+                          c.state === "notChecked"
+                            ? "inset 0 0 0 1px var(--color-control-edge)"
+                            : undefined,
+                      }}
+                    />
+                    <span className="block text-caption text-ink">
+                      {EVIDENCE_LABEL[c.id]}
+                    </span>
+                    <span
+                      className={`evidence-state mt-1 block text-callout ${c.state === "fail" ? "text-danger-ink" : word(c) !== EVIDENCE_WORD[c.state] ? "text-review-ink" : "text-muted"}`}
+                    >
+                      {word(c)}
+                    </span>
+                  </button>
+                </Tooltip>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
       {open && (
         <p className="fade-in mt-2 rounded-control bg-surface px-3 py-2 text-caption text-ink">
           <span className="font-medium">

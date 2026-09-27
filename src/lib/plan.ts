@@ -176,6 +176,8 @@ export interface Plan {
     byType: Partial<Record<Typology, number>>;
     /** Candidates whose inventory district the zoning map does not confirm; their next action resolves the district. */
     districtUnconfirmed: number;
+    /** Candidates with a screened financial result that clear the cost-and-return screen with value at 1.3× the index. */
+    clearAtPremium: number;
   };
   gap: Gap | null;
   /** Lots whose most permissive option fails only a lot-size standard. */
@@ -419,6 +421,7 @@ export function buildPlan(
   const byChannel: Record<Channel, number> = { "Public Sale": 0, "URA Transfer": 0, "PLB Transfer": 0, Other: 0 };
   const byType: Partial<Record<Typology, number>> = {};
   let districtOpen = 0;
+  let clearAtPremium = 0;
   let needsRelief = 0;
   let needsReliefWithApproval = 0;
   let hillsideReview = 0;
@@ -508,6 +511,7 @@ export function buildPlan(
       HARD_COST_SCENARIOS.map(({ psf }) => [psf, pf ? proformaFor(lot, f.typology, comps[i], { ...a, hardCostPerSf: psf }) : null]),
     ) as Record<ScenarioPsf, Proforma | null>;
     const pfPremium = pf ? proformaFor(lot, f.typology, comps[i], { ...a, valuePremium: NEW_CONSTRUCTION_PREMIUM }) : null;
+    if (ready && pfPremium?.pencils) clearAtPremium++;
     const c = comps[i];
     const sale = pf?.mode === "sale";
     const dwellings = pf?.units ?? UNIT_PLAN[f.typology].units;
@@ -650,7 +654,7 @@ export function buildPlan(
     generatedAt,
     assumptions,
     funnel,
-    candidates: { total: funnel.atLeast1000, byChannel, byType, districtUnconfirmed: districtOpen },
+    candidates: { total: funnel.atLeast1000, byChannel, byType, districtUnconfirmed: districtOpen, clearAtPremium },
     gap,
     needsRelief,
     needsReliefWithApproval,

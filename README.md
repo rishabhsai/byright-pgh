@@ -24,6 +24,25 @@ For every vacant-land record in the City's property inventory (11,338 parcels fr
 6. **Application planner.** For the lot and home type you pick, it assembles the filings the screen points to, in order: the City's *Request to Purchase Application* (Dept. of Finance Real Estate Division), the Building and Development Application on OneStopPGH, and, when a standard fails or the use needs an exception, the relief or exception route derived from every failed check (lot size, width, FAR) and the review kind; zoning staff determine the path. It routes the purchase by the lot's inventory type (City Request to Purchase form for Public Sale lots, the URA for URA-transfer lots, confirm-first for everything else), pre-fills the purchase form's page 2 from public records (address, ward, block/lot, proposed end use, every failed standard and exception route with its section), builds a ZBA review worksheet for the five § 922.09.E criteria that separates what the record shows from the questions and evidence the applicant must supply, and lists every attachment (site plan, notice-poster photo, abutters list, fees). **You review, sign, and file it. ByRight never submits anything.** Built from the City's form (V. 1/2018) and the Department of City Planning's ZBA process guide (Dec 2024), both saved in `docs/sources/`.
 7. **Memo.** A deterministic memo built from the structured findings, with citations and a human-review checklist, available from the lot's export menu. An optional `/api/memo` route can write a model summary labeled "model-generated, unverified"; the app does not currently call it.
 
+## Try these five lots
+
+- [4623 Chatsworth St, Hazelwood](https://byright-pgh.vercel.app/?lot=0055P00008000000) · a house is allowed by the use table; the modeled shortfall shows why nothing pencils at market.
+- [126 Carrington, Central Northside](https://byright-pgh.vercel.app/?lot=0023F00165000000) · a Public Sale townhouse that clears only at a 1.3× new-construction premium.
+- [0 Forbes Av, Squirrel Hill South](https://byright-pgh.vercel.app/?lot=0086L00500000000) · 259 sq ft in LNC; FAR caps the building at 518 sq ft, so a lookup tool's "yes" is wrong.
+- [5724 Murray Hill Pl, Squirrel Hill North](https://byright-pgh.vercel.app/?lot=0085K00296000000) · the inventory says RM-M, the City map says R1D-L; the screen refuses to pick.
+- [4613 Hazelwood Ave, Hazelwood](https://byright-pgh.vercel.app/?lot=0055R00106000000) · Hillside: an administrator exception, a slope flag, and not for sale.
+
+Or open the [Hazelwood disposition plan](https://byright-pgh.vercel.app/?hoods=Hazelwood&tab=plan).
+
+## How a lot is screened
+
+1. **Use.** Is the home type listed as permitted in the lot's district (§ 911.02)? Unresolved conditions (lot width, ADU overlay) stay unresolved.
+2. **Lot size and width.** The district's minimum (§ 903.03 / § 904.02 / § 905.02) against the County record; frontage is parsed from the legal description and marked approximate.
+3. **Fit.** Only the LNC 2:1 floor-area ratio is modeled; setbacks, height and coverage are "not checked", never a pass.
+4. **Site.** Steep slope, undermined, FEMA flood flags at the inventory point; a flag keeps a lot out of the review cohort.
+5. **District check.** The inventory district against the City zoning map (98.3% agree); a conflict makes the district "unconfirmed".
+6. **Finance.** Cost (mentor-calibrated $/sf, site work, soft cost, fee) against Zillow index value, screened only when the proposal is buildable, the district is confirmed and the lot is for sale.
+
 ## What the data says (Sept 26, 2026)
 
 - 11,338 vacant-land records in the City inventory. 3,641 have at least one small home type that passes the use table and lot-size standards (use, lot size, lot width, and floor area in LNC; setbacks, height, overlays, and parking on the site plan not checked); on 3,638 more, no type passes and a permitted type needs relief: 3,631 fail a lot-size standard (zoning staff decide whether the relief path is a variance or a nonconforming-lot exception) and 7 fail only the LNC floor-area ratio; 3,549 are in the Hillside district, where the use needs an administrator exception (1,751 with no failing lot standard, 1,798 that also need lot-size relief); 2,308 are in districts we did not encode (mostly Parks).

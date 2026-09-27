@@ -30,7 +30,7 @@ import {
 import { districtUnconfirmed, MIN_PRACTICAL_LOT_SQFT } from "@/lib/evidence";
 import { prototypeNote } from "@/lib/proforma";
 import { financeGate } from "./ui/financeGate";
-import { FunnelBars, FunnelSentence, type FunnelStats } from "./ui/Funnel";
+import { FunnelBars, FunnelHero, StatBlocks, type FunnelStats } from "./ui/Funnel";
 import type { Funnel } from "@/lib/plan";
 
 /** 4623 Chatsworth St, Hazelwood: the demo script's lot (a detached house; Finance fails, Fit not checked). */
@@ -132,10 +132,7 @@ function EmptyState({
     );
   return (
     <div data-scroll className="scroll-thin relative flex flex-1 flex-col overflow-y-auto px-panel pt-10 pb-section">
-      <FunnelSentence
-        s={stats}
-        className="empty-sentence"
-      />
+      <FunnelHero s={stats} />
       {stats &&
         ruleSet === "bill-2025-1545" &&
         (stats.lotsGaining ?? 0) > 0 && (
@@ -180,11 +177,7 @@ function ScopeEmptyState({
   onSelectId?: (id: string) => void;
 }) {
   const f = scope.funnel;
-  const n = (v: number) => (
-    <span className="funnel-number font-semibold text-ink tabular-nums">
-      {v.toLocaleString("en-US")}
-    </span>
-  );
+  const n = (v: number) => <span className="font-semibold text-ink tabular-nums">{v.toLocaleString("en-US")}</span>;
   const steps = [
     { key: "records", n: f.records, label: "vacant City lots" },
     { key: "encoded", n: f.encoded, label: "evaluated" },
@@ -208,7 +201,14 @@ function ScopeEmptyState({
   return (
     <div data-scroll className="scroll-thin relative flex flex-1 flex-col overflow-y-auto px-panel pt-10 pb-section">
       <p className="text-caption text-muted">{scope.label}</p>
-      <p className="empty-sentence mt-1 text-muted">
+      <StatBlocks
+        className="mt-2"
+        blocks={[
+          { key: "byRight", n: f.byRight, label: "pass use table and lot size" },
+          { key: "candidates", n: f.atLeast1000, label: `${f.atLeast1000 === 1 ? "candidate" : "candidates"} for staff review; ${f.pencil.toLocaleString("en-US")} clear the cost screen` },
+        ]}
+      />
+      <p className="mt-4 text-body text-muted">
         {n(f.byRight)} of {n(f.records)} vacant City lots pass the use-table and
         lot-size screen. {n(f.atLeast1000)}{" "}
         {f.atLeast1000 === 1 ? "is a candidate" : "are candidates"} for staff

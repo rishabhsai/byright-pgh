@@ -287,7 +287,7 @@ function MapView({
 
   return (
     <div className="map-overlays">
-      <div ref={el} className="h-full w-full" />
+      <div ref={el} className="h-full w-full" style={{ position: "absolute", inset: 0 }} />
       {info && hover && (
         <div
           className="pointer-events-none absolute z-20 w-max max-w-[300px] surface-card px-4 py-3 shadow-overlay"

@@ -2,14 +2,22 @@
 // Pure, so it runs the same in the Web Worker (eval.worker.ts) and in the synchronous fallback.
 import type { Comps, Finding, Lot, RuleSet, TriageResult, Typology, Verdict } from "./types";
 import { bestVerdict, evaluateLot } from "./rules";
-import { triageLot } from "./triage";
+import { dispositionBlocker, triageLot } from "./triage";
 import { evidenceForLot, type Evidence } from "./evidence";
-import type { FinanceAssumptions } from "./proforma";
+import { NEW_CONSTRUCTION_PREMIUM, type FinanceAssumptions } from "./proforma";
 
 export const RULE_SETS: RuleSet[] = ["current", "bill-2025-1545"];
 
 export type Evaluations = Record<RuleSet, { findings: Finding[][]; best: Verdict[] }>;
-export type Triages = Record<RuleSet, { results: TriageResult[]; margin: (number | null)[] }>;
+export type Triages = Record<
+  RuleSet,
+  {
+    results: TriageResult[];
+    margin: (number | null)[];
+    /** Lots that would be Green if new homes were valued at NEW_CONSTRUCTION_PREMIUM × the comp index. */
+    greenAtPremium: number;
+  }
+>;
 export type EvidenceByRuleSet = Record<RuleSet, Evidence[]>;
 
 /** One city-wide triage request: the finance inputs every lot is screened with. */
@@ -39,9 +47,26 @@ export function triageAll(lots: Lot[], evals: Evaluations, input: TriageInput): 
     for (let i = 0; i < lots.length; i++) {
       results[i] = triageLot(lots[i], evals[rs].findings[i], comps[i], withLand(assumptions, landOverrides, lots[i]), typology);
     }
-    triages[rs] = { results, margin: results.map((t) => t.margin) };
+    triages[rs] = { results, margin: results.map((t) => t.margin), greenAtPremium: greenAtPremium(lots, evals[rs].findings, results, input) };
   }
   return triages;
+}
+
+/**
+ * Lots that turn Green with value at the premium. Only a Yellow lot whose finance was screened and fell short,
+ * whose proposal is allowed by right and which is recorded for sale can turn Green, so only those are re-triaged.
+ */
+function greenAtPremium(lots: Lot[], findings: Finding[][], results: TriageResult[], input: TriageInput): number {
+  const { comps, assumptions, landOverrides, typology } = input;
+  const premium = { ...assumptions, valuePremium: NEW_CONSTRUCTION_PREMIUM };
+  let n = 0;
+  for (let i = 0; i < lots.length; i++) {
+    const r = results[i];
+    if (r.triage !== "yellow" || r.pencils !== false || dispositionBlocker(lots[i]) !== null) continue;
+    if (findings[i].find((f) => f.typology === r.bestTypology)?.verdict !== "by-right") continue;
+    if (triageLot(lots[i], findings[i], comps[i], withLand(premium, landOverrides, lots[i]), typology).triage === "green") n++;
+  }
+  return n;
 }
 
 export function evidenceAll(lots: Lot[], evals: Evaluations, triages: Triages, input: TriageInput): EvidenceByRuleSet {

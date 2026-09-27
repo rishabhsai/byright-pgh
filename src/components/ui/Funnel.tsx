@@ -4,6 +4,7 @@ import CountUp from "../CountUp";
 import Tooltip from "./Tooltip";
 import { TIP } from "../verdict";
 import { GREEN_POLICY } from "@/lib/triage";
+import { NEW_CONSTRUCTION_PREMIUM } from "@/lib/proforma";
 
 /** Green requires a lot the City records as for sale (read off the policy text, so the copy follows the lib). */
 export const GREEN_NEEDS_SALE = /available for sale/i.test(GREEN_POLICY);
@@ -17,7 +18,14 @@ export interface FunnelStats {
   /** With a Home type filter, the use-table count for that type (the triage counts already follow it). */
   byRightType?: number | null;
   typeLabel?: string | null;
+  /** Lots that would be Green with new homes valued at 1.3× the comp index. */
+  clearAtPremium?: number;
+  /** The hard cost the counts were screened at, $/sf. */
+  hardCostPerSf?: number;
 }
+
+/** "at $225/sf", or "" when the stats do not carry the rate. */
+const atRate = (s: FunnelStats) => (s.hardCostPerSf != null ? ` at $${s.hardCostPerSf.toLocaleString("en-US")}/sf` : "");
 
 export function funnelSteps(s: FunnelStats) {
   const total = s.triage.green + s.triage.yellow + s.triage.red + s.triage.gray;
@@ -33,13 +41,17 @@ export function funnelSteps(s: FunnelStats) {
   ] as const;
 }
 
-const N = ({ v }: { v: number }) => (
-  <span className="funnel-number font-semibold text-ink">
+/** A count in the sentence; `minor` counts keep the text size where the hero scales the first sentence's up. */
+const N = ({ v, minor = false }: { v: number; minor?: boolean }) => (
+  <span className={`${minor ? "" : "funnel-number "}font-semibold text-ink`}>
     <CountUp value={v} />
   </span>
 );
 
-/** One-line hero: "3,641 of 11,338 vacant City lots pass the use-table and lot-size screen. 9 also clear…" */
+/**
+ * One-line hero: "3,641 of 11,338 vacant City lots pass the use-table and lot-size screen. 0 clear the
+ * cost-and-return screen at $225/sf; 7 would at a 1.3× new-construction premium."
+ */
 export function FunnelSentence({ s, className = "" }: { s: FunnelStats | null; className?: string }) {
   if (!s)
     return (
@@ -52,13 +64,72 @@ export function FunnelSentence({ s, className = "" }: { s: FunnelStats | null; c
     <p className={`text-muted ${className}`}>
       <N v={allowed.n} /> of <N v={total.n} /> vacant City lots pass the{" "}
       <Tooltip content={TIP.byRight}>use-table and lot-size screen</Tooltip>
-      {s.typeLabel ? ` for a ${s.typeLabel}` : ""}. <N v={pays.n} /> also clear the cost-and-return screen
-      {GREEN_NEEDS_SALE ? " and are for sale." : "."}
+      {s.typeLabel ? ` for a ${s.typeLabel}` : ""}.{" "}
+      <span className="funnel-second">
+        <N v={pays.n} minor /> {pays.n === 1 ? "clears" : "clear"} the cost-and-return screen
+        {atRate(s)}
+        {s.clearAtPremium != null ? (
+          <>
+            ; <N v={s.clearAtPremium} minor /> would at a {NEW_CONSTRUCTION_PREMIUM}× new-construction premium.
+          </>
+        ) : (
+          "."
+        )}
+      </span>
     </p>
   );
 }
 
-/** Compact text funnel for the header: 11,338 → 9,030 evaluated → 3,641 pass use table → 9 clear screen */
+/**
+ * The empty panel's hero: the two headline counts as stat blocks, then the full sentence in body text.
+ * Same numbers and order as the top bar's hero.
+ */
+export function FunnelHero({ s }: { s: FunnelStats | null }) {
+  if (!s)
+    return (
+      <div aria-label="Evaluating lots" className="space-y-3">
+        <div className="flex gap-8">
+          {[0, 1].map((k) => (
+            <span key={k} className="inline-block h-10 w-24 animate-pulse rounded bg-surface" />
+          ))}
+        </div>
+        <span className="block h-4 w-full animate-pulse rounded bg-surface" />
+      </div>
+    );
+  const [, , allowed, pays] = funnelSteps(s);
+  const blocks = [
+    { key: "allowed", n: allowed.n, label: s.typeLabel ? `pass use table and lot size for a ${s.typeLabel}` : "pass use table and lot size" },
+    {
+      key: "pays",
+      n: pays.n,
+      label: `clear the cost screen${atRate(s)}${s.clearAtPremium != null ? `; ${s.clearAtPremium.toLocaleString("en-US")} at the ${NEW_CONSTRUCTION_PREMIUM}× premium` : ""}`,
+    },
+  ];
+  return (
+    <div>
+      <StatBlocks blocks={blocks} />
+      <FunnelSentence s={s} className="mt-4 text-body" />
+    </div>
+  );
+}
+
+/** Headline counts side by side: a display number over its caption label. */
+export function StatBlocks({ blocks, className = "" }: { blocks: { key: string; n: number; label: string }[]; className?: string }) {
+  return (
+    <dl className={`grid grid-cols-2 gap-x-6 gap-y-2 ${className}`}>
+      {blocks.map((b) => (
+        <div key={b.key} className="flex min-w-0 flex-col">
+          <dt className="order-2 mt-1 text-caption text-muted">{b.label}</dt>
+          <dd className="order-1 text-display text-ink tabular-nums">
+            <CountUp value={b.n} />
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/** Compact text funnel for the header: 11,338 → 9,030 evaluated → 3,641 pass use table → 0 clear cost screen · 7 at premium */
 export function FunnelLine({ s }: { s: FunnelStats | null }) {
   if (!s)
     return (
@@ -69,7 +140,7 @@ export function FunnelLine({ s }: { s: FunnelStats | null }) {
       </span>
     );
   const steps = funnelSteps(s);
-  const short = ["", "evaluated", "pass use table", GREEN_NEEDS_SALE ? "clear cost screen, for sale" : "clear cost screen"];
+  const short = ["", "evaluated", "pass use table", GREEN_NEEDS_SALE && s.clearAtPremium == null ? "clear cost screen, for sale" : "clear cost screen"];
   return (
     <ol aria-label="Lot funnel" className="flex flex-wrap items-center gap-1.5 text-caption text-muted">
       {steps.map((st, i) => (
@@ -77,6 +148,11 @@ export function FunnelLine({ s }: { s: FunnelStats | null }) {
           {i > 0 && <Arrow />}
           <span className="tabular-nums text-ink">{st.n.toLocaleString("en-US")}</span>
           {short[i] && <span>{short[i]}</span>}
+          {st.key === "pays" && s.clearAtPremium != null && (
+            <span>
+              · <span className="tabular-nums text-ink">{s.clearAtPremium.toLocaleString("en-US")}</span> at premium
+            </span>
+          )}
         </li>
       ))}
     </ol>

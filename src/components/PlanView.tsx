@@ -4,7 +4,7 @@ import type { RuleSet, Typology } from "@/lib/types";
 import { TYPOLOGY_LABEL } from "@/lib/types";
 import { nb } from "./ui/answer";
 import { fmtUsdShort } from "@/lib/evidence";
-import { fmtNum, fmtUsd } from "@/lib/proforma";
+import { fmtNum, fmtUsd, NEW_CONSTRUCTION_PREMIUM } from "@/lib/proforma";
 import { RULESET_LABEL, TYPOLOGY_ORDER } from "@/lib/rules";
 import {
   CHANNELS,
@@ -138,6 +138,13 @@ function hurdleOf(plan: Plan): { target: number; value: number; mode: "sale" | "
   };
 }
 
+/** "Mean of the 10 lowest-shortfall candidates, finance screened on each", or how many of them were screened. */
+function hurdleLead(screened: number, shortlisted: number): string {
+  if (shortlisted <= 1) return "The lowest-shortfall candidate, finance screened";
+  if (screened === shortlisted) return `Mean of the ${fmtNum(shortlisted)} lowest-shortfall candidates, finance screened on each`;
+  return `Mean of the ${screened === 1 ? "one" : fmtNum(screened)} with screened finance among the ${fmtNum(shortlisted)} lowest-shortfall candidates`;
+}
+
 export default function PlanView({ plan, projects, onProjects, ruleSet, stale = false, onSelect, layout = "rail", mapAgreement = null }: Props) {
   // The typed text stays as typed (it may be blank mid-edit); the count lives in the app.
   const [homesText, setHomesText] = useState(String(projects));
@@ -196,14 +203,16 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
             </div>
           </div>
           <p className="mt-1.5 text-caption text-muted">
-            Mean of {h.n === 1 ? "the one screened project" : `${fmtNum(h.n)} screened projects`}: cost plus the {plan.assumptions.targetMarginPct}% target return, against the value modeled from{" "}
+            {hurdleLead(h.n, plan.shortlist.length)}: cost plus the {plan.assumptions.targetMarginPct}% target return, against the value modeled from{" "}
             {plan.gap?.valueBasis.length === 1 ? plan.gap.valueBasis[0].label : "aggregate Zillow indices"}. An index is not an appraisal
             of new construction; staff decide what evidence would support the target. {PENCILS_FIRST}
           </p>
         </>
       ) : (
         <p className="mt-1 text-callout text-muted">
-          Not screened: no candidate in this scope has a screened financial result.
+          {plan.shortlist.length
+            ? `Not screened: finance was not screened on any of the ${plan.shortlist.length === 1 ? "one lowest-shortfall candidate" : `${fmtNum(plan.shortlist.length)} lowest-shortfall candidates`} (district or permission unresolved, or no comps), so no hurdle is shown.`
+            : "Not screened: no candidate in this scope has a screened financial result."}
         </p>
       )}
     </section>
@@ -237,6 +246,13 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
         {plan.candidates.districtUnconfirmed === 1 ? "has" : "have"} an unconfirmed district (inventory and City map disagree)
         {plan.candidates.districtUnconfirmed ? "; permission stays unresolved until staff confirm it." : "."}
       </p>
+      {plan.candidates.clearAtPremium != null && (
+        <p className="mt-1 text-callout">
+          <span className="font-medium tabular-nums">{fmtNum(plan.funnel.pencil)}</span> {plan.funnel.pencil === 1 ? "clears" : "clear"} the screen at $
+          {fmtNum(plan.assumptions.hardCostPerSf)}/sf; <span className="font-medium tabular-nums">{fmtNum(plan.candidates.clearAtPremium)}</span> at the{" "}
+          {NEW_CONSTRUCTION_PREMIUM}× premium.
+        </p>
+      )}
       <div className="plan-splits mt-4">
         <div>
           <span className="text-caption text-faint">By recorded channel</span>

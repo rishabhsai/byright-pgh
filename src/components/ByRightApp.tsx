@@ -41,9 +41,13 @@ export interface RuleSetStats {
   /** With a Home type filter: lots where that type passes the use table, and the type's lowercase name. */
   byRightType: number | null;
   typeLabel: string | null;
+  /** Lots that would be Green with new homes valued at 1.3× the comp index (same type filter). */
+  clearAtPremium: number;
+  /** The hard cost the triage counts were screened at, $/sf. */
+  hardCostPerSf: number;
 }
 
-function computeStats(evals: Evaluations, triages: Triages, typIdx: number): Record<RuleSet, RuleSetStats> {
+function computeStats(evals: Evaluations, triages: Triages, typIdx: number, hardCostPerSf: number): Record<RuleSet, RuleSetStats> {
   const s = {} as Record<RuleSet, RuleSetStats>;
   const base = evals["current"].findings.map(countByRight);
   for (const rs of RULE_SETS) {
@@ -72,6 +76,8 @@ function computeStats(evals: Evaluations, triages: Triages, typIdx: number): Rec
       triage: countTriage(triages[rs].results),
       byRightType: typIdx >= 0 ? byRightType : null,
       typeLabel,
+      clearAtPremium: triages[rs].greenAtPremium,
+      hardCostPerSf,
     };
   }
   return s;
@@ -295,7 +301,11 @@ export default function ByRightApp() {
 
   // The triage counts follow the Home type filter, so the use-table count does too.
   const statsTypIdx = cityTypology ? TYPOLOGIES.indexOf(cityTypology) : -1;
-  const stats = useMemo(() => (evals && triages ? computeStats(evals, triages, statsTypIdx) : null), [evals, triages, statsTypIdx]);
+  const statsPsf = cityAssumptions.hardCostPerSf;
+  const stats = useMemo(
+    () => (evals && triages ? computeStats(evals, triages, statsTypIdx, statsPsf) : null),
+    [evals, triages, statsTypIdx, statsPsf],
+  );
 
   // Time-to-stats, readable as performance.getEntriesByName("byright:stats").
   useEffect(() => {
