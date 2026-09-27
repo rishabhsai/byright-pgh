@@ -300,7 +300,7 @@ function LeftRail({
   return (
     <aside className="flex w-[344px] shrink-0 flex-col border-r border-hairline bg-panel">
       <div className="space-y-2 px-4 pt-3 pb-2">
-        <SearchBox lots={lots} onPick={onSelect} onScope={(h) => set("neighborhoods", [h])} triage={searchTriage} matches={matches} />
+        <SearchBox lots={lots} onPick={onSelect} onScope={(h) => set("neighborhoods", [h])} triage={searchTriage} matches={matches} selectedIdx={selectedIdx} />
         <Segmented<Tab>
           kind="tabs"
           label="Rail view"

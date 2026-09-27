@@ -178,12 +178,17 @@ export default function PlanView({ plan, projects, onProjects, ruleSet, stale = 
       {h ? (
         <>
           <p className={`mt-1 font-serif leading-snug text-ink ${reading ? "text-[22px]" : "text-[19px]"}`}>
-            Target value {fmtUsdShort(h.target)} vs index {fmtUsdShort(h.value)}
+            Target value {fmtUsdShort(h.target)} vs modeled value {fmtUsdShort(h.value)}
           </p>
+          {g?.valueBasis.length === 1 && g.valueBasis[0].mode === "sale" && (
+            <p className="mt-0.5 text-[12px] text-muted">
+              Index: {g.valueBasis[0].label} {fmtUsdShort(g.valueBasis[0].value)}, scaled to the home&apos;s size
+            </p>
+          )}
           <div className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 gap-y-1 text-[11px] text-muted" aria-hidden>
             <span>Target</span>
             <div className="h-1.5 rounded-full bg-ink/80" />
-            <span>Index</span>
+            <span>Modeled</span>
             <div className="h-1.5 rounded-full bg-surface">
               <div className="h-full rounded-full bg-accent" style={{ width: `${Math.min(100, (h.value / h.target) * 100)}%` }} />
             </div>

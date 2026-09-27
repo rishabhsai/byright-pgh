@@ -488,9 +488,9 @@ function LotDetail({
           title="Fits?"
           summary={
             chosen && chosen.verdict !== "unknown"
-              ? [`${fitPass} pass`, fitFail && `${fitFail} fail`, fitSite && `${fitSite} check on site`]
+              ? [`${fitPass} pass`, fitFail && `${fitFail} fail`, fitSite && `${fitSite} to check on site`]
                   .filter(Boolean)
-                  .join(" · ")
+                  .join(" · ") + " (of the fit checks)"
               : undefined
           }
         >

@@ -6,6 +6,26 @@ import { encodedDistricts } from "./district";
 import { GREEN_POLICY } from "@/lib/triage";
 import { TRIAGE_LABEL } from "@/lib/types";
 import { TRIAGE_COLOR, TRIAGE_ORDER, TRIAGE_WORD } from "./verdict";
+import { todayET } from "@/lib/dates";
+
+const ET_TIME = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+
+/** An ISO timestamp as Pittsburgh time, "2026-09-26 20:09 ET"; the input unchanged if it does not parse. */
+function isoET(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : `${todayET(d)} ${ET_TIME.format(d)} ET`;
+}
+
+/**
+ * The build writes "retrieved YYYY-MM-DD" as the UTC date of the run. When that date is the file's
+ * UTC generation date, show the ET date of the same moment instead.
+ */
+function vintageET(vintage: string, generatedAt: string | undefined): string {
+  const d = generatedAt ? new Date(generatedAt) : null;
+  if (!d || Number.isNaN(d.getTime())) return vintage;
+  const utc = d.toISOString().slice(0, 10);
+  return vintage.replace(/retrieved (\d{4}-\d{2}-\d{2})/g, (m, day: string) => (day === utc ? `retrieved ${todayET(d)} ET` : m));
+}
 
 /** How AI was used, short form. The README carries the long version. */
 const AI_USE = [
@@ -106,13 +126,13 @@ export default function AboutDrawer({
                   <a href={s.url} target="_blank" rel="noreferrer" className="text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent">
                     {s.name}
                   </a>
-                  <p className="mt-0.5 text-[11px] leading-snug break-words text-muted [overflow-wrap:anywhere]">{s.vintage}</p>
+                  <p className="mt-0.5 text-[11px] leading-snug break-words text-muted [overflow-wrap:anywhere]">{vintageET(s.vintage, file?.generatedAt)}</p>
                 </li>
               ))}
             </ul>
             {file && (
               <p className="mt-2 text-[11px] text-faint">
-                {file.lots.length.toLocaleString()} lots, file generated {file.generatedAt}.
+                {file.lots.length.toLocaleString()} lots, file generated {isoET(file.generatedAt)}.
               </p>
             )}
           </Block>
@@ -144,7 +164,6 @@ export default function AboutDrawer({
             <p className="mt-2 text-[12px] leading-relaxed text-ink">
               {GREEN_POLICY}
             </p>
-            <p className="mt-2 text-[12px] leading-relaxed text-ink">{GREEN_POLICY}</p>
           </Block>
 
           <Block title="Comps and finance">
@@ -154,7 +173,7 @@ export default function AboutDrawer({
                   <a href={s.url} target="_blank" rel="noreferrer" className="text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent">
                     {s.name}
                   </a>
-                  <p className="mt-0.5 text-[11px] leading-snug break-words text-muted [overflow-wrap:anywhere]">{s.vintage}</p>
+                  <p className="mt-0.5 text-[11px] leading-snug break-words text-muted [overflow-wrap:anywhere]">{vintageET(s.vintage, compsFile?.generatedAt)}</p>
                 </li>
               ))}
               {!compsFile?.sources?.length && (

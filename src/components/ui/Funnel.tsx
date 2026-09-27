@@ -14,6 +14,9 @@ export interface FunnelStats {
   unknown: number;
   lotsGaining?: number;
   triage: Record<Triage, number>;
+  /** With a Home type filter, the use-table count for that type (the triage counts already follow it). */
+  byRightType?: number | null;
+  typeLabel?: string | null;
 }
 
 export function funnelSteps(s: FunnelStats) {
@@ -21,7 +24,11 @@ export function funnelSteps(s: FunnelStats) {
   return [
     { key: "total", n: total, label: "vacant City lots" },
     { key: "evaluated", n: total - s.unknown, label: "evaluated" },
-    { key: "allowed", n: s.byRightAny, label: "pass the use-table and lot-size screen" },
+    {
+      key: "allowed",
+      n: s.byRightType ?? s.byRightAny,
+      label: s.typeLabel ? `pass the use-table and lot-size screen for a ${s.typeLabel}` : "pass the use-table and lot-size screen",
+    },
     { key: "pays", n: s.triage.green, label: GREEN_NEEDS_SALE ? "also clear the cost-and-return screen, for sale" : "also clear the cost-and-return screen" },
   ] as const;
 }
@@ -44,7 +51,8 @@ export function FunnelSentence({ s, className = "" }: { s: FunnelStats | null; c
   return (
     <p className={`text-muted ${className}`}>
       <N v={allowed.n} /> of <N v={total.n} /> vacant City lots pass the{" "}
-      <Tooltip content={TIP.byRight}>use-table and lot-size screen</Tooltip>. <N v={pays.n} /> also clear the cost-and-return screen
+      <Tooltip content={TIP.byRight}>use-table and lot-size screen</Tooltip>
+      {s.typeLabel ? ` for a ${s.typeLabel}` : ""}. <N v={pays.n} /> also clear the cost-and-return screen
       {GREEN_NEEDS_SALE ? " and are for sale." : "."}
     </p>
   );

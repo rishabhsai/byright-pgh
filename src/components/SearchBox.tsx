@@ -171,6 +171,7 @@ function SearchBox({
   onScope,
   triage,
   matches,
+  selectedIdx = null,
 }: {
   lots: Lot[];
   onPick: (i: number) => void;
@@ -180,8 +181,19 @@ function SearchBox({
   triage?: Triage[];
   /** Filter matches per lot, to label lots outside the current filters. */
   matches?: boolean[];
+  /** The open lot. Picking a different one elsewhere (list, map, plan) clears the query. */
+  selectedIdx?: number | null;
 }) {
   const [q, setQ] = useState("");
+  const [picked, setPicked] = useState<number | null>(null);
+  const [seenSelected, setSeenSelected] = useState(selectedIdx);
+  if (selectedIdx !== seenSelected) {
+    setSeenSelected(selectedIdx);
+    if (selectedIdx != null && selectedIdx !== picked) {
+      setQ("");
+      setPicked(null);
+    }
+  }
   const [open, setOpen] = useState(false);
   const [cursor, setCursor] = useState(0);
   const input = useRef<HTMLInputElement>(null);
@@ -232,6 +244,7 @@ function SearchBox({
   }, [open]);
 
   const pick = (i: number) => {
+    setPicked(i);
     onPick(i);
     setOpen(false);
     setQ(lots[i].address || lots[i].id);

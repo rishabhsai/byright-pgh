@@ -38,9 +38,12 @@ export interface RuleSetStats {
   /** Lots with more by-right home types than under today's code. Zero for "current". */
   lotsGaining: number;
   triage: Record<Triage, number>;
+  /** With a Home type filter: lots where that type passes the use table, and the type's lowercase name. */
+  byRightType: number | null;
+  typeLabel: string | null;
 }
 
-function computeStats(evals: Evaluations, triages: Triages): Record<RuleSet, RuleSetStats> {
+function computeStats(evals: Evaluations, triages: Triages, typIdx: number): Record<RuleSet, RuleSetStats> {
   const s = {} as Record<RuleSet, RuleSetStats>;
   const base = evals["current"].findings.map(countByRight);
   for (const rs of RULE_SETS) {
@@ -48,7 +51,8 @@ function computeStats(evals: Evaluations, triages: Triages): Record<RuleSet, Rul
       byRightPairs = 0,
       variance = 0,
       unknown = 0,
-      lotsGaining = 0;
+      lotsGaining = 0,
+      byRightType = 0;
     evals[rs].best.forEach((v, i) => {
       if (v === "by-right") byRightAny++;
       else if (v === "variance") variance++;
@@ -56,8 +60,19 @@ function computeStats(evals: Evaluations, triages: Triages): Record<RuleSet, Rul
       const n = countByRight(evals[rs].findings[i]);
       byRightPairs += n;
       if (n > base[i]) lotsGaining++;
+      if (typIdx >= 0 && evals[rs].findings[i][typIdx].verdict === "by-right") byRightType++;
     });
-    s[rs] = { byRightAny, byRightPairs, variance, unknown, lotsGaining, triage: countTriage(triages[rs].results) };
+    const typeLabel = typIdx >= 0 ? TYPOLOGY_LABEL[TYPOLOGIES[typIdx]].toLowerCase() : null;
+    s[rs] = {
+      byRightAny,
+      byRightPairs,
+      variance,
+      unknown,
+      lotsGaining,
+      triage: countTriage(triages[rs].results),
+      byRightType: typIdx >= 0 ? byRightType : null,
+      typeLabel,
+    };
   }
   return s;
 }
@@ -278,7 +293,9 @@ export default function ByRightApp() {
 
   const sources = useMemo(() => [...(file?.sources ?? []), ...(compsFile?.sources ?? [])], [file, compsFile]);
 
-  const stats = useMemo(() => (evals && triages ? computeStats(evals, triages) : null), [evals, triages]);
+  // The triage counts follow the Home type filter, so the use-table count does too.
+  const statsTypIdx = cityTypology ? TYPOLOGIES.indexOf(cityTypology) : -1;
+  const stats = useMemo(() => (evals && triages ? computeStats(evals, triages, statsTypIdx) : null), [evals, triages, statsTypIdx]);
 
   // Time-to-stats, readable as performance.getEntriesByName("byright:stats").
   useEffect(() => {
