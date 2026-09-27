@@ -85,4 +85,17 @@ describe.runIf(haveData)("worker parity: the slimmed worker payload builds the s
       expect(w[i].csv).toBe(s[i].csv);
     }
   }, 60_000);
+
+  it("counts the lots that turn Green at the 1.3x premium, citywide and for the selected home type", () => {
+    const lots = file!.lots;
+    const evals = evaluateAll(lots);
+    const any = triageAll(lots, evals, input(lots));
+    expect(any.current.results.filter((r) => r.triage === "green")).toHaveLength(0);
+    expect(any.current.greenAtPremium).toBe(7);
+    expect(any["bill-2025-1545"].greenAtPremium).toBe(9);
+    const town = triageAll(lots, evals, { ...input(lots), typology: "townhome" });
+    expect(town.current.greenAtPremium).toBe(7);
+    const duplex = triageAll(lots, evals, { ...input(lots), typology: "duplex" });
+    expect(duplex.current.greenAtPremium).toBe(0);
+  }, 120_000);
 });
