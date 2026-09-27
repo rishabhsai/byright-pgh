@@ -53,6 +53,11 @@ export interface Check {
   required: string | null;
   citation: Citation;
   note?: string;
+  /**
+   * "custom" when the check came from a registry built from hypothetical RuleParams (a reform lever) rather than
+   * the prebuilt registry for `citation.ruleSet`: same section, but not the text of that rule set. Absent otherwise.
+   */
+  citationScenario?: "custom";
 }
 
 export type ReviewKind = "administrator" | "special";
@@ -186,4 +191,59 @@ export interface TriageResult {
   gap: number | null;
   /** Dollar margin of the best home type's pro forma, or null when finance was not assessed. */
   margin: number | null;
+}
+
+/**
+ * Reform levers: the zoning parameters `buildRegistry` (src/lib/rules/params.ts) turns into district standards.
+ * TODAY_PARAMS reproduces the current code; BILL_PARAMS reproduces Bill 2025-1545. Any other value is a
+ * hypothetical parameter change, not a proposal. See docs/reform.md.
+ */
+export interface RuleParams {
+  /** § 903.03.{A–E}.2 minimum lot size per density subdistrict, sq ft; null = none. Today 6000/3000/2400/1200/null. */
+  minLotArea: { VL: number | null; L: number | null; M: number | null; H: number | null; VH: number | null };
+  /** § 905.02.C Hillside minimum lot size, sq ft. Today 3200. */
+  hillsideMinLot: number;
+  /** § 911.04.A.69A: R1D attached units are by right on lots at or under this width, else Special Exception. Today 35. */
+  r1dAttachedWidthCap: number;
+  /** § 911.02: Two-Unit Residential by right in R1D and R1A. Today false (N). */
+  twoUnitInR1: boolean;
+  /** § 911.02: Three-Unit Residential by right in R2. Today false (N). */
+  threeUnitInR2: boolean;
+  /** § 912.08: ADUs by right on any residential lot (the bill's ADU text: up to 2, no owner occupancy). Today false (overlay only). */
+  aduByRight: boolean;
+  /** § 914.02.A Schedule A parking minimums. Today true; the bill strikes them. */
+  parkingMinimums: boolean;
+}
+
+export interface RulePreset {
+  id: string;
+  label: string;
+  params: RuleParams;
+  note: string;
+  citation?: Citation;
+}
+
+/** One lever's effect on the public-lot screen (the 11,338 City inventory records), aggregates only. */
+export interface LeverResult {
+  presetId: string;
+  label: string;
+  /** Lots with at least one small home type allowed by the use table and lot-size standards (and LNC FAR). */
+  publicLotsAllowed: number;
+  /** Lots allowed under the params that are not allowed today. */
+  publicLotsNewlyAllowed: number;
+  /** Lots allowed today that are not allowed under the params (only a stricter custom knob can make this nonzero). */
+  publicLotsNoLongerAllowed: number;
+  /** Candidates for staff review: allowed, recorded Available for Sale, disposition-eligible, no hazard flag, ≥ 1,000 sf. */
+  candidates: number;
+  candidatesNewly: number;
+  /** Candidates whose selected proposal clears the cost-and-return screen (same finance gate as triage). */
+  clearingCostScreen: number;
+  /** Candidates whose selected proposal carries a required parking count the data cannot verify. */
+  parkingUnresolved: number;
+  /** Per home type: lots where that type is allowed under the params minus lots where it is allowed today. */
+  typologyDelta: Record<Typology, number>;
+  /** Top 10 neighborhoods by newlyAllowed (then allowed, then name). */
+  byNeighborhood: { name: string; allowed: number; newlyAllowed: number }[];
+  /** Encoded district families in code order: R1D, R1A, R2, R3, RM, LNC, H. */
+  byDistrictFamily: { family: string; allowed: number; newlyAllowed: number }[];
 }

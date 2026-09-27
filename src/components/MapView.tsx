@@ -47,7 +47,23 @@ interface Props {
   ringNote: string | null;
   /** The city-wide evaluation is still running: every dot is gray. */
   loading: boolean;
+  /** Reform tab: color every lot by its scenario outcome against today instead of triage. */
+  reform?: ReformPaint | null;
 }
+
+/** Per lot: 0 unchanged, 1 newly allowed, 2 newly a candidate, 3 lost (reform/engine SHIFT_CODE). */
+export interface ReformPaint {
+  codes: Uint8Array;
+  label: string;
+  pending: boolean;
+}
+
+const REFORM_LEGEND: { code: number; label: string; color: string }[] = [
+  { code: 2, label: "Newly a candidate", color: "var(--color-success-ink)" },
+  { code: 1, label: "Newly allowed", color: "var(--color-v-byright)" },
+  { code: 3, label: "No longer allowed", color: "var(--color-v-prohibited)" },
+  { code: 0, label: "Unchanged", color: "var(--color-control-edge)" },
+];
 
 type Hover = { x: number; y: number; i: number; w: number; h: number } | null;
 
@@ -60,6 +76,7 @@ function buildData(
   triages: Triage[],
   matches: boolean[],
   changed: boolean[] | null,
+  reform: Uint8Array | null,
 ): GeoData {
   return {
     type: "FeatureCollection",
@@ -67,11 +84,13 @@ function buildData(
       const t = triages[i] ?? "gray";
       const m = matches[i] ? 1 : 0;
       const c = changed?.[i] && m ? 1 : 0;
+      // r: the reform outcome code, -1 outside the Reform tab. Changed lots sort above unchanged ones.
+      const r = reform ? (reform[i] ?? 0) : -1;
       return {
         type: "Feature" as const,
         id: i,
         geometry: { type: "Point" as const, coordinates: [l.lon, l.lat] },
-        properties: { i, t, m, c, k: c * 6 + TSORT[t] },
+        properties: { i, t, m, c, r, k: reform ? (r === 0 ? 0 : 10 + r) : c * 6 + TSORT[t] },
       };
     }),
   };
@@ -81,6 +100,12 @@ function buildData(
 const RADIUS: ExpressionSpecification = ["interpolate", ["linear"], ["zoom"], 9, 2, 11.5, 3.5, 14, 6, 16, 9, 18, 13];
 const MATCHED: ExpressionSpecification = ["==", ["get", "m"], 1];
 const RINGED: ExpressionSpecification = ["==", ["get", "c"], 1];
+const REFORM_ON: ExpressionSpecification = [">=", ["get", "r"], 0];
+const REFORM_MOVED: ExpressionSpecification = [">", ["get", "r"], 0];
+// One zoom curve for both modes (MapLibre allows a single zoom interpolate per expression). In the Reform tab,
+// moved lots draw a step larger than unchanged ones so the change reads at city zoom.
+const at = (triage: number, moved: number, same: number): ExpressionSpecification => ["case", REFORM_MOVED, moved, REFORM_ON, same, triage];
+const LOT_RADIUS: ExpressionSpecification = ["interpolate", ["linear"], ["zoom"], 9, at(2, 3, 1.5), 11.5, at(3.5, 4.5, 2.5), 14, at(6, 7, 5), 16, at(9, 10, 8), 18, at(13, 14, 12)];
 
 /** Legend words: the lib's TRIAGE_LABEL, so the map, the header and About say the same thing. */
 const STRIP_TRIAGE: Record<Triage, string> = TRIAGE_LABEL;
@@ -99,6 +124,7 @@ function MapView({
   hoverInfo,
   ringNote,
   loading,
+  reform = null,
 }: Props) {
   const el = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MLMap | null>(null);
@@ -114,12 +140,18 @@ function MapView({
     if (!el.current) return;
     const palette = getComputedStyle(document.documentElement);
     const color = (name: string) => palette.getPropertyValue(`--color-${name}`).trim();
-    const triagePaint: ExpressionSpecification = [
+    const triageOnly: ExpressionSpecification = [
       "match", ["get", "t"],
       "green", color("v-byright"),
       "yellow", color("v-variance"),
       "red", color("v-prohibited"),
       color("v-unknown"),
+    ];
+    const triagePaint: ExpressionSpecification = [
+      "case",
+      REFORM_ON,
+      ["match", ["get", "r"], 1, color("v-byright"), 2, color("success-ink"), 3, color("v-prohibited"), color("control-edge")],
+      triageOnly,
     ];
     const map = new MLMap({
       container: el.current,
@@ -131,6 +163,8 @@ function MapView({
       attributionControl: { compact: true },
       dragRotate: false,
       pitchWithRotate: false,
+      // Resized below, once per frame, so the canvas follows the pane handles while they are dragged.
+      trackResize: false,
     });
     map.touchZoomRotate.disableRotation();
     map.addControl(new NavigationControl({ showCompass: false }), "top-right");
@@ -166,8 +200,8 @@ function MapView({
         layout: { "circle-sort-key": ["get", "k"] },
         paint: {
           "circle-color": triagePaint,
-          "circle-radius": RADIUS,
-          "circle-opacity": 0.85,
+          "circle-radius": LOT_RADIUS,
+          "circle-opacity": ["case", REFORM_ON, ["case", REFORM_MOVED, 0.95, 0.55], 0.85],
           "circle-stroke-color": ["case", RINGED, color("v-variance"), color("panel")],
           "circle-stroke-width": [
             "interpolate",
@@ -226,7 +260,20 @@ function MapView({
       setReady(true);
     });
 
+    let frame = 0;
+    const resizer = new ResizeObserver(() => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        map.resize();
+        map.redraw();
+      });
+    });
+    resizer.observe(el.current);
+
     return () => {
+      resizer.disconnect();
+      cancelAnimationFrame(frame);
       map.remove();
       mapRef.current = null;
     };
@@ -235,8 +282,8 @@ function MapView({
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map) return;
-    (map.getSource("lots") as GeoJSONSource | undefined)?.setData(buildData(lots, triages, matches, changed));
-  }, [ready, lots, triages, matches, changed]);
+    (map.getSource("lots") as GeoJSONSource | undefined)?.setData(buildData(lots, triages, matches, changed, reform?.codes ?? null));
+  }, [ready, lots, triages, matches, changed, reform?.codes]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -249,13 +296,13 @@ function MapView({
             {
               type: "Feature",
               geometry: { type: "Point", coordinates: [l.lon, l.lat] },
-              properties: { t: triages[selectedIdx!] ?? "gray" },
+              properties: { t: triages[selectedIdx!] ?? "gray", r: reform ? (reform.codes[selectedIdx!] ?? 0) : -1 },
             },
           ]
         : [],
     } as GeoData;
     (map.getSource("sel") as GeoJSONSource | undefined)?.setData(data);
-  }, [ready, selectedIdx, lots, triages]);
+  }, [ready, selectedIdx, lots, triages, reform]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -280,6 +327,11 @@ function MapView({
   }, [ready, fitTo]);
 
   const info = hover ? hoverInfo(hover.i) : null;
+  const reformCounts = useMemo(() => {
+    const n = [0, 0, 0, 0];
+    if (reform) for (const c of reform.codes) n[c]++;
+    return n;
+  }, [reform]);
   const changedCount = useMemo(() => (changed ? changed.reduce((n, c, i) => (c && matches[i] ? n + 1 : n), 0) : 0), [changed, matches]);
   const width = hover?.w ?? 0;
   const flip = hover != null && width > 0 && hover.x > width - 290;
@@ -324,34 +376,52 @@ function MapView({
           </span>
         </div>
       )}
-      <div
-        className="map-legend z-10 flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3"
-        title={`Triage for ${colorBy ? `a ${TYPOLOGY_LABEL[colorBy].toLowerCase()} (Home type filter)` : "each lot's best home type"}; ${ruleSet === "current" ? "today's code" : "with Bill 2025-1545"}`}
-      >
-        <span className="shrink-0 text-caption font-medium text-ink">{colorBy ? TYPOLOGY_LABEL[colorBy] : "Best home type"}</span>
-        {loading ? (
-          <span className="text-caption text-muted">Evaluating 11,000+ lots…</span>
-        ) : (
-          <ul
-            aria-label="Legend"
-            className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-caption text-muted"
-          >
-            {TRIAGE_ORDER.map((t) => (
-              <li
-                key={t}
-                className="inline-flex items-center gap-1.5 whitespace-nowrap"
-              >
-                <span
-                  aria-hidden
-                  className="h-2 w-2 rounded-full"
-                  style={{ background: TRIAGE_COLOR[t] }}
-                />
-                {STRIP_TRIAGE[t]}
+      {reform ? (
+        <div className="map-legend z-10 flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3" title={`Each City lot under “${reform.label}” against today's code: use table, minimum lot size and LNC FAR`}>
+          <span className="shrink-0 text-caption font-medium text-ink">{reform.label}</span>
+          {reform.pending ? (
+            <span aria-live="polite" className="text-caption text-muted">Recomputing…</span>
+          ) : null}
+          <ul aria-label="Legend" className={`flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-caption text-muted ${reform.pending ? "opacity-60" : ""}`}>
+            {REFORM_LEGEND.map((x) => (
+              <li key={x.code} className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: x.color }} />
+                {x.label}
+                <span className="text-ink tabular-nums">{reformCounts[x.code].toLocaleString("en-US")}</span>
               </li>
             ))}
           </ul>
-        )}
-      </div>
+        </div>
+      ) : (
+        <div
+          className="map-legend z-10 flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3"
+          title={`Triage for ${colorBy ? `a ${TYPOLOGY_LABEL[colorBy].toLowerCase()} (Home type filter)` : "each lot's best home type"}; ${ruleSet === "current" ? "today's code" : "with Bill 2025-1545"}`}
+        >
+          <span className="shrink-0 text-caption font-medium text-ink">{colorBy ? TYPOLOGY_LABEL[colorBy] : "Best home type"}</span>
+          {loading ? (
+            <span className="text-caption text-muted">Evaluating 11,000+ lots…</span>
+          ) : (
+            <ul
+              aria-label="Legend"
+              className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-caption text-muted"
+            >
+              {TRIAGE_ORDER.map((t) => (
+                <li
+                  key={t}
+                  className="inline-flex items-center gap-1.5 whitespace-nowrap"
+                >
+                  <span
+                    aria-hidden
+                    className="h-2 w-2 rounded-full"
+                    style={{ background: TRIAGE_COLOR[t] }}
+                  />
+                  {STRIP_TRIAGE[t]}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   );
 }

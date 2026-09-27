@@ -1,10 +1,11 @@
 // The city-wide pass: every lot through the rules engine, triage and the evidence row, for both rule sets.
 // Pure, so it runs the same in the Web Worker (eval.worker.ts) and in the synchronous fallback.
-import type { Comps, Finding, Lot, RuleSet, TriageResult, Typology, Verdict } from "./types";
+import type { Comps, Finding, LeverResult, Lot, RuleParams, RuleSet, TriageResult, Typology, Verdict } from "./types";
 import { bestVerdict, evaluateLot } from "./rules";
 import { dispositionBlocker, triageLot } from "./triage";
 import { evidenceForLot, type Evidence } from "./evidence";
 import { NEW_CONSTRUCTION_PREMIUM, type FinanceAssumptions } from "./proforma";
+import { presetById, runCustom, runLevers } from "./levers";
 
 export const RULE_SETS: RuleSet[] = ["current", "bill-2025-1545"];
 
@@ -158,10 +159,11 @@ export type EvalResponse =
   | { seq: number; part: "evidence"; evidence: EvidenceByRuleSet; ms: number }
   | { seq: number; part: "error"; message: string };
 
-/** What the worker keeps between requests: the lots it was sent and their full evaluations. */
+/** What the worker keeps between requests: the lots it was sent, their full evaluations, and the last comps (for reform requests). */
 export interface EvalWorkerState {
   lots: Lot[];
   evals: Evaluations | null;
+  comps?: (Comps | null)[];
 }
 
 /**
@@ -178,6 +180,7 @@ export function handleEvalRequest(state: EvalWorkerState, req: EvalRequest, post
       t = performance.now();
     }
     if (!state.evals) throw new Error("no lots evaluated yet");
+    state.comps = req.comps;
     const triages = triageAll(state.lots, state.evals, req);
     post({ seq: req.seq, part: "triages", triages, ms: Math.round(performance.now() - t) });
     t = performance.now();
@@ -185,5 +188,50 @@ export function handleEvalRequest(state: EvalWorkerState, req: EvalRequest, post
     post({ seq: req.seq, part: "evidence", evidence: slimEvidence(evidence), ms: Math.round(performance.now() - t) });
   } catch (err) {
     post({ seq: req.seq, part: "error", message: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+/**
+ * Reform request: one lever over every lot, aggregates only (docs/reform.md). Give `presetId` (a PRESETS id) or
+ * custom `params`. Lots and comps default to what the worker already holds from eval requests; send them on the
+ * request to use a worker that has none. Replies use their own parts so the eval hook never mistakes them.
+ */
+export interface ReformRequest {
+  kind: "reform";
+  seq: number;
+  presetId?: string;
+  params?: RuleParams;
+  assumptions: FinanceAssumptions;
+  lots?: Lot[];
+  comps?: (Comps | null)[];
+}
+
+export type ReformResponse =
+  | { seq: number; part: "reform"; result: LeverResult; ms: number }
+  | { seq: number; part: "reform-error"; message: string };
+
+export type WorkerRequest = EvalRequest | ReformRequest;
+
+export const isReformRequest = (req: WorkerRequest): req is ReformRequest => (req as ReformRequest).kind === "reform";
+
+export function handleReformRequest(state: EvalWorkerState, req: ReformRequest, post: (res: ReformResponse) => void): void {
+  try {
+    const t = performance.now();
+    if (req.lots) state.lots = req.lots;
+    if (req.comps) state.comps = req.comps;
+    if (state.lots.length === 0) throw new Error("no lots loaded yet");
+    const comps = state.comps && state.comps.length === state.lots.length ? state.comps : null;
+    if (!comps) throw new Error("no comps for these lots yet");
+    let result: LeverResult;
+    if (req.params) {
+      result = runCustom(req.params, state.lots, comps, req.assumptions);
+    } else {
+      const preset = req.presetId ? presetById(req.presetId) : undefined;
+      if (!preset) throw new Error(`unknown reform preset: ${req.presetId ?? "(none)"}`);
+      result = runLevers(state.lots, comps, req.assumptions, [preset])[0];
+    }
+    post({ seq: req.seq, part: "reform", result, ms: Math.round(performance.now() - t) });
+  } catch (err) {
+    post({ seq: req.seq, part: "reform-error", message: err instanceof Error ? err.message : String(err) });
   }
 }

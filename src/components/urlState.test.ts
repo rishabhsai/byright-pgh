@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { CompsFile, Finding, LotsFile, RuleSet } from "@/lib/types";
-import { evaluateLot } from "@/lib/rules";
+import { evaluateLot, TODAY_PARAMS } from "@/lib/rules";
 import { compsFor, DEFAULT_FINANCE } from "@/lib/finance";
 import { buildSelectedCase } from "@/lib/selectedCase";
 import { answerHeadline } from "./ui/answer";
@@ -23,9 +23,21 @@ const base: UrlState = {
   onlyByRight: false,
   includeParks: false,
   reading: false,
+  reformPreset: null,
+  reformParams: null,
 };
 
 describe("shared link codec", () => {
+  it("round-trips the Reform tab's preset and custom params", () => {
+    const params = { ...TODAY_PARAMS, minLotArea: { ...TODAY_PARAMS.minLotArea, L: 1800 } };
+    const custom: UrlState = { ...base, tab: "reform", reformPreset: "custom", reformParams: params };
+    expect(parseUrlState(serializeUrlState(custom))).toEqual(custom);
+    const bill: UrlState = { ...base, tab: "reform", reformPreset: "bill-2025-1545" };
+    expect(serializeUrlState(bill)).toBe("tab=reform&preset=bill-2025-1545");
+    expect(parseUrlState(serializeUrlState(bill))).toEqual(bill);
+    expect(parseUrlState("tab=reform&preset=custom&rp=garbage").reformParams).toBeNull();
+  });
+
   it("writes nothing at the defaults", () => {
     expect(serializeUrlState(base)).toBe("");
     expect(parseUrlState("")).toEqual(base);

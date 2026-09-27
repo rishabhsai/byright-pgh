@@ -28,6 +28,9 @@ const EMPTY: CityEval = { evals: null, triages: null, evidence: null, input: nul
 /** A worker that has not answered a request in this long is treated as failed. */
 const WORKER_TIMEOUT_MS = 20_000;
 
+/** The parts an eval request answers with; anything else on the worker (a reform reply) is ignored here. */
+const EVAL_PARTS = new Set<string>(["evals", "triages", "evidence", "error"]);
+
 interface InFlight {
   rev: number;
   input: TriageInput;
@@ -73,6 +76,7 @@ export function useCityEval(lots: Lot[], input: TriageInput | null): CityEval {
     const receive = (res: EvalResponse) => {
       const cur = inflight.current;
       if (!cur || res.seq !== cur.rev) return; // a stale revision
+      if (!EVAL_PARTS.has(res.part)) return; // a reform reply on a shared worker is not ours
       if (res.part === "error") {
         fail(res.message);
         return;

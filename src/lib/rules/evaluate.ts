@@ -1,9 +1,11 @@
 import type { Check, Finding, Lot, PermissionQuestion, ReviewKind, RuleSet, Typology, Verdict } from "../types";
 import { TYPOLOGY_LABEL } from "../types";
 import { buildingSf } from "../proforma";
+import type { Registry } from "./params";
 import {
   describeUnencoded,
-  lookupDistrict,
+  DISTRICTS,
+  normalizeZone,
   TYPOLOGY_USE_ROW,
   USE_ROW_TITLE,
   type DistrictStandards,
@@ -335,13 +337,20 @@ function evaluateTypology(d: DistrictStandards, typology: Typology, lot: Lot): F
   };
 }
 
-export function evaluateLot(lot: Lot, ruleSet: RuleSet): Finding[] {
-  const d = lookupDistrict(ruleSet, lot.zone);
+/**
+ * Every typology's finding for one lot. `registry` defaults to the prebuilt one for `ruleSet`; pass
+ * buildRegistry(params) to evaluate a reform lever. Checks from any other registry carry
+ * `citationScenario: "custom"`: same sections, but not the text of `ruleSet`.
+ */
+export function evaluateLot(lot: Lot, ruleSet: RuleSet, registry: Registry = DISTRICTS[ruleSet]): Finding[] {
+  const d = registry[normalizeZone(lot.zone)] ?? null;
   if (!d) {
     const summary = `District ${describeUnencoded(lot.zone)} is not encoded in this prototype; only R1D, R1A, R2, R3, RM, LNC and H are evaluated.`;
     return TYPOLOGY_ORDER.map((typology) => ({ typology, verdict: "unknown", checks: [], summary, unresolved: [], reviewKind: null }));
   }
-  return TYPOLOGY_ORDER.map((typology) => evaluateTypology(d, typology, lot));
+  const findings = TYPOLOGY_ORDER.map((typology) => evaluateTypology(d, typology, lot));
+  if (registry !== DISTRICTS[ruleSet]) for (const f of findings) for (const c of f.checks) c.citationScenario = "custom";
+  return findings;
 }
 
 /** Most permissive first. */

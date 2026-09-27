@@ -36,7 +36,7 @@ Empty states lead with `StatBlocks` (ui/Funnel.tsx): two `text-display` figures 
 
 ## Surfaces and components
 
-- Work in 8px increments, with 4px adjustments for compact controls. `p-panel` = 24px, `p-card` = 20px, `space-y-section` = 32px. The rail is 360px; detail is 380px and 440px at 1440px viewport width.
+- Work in 8px increments, with 4px adjustments for compact controls. `p-panel` = 24px, `p-card` = 20px, `space-y-section` = 32px. The rail is 360px; detail is 380px and 440px at 1440px viewport width. Both are resizable (`ui/ResizeHandle.tsx`, `paneLayout.ts`): an 8px `col-resize` hit area over each pane's hairline, which turns accent on hover, focus and drag; rail 280–520px, detail 340–720px, and the map never under 360px. Double-click restores the defaults; ←/→ move 16px (Shift 64px), Home/End go to min/max. Widths persist in `localStorage` (`byright.layout.v1`) and are dropped while they would squeeze the map.
 - `surface-card`: white, 12px corners, no outer border; shadow `0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.06)`. Use hairlines between rows.
 - `toolbar`: translucent white with `saturate(180%) blur(20px)`. Used on the top bar and panel/drawer headers.
 - `button-primary` / `button-secondary`: blue / gray, pill radius 980px, 15px semibold. `icon-button`: 32px gray circle. SVG strokes are 1.5px, with non-scaling strokes.

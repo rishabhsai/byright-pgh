@@ -1,7 +1,16 @@
 /// <reference lib="webworker" />
-import { handleEvalRequest, type EvalRequest, type EvalResponse, type EvalWorkerState } from "./evalCompute";
+import {
+  handleEvalRequest,
+  handleReformRequest,
+  isReformRequest,
+  type EvalResponse,
+  type EvalWorkerState,
+  type ReformResponse,
+  type WorkerRequest,
+} from "./evalCompute";
 
 const state: EvalWorkerState = { lots: [], evals: null };
-const post = (res: EvalResponse) => (self as unknown as Worker).postMessage(res);
+const post = (res: EvalResponse | ReformResponse) => (self as unknown as Worker).postMessage(res);
 
-self.onmessage = (e: MessageEvent<EvalRequest>) => handleEvalRequest(state, e.data, post);
+self.onmessage = (e: MessageEvent<WorkerRequest>) =>
+  isReformRequest(e.data) ? handleReformRequest(state, e.data, post) : handleEvalRequest(state, e.data, post);

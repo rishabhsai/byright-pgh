@@ -64,6 +64,10 @@ interface Props {
   onSelectId?: (id: string) => void;
   /** The neighborhood scope's plan funnel when the neighborhood filter is set; the empty state follows it. */
   scope?: EmptyScope | null;
+  /** Replaces the empty state (the Reform tab's scenario panel). */
+  empty?: React.ReactNode;
+  /** One line above the answer's headline: the selected lot under the Reform scenario. */
+  scenarioLine?: React.ReactNode;
 }
 
 /** The plan's funnel for the neighborhood filter, for the empty state. */
@@ -78,7 +82,7 @@ export default function DetailPanel(props: Props) {
   // The aside keeps its width in both modes so the map never resizes; expanded mode lifts the
   // same LotDetail (same tree position, so no state is lost) into an overlay over the map area.
   return (
-    <aside className="flex w-detail shrink-0 flex-col border-l border-hairline bg-surface min-[1440px]:w-detail-wide">
+    <aside className="pane-detail flex shrink-0 flex-col border-l border-hairline bg-surface">
       {selected ? (
         <div className={expanded ? "absolute inset-0 z-30 flex justify-center" : "contents"}>
           <div
@@ -98,6 +102,8 @@ export default function DetailPanel(props: Props) {
             <LotDetail {...props} c={selected} expanded={expanded} />
           </div>
         </div>
+      ) : props.empty ? (
+        props.empty
       ) : (
         <EmptyState
           stats={props.stats}
@@ -255,6 +261,7 @@ function LotDetail({
   recomputing,
   expanded,
   onExpanded,
+  scenarioLine,
 }: Props & { c: SelectedCase }) {
   const [open, setOpen] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
@@ -438,6 +445,7 @@ function LotDetail({
 
       <div className={`space-y-section py-section ${pad}`}>
         <AnswerCard
+          topLine={scenarioLine}
           headline={nb(head.text)}
           tone={head.tone}
           typeLine={

@@ -11,6 +11,8 @@ export {
   normalizeZone,
   describeUnencoded,
 } from "./districts";
+export { buildRegistry, sameParams, TODAY_PARAMS, BILL_PARAMS, RULE_PARAM_SECTION } from "./params";
+export type { Registry } from "./params";
 export type { DistrictStandards, DistrictFamily, Subdistrict, UseEntry, UseLetter, UseRow, AduRule, Standard } from "./districts";
 
 export const RULESET_LABEL: Record<RuleSet, string> = {

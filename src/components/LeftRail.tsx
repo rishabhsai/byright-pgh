@@ -127,9 +127,11 @@ interface Props {
   onReadPlan?: () => void;
   /** The plan, derived by the app; null while the city-wide pass is running. */
   plan: ReactNode;
+  /** The Reform tab's rail content (scenario presets and knobs). */
+  reform?: ReactNode;
 }
 
-export type Tab = "lots" | "plan";
+export type Tab = "lots" | "plan" | "reform";
 
 const LIST_LIMIT = 200;
 
@@ -184,6 +186,7 @@ function LeftRail({
   loading,
   onReadPlan,
   plan,
+  reform,
 }: Props) {
   const [filtersOpen, setFiltersOpen] = useState(true);
   const filtersId = useId();
@@ -298,7 +301,7 @@ function LeftRail({
   };
 
   return (
-    <aside className="flex w-rail shrink-0 flex-col border-r border-hairline bg-panel">
+    <aside className="pane-rail flex shrink-0 flex-col border-r border-hairline bg-panel">
       <div className="shrink-0 space-y-4 px-panel pt-panel pb-4">
         <SearchBox lots={lots} onPick={onSelect} onScope={(h) => set("neighborhoods", [h])} triage={searchTriage} matches={matches} selectedIdx={selectedIdx} />
         <Segmented<Tab>
@@ -310,11 +313,14 @@ function LeftRail({
           options={[
             { value: "lots", label: "Lots" },
             { value: "plan", label: "Plan" },
+            { value: "reform", label: "Reform" },
           ]}
         />
       </div>
 
-      {tab === "plan" ? (
+      {tab === "reform" ? (
+        reform
+      ) : tab === "plan" ? (
         <div role="tabpanel" aria-label="Plan" data-scroll className="scroll-thin relative min-h-0 flex-1 overflow-y-auto">
           <div className="border-b border-hairline px-panel pt-2 pb-panel">
             <div className="flex flex-wrap items-center justify-between gap-2">

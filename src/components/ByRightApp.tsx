@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
 import { countByRight, evaluateLot } from "@/lib/engine";
 import { buildSelectedCase, showsOtherThanBest, type SelectedCase } from "@/lib/selectedCase";
@@ -16,9 +16,15 @@ import DetailPanel from "./DetailPanel";
 import AboutDrawer from "./AboutDrawer";
 import PlanView from "./PlanView";
 import PlanReader from "./PlanReader";
+import ResizeHandle from "./ui/ResizeHandle";
+import { defaultWidth, getLayout, getServerLayout, layoutStyle, setPaneWidth, subscribeLayout } from "./paneLayout";
 import { TYPOLOGIES } from "./verdict";
 import { DEFAULT_PROJECTS, financeDiffers, parseUrlState, serializeUrlState, type UrlState } from "./urlState";
-import type { HoverInfo, FitBounds } from "./MapView";
+import type { HoverInfo, FitBounds, ReformPaint } from "./MapView";
+import ReformView from "./reform/ReformView";
+import ReformPanel from "./reform/ReformPanel";
+import { useReform } from "./reform/useReform";
+import { CUSTOM_ID, TODAY_ID, TODAY_PARAMS, lotScreen, matchPreset, presetById, shiftOf, type LotShift, type RuleParams } from "./reform/engine";
 import { blockerLine, money, reasonText, verdictLabel } from "./ui/answer";
 import { financeGate, NO_COMPS_REASON } from "./ui/financeGate";
 import { compsFor, countTriage, DEFAULT_FINANCE, FALLBACK_COMPS, type FinanceAssumptions } from "@/lib/finance";
@@ -29,6 +35,16 @@ const MapView = dynamic(() => import("./MapView"), {
 });
 
 export type { Evaluations, Triages };
+
+/** "Minimum lot size L 3,000 → 1,800 (§ 903.03.B.2)" → "Minimum lot size L 3,000 → 1,800" for the map legend. */
+const shortLabel = (label: string) => label.replace(/\s*\(§[^)]*\)\s*$/, "");
+
+const SHIFT_TEXT: Record<LotShift, string> = {
+  "newly-candidate": "newly allowed and a candidate for staff review",
+  "newly-allowed": "newly allowed",
+  lost: "no longer allowed",
+  same: "unchanged",
+};
 
 export interface RuleSetStats {
   byRightAny: number;
@@ -162,6 +178,8 @@ export default function ByRightApp() {
   const [projects, setProjects] = useState(DEFAULT_PROJECTS);
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [tab, setTab] = useState<Tab>("lots");
+  // Reform tab: the scenario applied to the City lots. presetId is a preset's id or "custom".
+  const [reform, setReform] = useState<{ presetId: string; params: RuleParams }>({ presetId: TODAY_ID, params: TODAY_PARAMS });
   // The home type the user picked for the selected lot while the Home type filter is "Any".
   const [pickedTypology, setPickedTypology] = useState<Typology | null>(null);
   // Acquisition cost the user entered for individual lots; never shared across lots.
@@ -181,7 +199,9 @@ export default function ByRightApp() {
     /* eslint-disable react-hooks/set-state-in-effect -- one-time restore of URL state after hydration */
     if (u.lot && u.type) setPickedTypology(u.type);
     if (u.bill) setRuleSet("bill-2025-1545");
-    if (u.tab === "plan") setTab("plan");
+    if (u.tab === "plan" || u.tab === "reform") setTab(u.tab);
+    if (u.reformPreset === CUSTOM_ID && u.reformParams) setReform({ presetId: CUSTOM_ID, params: u.reformParams });
+    else if (u.reformPreset && presetById(u.reformPreset)) setReform({ presetId: u.reformPreset, params: presetById(u.reformPreset)!.params });
     setFilters((f) => ({
       ...f,
       neighborhoods: u.hoods,
@@ -295,6 +315,22 @@ export default function ByRightApp() {
   const cityTypology: Typology | null = city.input ? city.input.typology : filterTypology;
   const recomputing = commitPending || city.input !== triageInput;
 
+  const reformActive = tab === "reform";
+  const rf = useReform(lots, cityComps, cityAssumptions, reform.params, reformActive && !!city.evals);
+  const reformId = matchPreset(reform.params);
+  const onReformPreset = useCallback((id: string) => {
+    if (id === CUSTOM_ID) setReform((r) => ({ presetId: CUSTOM_ID, params: r.params }));
+    else {
+      const p = presetById(id);
+      if (p) setReform({ presetId: id, params: p.params });
+    }
+  }, []);
+  const onReformParams = useCallback((params: RuleParams) => setReform({ presetId: CUSTOM_ID, params }), []);
+  const reformPaint = useMemo<ReformPaint | null>(
+    () => (reformActive && rf.codes ? { codes: rf.codes, label: reformId === TODAY_ID ? "Today's code (the baseline)" : `${shortLabel(rf.result?.label ?? "Scenario")} vs today`, pending: rf.pending } : null),
+    [reformActive, rf.codes, rf.result, rf.pending, reformId],
+  );
+
   const evidence = useMemo<Evidence[] | null>(() => city.evidence?.[ruleSet] ?? null, [city.evidence, ruleSet]);
 
   const sources = useMemo(() => [...(file?.sources ?? []), ...(compsFile?.sources ?? [])], [file, compsFile]);
@@ -331,6 +367,8 @@ export default function ByRightApp() {
     const keep = lotFilter(filters, mapVerdicts, mapTriage);
     return lots.map(keep);
   }, [lots, filters, mapVerdicts, mapTriage]);
+  // The Reform tab counts every City lot, so its map shows every lot regardless of the Lots filters.
+  const allLots = useMemo(() => lots.map(() => true), [lots]);
 
   // Fit the map to the chosen neighborhoods (or the whole city when cleared).
   const fitHoods = useCallback(
@@ -422,8 +460,10 @@ export default function ByRightApp() {
       onlyByRight: filters.onlyByRight,
       includeParks: filters.includeParks,
       reading: planReading,
+      reformPreset: reform.presetId,
+      reformParams: reform.presetId === CUSTOM_ID ? reform.params : null,
     });
-  }, [urlRead, lots.length, selectedLot, pickedTypology, filterTypology, filters, ruleSet, tab, projects, committed, planReading]);
+  }, [urlRead, lots.length, selectedLot, pickedTypology, filterTypology, filters, ruleSet, tab, projects, committed, planReading, reform]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -445,6 +485,34 @@ export default function ByRightApp() {
     [selectedLot, evals],
   );
   const selectedLandOverride = selectedLot ? (landOverrides[selectedLot.id] ?? null) : null;
+
+  // The selected lot under the Reform scenario, evaluated on the spot so it never lags the knobs.
+  const scenarioLine = useMemo(() => {
+    if (!reformActive || !selectedLot) return null;
+    const now = lotScreen(selectedLot, reform.params);
+    const base = lotScreen(selectedLot, TODAY_PARAMS);
+    const shift = shiftOf(now, base);
+    const label = shortLabel(presetById(reformId)?.label ?? "this custom scenario");
+    const [text, color, ink] =
+      shift === "newly-allowed" || shift === "newly-candidate"
+        ? [SHIFT_TEXT[shift], "var(--color-v-byright)", "text-success-ink"]
+        : shift === "lost"
+          ? ["no longer allowed (today it is)", "var(--color-v-prohibited)", "text-danger-ink"]
+          : now.allowed
+            ? ["allowed by the use table and lot size, as today", "var(--color-v-byright)", "text-ink"]
+            : now.relief
+              ? ["still relief needed", "var(--color-v-variance)", "text-warning-ink"]
+              : ["not allowed or not evaluated, as today", "var(--color-v-unknown)", "text-muted"];
+    return (
+      <p className="flex items-start gap-2">
+        <span aria-hidden className="mt-[5px] h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />
+        <span>
+          <span className="text-muted">Under {reformId === TODAY_ID ? "today's code" : label}: </span>
+          <span className={`font-medium ${ink}`}>{text}</span>
+        </span>
+      </p>
+    );
+  }, [reformActive, selectedLot, reform.params, reformId]);
 
   // The one selected case: proposal, rule set, effective land cost, findings, finance, evidence.
   // Every section of the panel and every export reads from it.
@@ -494,6 +562,11 @@ export default function ByRightApp() {
     (i: number): HoverInfo | null => {
       const l = lots[i];
       if (!l) return null;
+      if (reformPaint) {
+        const code = reformPaint.codes[i] ?? 0;
+        const shift = (["same", "newly-allowed", "newly-candidate", "lost"] as LotShift[])[code];
+        return { lot: l, triage: null, line: `${reformPaint.label}: ${SHIFT_TEXT[shift]}${reformPaint.pending ? " (recomputing)" : ""}`, note: null };
+      }
       const t = triages?.[ruleSet].results[i] ?? null;
       const f = evals?.[ruleSet].findings[i] ?? null;
       const ev = evidence?.[i] ?? null;
@@ -531,7 +604,7 @@ export default function ByRightApp() {
       const note = sel ? `Panel shows ${TYPOLOGY_LABEL[sel.typology]} (selected).` : null;
       return { lot: l, triage: t.triage, line, note };
     },
-    [lots, triages, evals, evidence, ruleSet, cityTypology, selectedCase, selectedIdx],
+    [lots, triages, evals, evidence, ruleSet, cityTypology, selectedCase, selectedIdx, reformPaint],
   );
 
   // One plan for the rail and the reading view: same count, shortlist, totals and exports.
@@ -602,10 +675,15 @@ export default function ByRightApp() {
     setLoadAttempt((n) => n + 1);
   }, []);
 
+  // Pane widths: user-set via the handles, persisted, and dropped when they would squeeze the map.
+  const layout = useSyncExternalStore(subscribeLayout, getLayout, getServerLayout);
+  const shellRef = useRef<HTMLDivElement>(null);
+  const mapBoxRef = useRef<HTMLElement>(null);
+
   return (
     <div className="relative flex h-dvh flex-col overflow-clip">
       <TopBar ruleSet={ruleSet} onRuleSet={setRuleSet} stats={stats} onAbout={() => setAboutOpen(true)} />
-      <div className="flex min-h-0 flex-1">
+      <div ref={shellRef} className="flex min-h-0 flex-1" style={layoutStyle(layout)}>
         <LeftRail
           lots={lots}
           evals={evals}
@@ -625,6 +703,9 @@ export default function ByRightApp() {
             setExpanded(false);
             setPlanReading(true);
           }}
+          reform={
+            <ReformView presetId={reform.presetId} params={reform.params} onPreset={onReformPreset} onParams={onReformParams} lotCount={lots.length} />
+          }
           plan={
             plan ? (
               <PlanView
@@ -639,14 +720,23 @@ export default function ByRightApp() {
             ) : null
           }
         />
+        <ResizeHandle
+          pane="rail"
+          side="before"
+          label="Resize the list"
+          value={layout.rail ?? defaultWidth("rail", layout.wide)}
+          host={shellRef}
+          map={mapBoxRef}
+          onCommit={(px) => setPaneWidth("rail", px)}
+        />
         {/* Positioning context for the expanded detail panel, which overlays the map area. */}
         <div className="relative flex min-w-0 flex-1">
-          <main className="relative min-w-0 flex-1">
+          <main ref={mapBoxRef} className="relative min-w-0 flex-1">
             <MapView
               lots={lots}
               triages={mapTriage}
-              matches={matches}
-              changed={ruleSet === "bill-2025-1545" && changed.length ? changed : null}
+              matches={reformActive ? allLots : matches}
+              changed={!reformActive && ruleSet === "bill-2025-1545" && changed.length ? changed : null}
               ringNote={
                 ruleSet === "bill-2025-1545" && stats && !filters.typology && stats["bill-2025-1545"].lotsGaining > 0
                   ? `${stats["bill-2025-1545"].lotsGaining.toLocaleString("en-US")} lots gain an encoded ADU permission result; pick +ADU under Home type to ring them.`
@@ -660,6 +750,7 @@ export default function ByRightApp() {
               ruleSet={ruleSet}
               hoverInfo={hoverInfo}
               loading={!stats && !city.error}
+              reform={reformPaint}
             />
             {loadError && <LoadError reason={loadError} onRetry={retry} />}
             {!loadError && city.error && (
@@ -677,6 +768,15 @@ export default function ByRightApp() {
               </div>
             )}
           </main>
+          <ResizeHandle
+            pane="panel"
+            side="after"
+            label="Resize the detail panel"
+            value={layout.panel ?? defaultWidth("panel", layout.wide)}
+            host={shellRef}
+            map={mapBoxRef}
+            onCommit={(px) => setPaneWidth("panel", px)}
+          />
           <DetailPanel
             key={selectedIdx ?? "empty"}
             selected={selectedCase}
@@ -698,6 +798,23 @@ export default function ByRightApp() {
             onExpanded={setExpanded}
             stats={city.error ? undefined : (stats?.[ruleSet] ?? null)}
             onSelectId={lots.length ? selectById : undefined}
+            scenarioLine={scenarioLine}
+            empty={
+              reformActive ? (
+                <ReformPanel
+                  lots={lots}
+                  base={rf.base}
+                  result={rf.result}
+                  levers={rf.levers}
+                  activeId={reformId}
+                  params={reform.params}
+                  pending={rf.pending}
+                  totalLots={lots.length}
+                  hardCostPerSf={cityAssumptions.hardCostPerSf}
+                  onPreset={onReformPreset}
+                />
+              ) : undefined
+            }
             scope={
               plan && filters.neighborhoods.length > 0
                 ? { label: plan.scopeLabel, funnel: plan.funnel }

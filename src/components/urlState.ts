@@ -3,6 +3,8 @@ import type { Triage, Typology } from "@/lib/types";
 import { STATUS_GROUPS, type StatusGroup } from "@/lib/ranking";
 import { acceptedValue, DEFAULT_FINANCE, FINANCE_RANGES, type FinanceAssumptions } from "@/lib/proforma";
 import { TYPOLOGIES } from "./verdict";
+import type { RuleParams } from "@/lib/types";
+import { decodeParams, encodeParams } from "./reform/engine";
 
 /**
  * ?lot=<id>&type=duplex&filterType=townhome&hoods=a,b&scenario=bill&tab=plan&n=12&hc=195
@@ -19,7 +21,10 @@ export interface UrlState {
   filterType: Typology | null;
   hoods: string[];
   bill: boolean;
-  tab: "lots" | "plan";
+  tab: "lots" | "plan" | "reform";
+  /** Reform tab: the preset id (`preset=`), or "custom" with the params in `rp` (base64 JSON). */
+  reformPreset: string | null;
+  reformParams: RuleParams | null;
   /** Projects to plan for. */
   projects: number;
   /** Shared finance assumptions (never a lot's land figure). */
@@ -91,7 +96,9 @@ export function parseUrlState(search: string): UrlState {
     filterType: asTypology(p.get("filterType")),
     hoods: (p.get("hoods") ?? "").split(",").map((h) => h.trim()).filter(Boolean),
     bill: p.get("scenario") === "bill",
-    tab: p.get("tab") === "plan" ? "plan" : "lots",
+    tab: p.get("tab") === "plan" ? "plan" : p.get("tab") === "reform" ? "reform" : "lots",
+    reformPreset: /^[a-z0-9-]{1,40}$/.test(p.get("preset") ?? "") ? p.get("preset") : null,
+    reformParams: p.get("preset") === "custom" ? decodeParams(p.get("rp")) : null,
     projects: Number.isInteger(n) && n >= 1 && n <= 9999 ? n : DEFAULT_PROJECTS,
     finance,
     land: parseLand(p.get("land")),
@@ -112,7 +119,11 @@ export function serializeUrlState(s: UrlState): string {
   if (s.filterType) p.set("filterType", s.filterType);
   if (s.hoods.length) p.set("hoods", s.hoods.join(","));
   if (s.bill) p.set("scenario", "bill");
-  if (s.tab === "plan") p.set("tab", "plan");
+  if (s.tab !== "lots") p.set("tab", s.tab);
+  if (s.tab === "reform" && s.reformPreset && s.reformPreset !== "today") {
+    p.set("preset", s.reformPreset);
+    if (s.reformPreset === "custom" && s.reformParams) p.set("rp", encodeParams(s.reformParams));
+  }
   if (s.projects !== DEFAULT_PROJECTS) p.set("n", String(s.projects));
   for (const [q, k] of FIN_KEYS) if (s.finance[k] !== DEFAULT_FINANCE[k]) p.set(q, String(s.finance[k]));
   if (s.finance.mode !== DEFAULT_FINANCE.mode) p.set("mode", s.finance.mode);

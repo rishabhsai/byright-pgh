@@ -171,6 +171,10 @@
   .plan-table { max-width: 100%; overflow-x: auto; padding-bottom: 8px; }
   .finance-total { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; padding-block: 20px; }
   .finance-total dt { flex: 1 1 120px; font-size: var(--text-caption); line-height: var(--text-caption--line-height); color: var(--color-muted); }
+  /* Pane widths: defaults from the tokens; the resize handles set --rail-w / --panel-w on the shell. */
+  .pane-rail { width: var(--rail-w, var(--spacing-rail)); }
+  .pane-detail { width: var(--panel-w, var(--spacing-detail)); }
+  @media (min-width: 1440px) { .pane-detail { width: var(--panel-w, var(--spacing-detail-wide)); } }
   .map-overlays { position: absolute; inset: 0; pointer-events: none; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end; gap: 8px; padding: 16px 48px 16px 16px; }
   .map-overlays > :first-child { position: absolute; inset: 0; pointer-events: auto; }
   .map-legend, .map-scenario { position: relative; max-width: 100%; pointer-events: auto; flex: 0 0 auto; }
@@ -184,6 +188,10 @@
   .plan-funnel > li:nth-child(3n + 1) > .funnel-arrow { display: none; }
   .plan-splits { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* While a pane handle is dragged: no text selection, and the resize cursor wherever the pointer goes. */
+.pane-resizing body { user-select: none; -webkit-user-select: none; }
+.pane-resizing, .pane-resizing * { cursor: col-resize !important; }
 
 .scroll-thin { scrollbar-width: thin; scrollbar-color: var(--color-control-edge) transparent; }
 @keyframes fade-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
