@@ -4,7 +4,7 @@ import { DEFAULT_FINANCE } from "@/lib/proforma";
 import { BILL_PARAMS, TODAY_PARAMS } from "@/lib/rules";
 import { PRESETS } from "@/lib/levers";
 import { GREEN_POLICY } from "@/lib/triage";
-import { composeAnswer, explainText, looksLikeQuestion, type AnswerInput } from "./answer";
+import { composeAnswer, explainText, greenReason, looksLikeQuestion, type AnswerInput } from "./answer";
 
 function lot(o: Partial<Lot>): Lot {
   return {
@@ -60,7 +60,23 @@ describe("composeAnswer", () => {
 
   it("names home types a scenario adds when no home type is chosen", () => {
     expect(composeAnswer(input({ typology: null, scenario: { params: BILL_PARAMS, label: "Bill 2025-1545 (substitute)" } }))).toBe(
-      "Under Bill 2025-1545 (substitute), Hazelwood has 1 lot where at least one small home type passes the use-table and lot-size screen (+0 vs today), and 1 of them gains a home type it lacks today (House + backyard unit); 0 of them clear the cost screen at $225/sf.",
+      "Under Bill 2025-1545 (substitute), Hazelwood has 1 lot where at least one small home type passes the use-table and lot-size screen (+0 vs today), and 1 of them gains House + backyard unit; 0 of them clear the cost screen at $225/sf.",
+    );
+  });
+
+  it("counts lots that need an approval apart from lots that pass, so the two add up to the list", () => {
+    // Central Northside for sale: two R1A lots where a townhouse passes and one Hillside lot where it needs approval.
+    const hood = [lot({ id: "D", neighborhood: "Central Northside", zone: "R1A-VH", zoneMap: "R1A-VH" }), lot({ id: "E", neighborhood: "Central Northside", zone: "R1A-VH", zoneMap: "R1A-VH" }), lot({ id: "F", neighborhood: "Central Northside", zone: "H", zoneMap: "H" })];
+    const scoped = input({ lots: hood, comps: hood.map(() => null), inScope: hood.map(() => true), neighborhoods: ["Central Northside"], status: "Available for Sale", typology: "townhome" });
+    expect(composeAnswer(scoped)).toBe(
+      "Under today's code, Central Northside has 2 lots recorded Available for Sale where a townhouse passes the use-table and lot-size screen and 1 more that needs board approval (Hillside); 0 clear the cost screen at $225/sf.",
+    );
+  });
+
+  it("names every home type a scenario adds as alternatives", () => {
+    const small = [lot({ id: "G", lotAreaSqFt: 2000 })];
+    expect(composeAnswer(input({ lots: small, comps: [null], inScope: [true], typology: null, scenario: { params: L1800.params, label: "Minimum lot size L 3,000 → 1,800" } }))).toBe(
+      "Under the scenario Minimum lot size L 3,000 → 1,800, Hazelwood has 1 lot where at least one small home type passes the use-table and lot-size screen (+1 vs today), and 1 of them gains House, Duplex or Townhouse; 0 of them clear the cost screen at $225/sf.",
     );
   });
 
@@ -74,6 +90,14 @@ describe("composeAnswer", () => {
 describe("explainText", () => {
   it("returns the app's fixed Green policy", () => {
     expect(explainText("green-policy", { params: TODAY_PARAMS, label: "Today's code" })).toBe(GREEN_POLICY);
+  });
+
+  it("leads the Green policy with the reason read off the hero's counts", () => {
+    const today = { params: TODAY_PARAMS, label: "Today's code" };
+    expect(explainText("green-policy", today, { green: 0, clearAtPremium: 7, hardCostPerSf: 225 })).toBe(
+      `Nothing is Green because no lot clears the cost-and-return screen at $225/sf; 7 would at a 1.3× new-construction premium. ${GREEN_POLICY}`,
+    );
+    expect(greenReason({ green: 1, clearAtPremium: 4, hardCostPerSf: 180 })).toBe("1 lot is Green at $180/sf; 4 would at a 1.3× new-construction premium.");
   });
 
   it("describes the active lever from the preset registry", () => {

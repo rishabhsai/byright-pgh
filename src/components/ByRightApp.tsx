@@ -879,7 +879,16 @@ export default function ByRightApp() {
     };
   }, [askShowsAnswer, stats, lots, filters, mapVerdicts, mapTriage, comps, assumptions, filterTypology, askScenario]);
   const askAnswer = useAskAnswer(askInput);
-  const askExplanations = useMemo(() => (askEntry ? askTopicsOf(askEntry).map((t) => explainText(t, askScenario)) : []), [askEntry, askScenario]);
+  // The hero's counts, so "why isn't anything Green" answers with the numbers the header shows.
+  const heroStats = stats?.[shownRuleSet];
+  const askGreen = useMemo(
+    () => (heroStats ? { green: heroStats.triage.green, clearAtPremium: heroStats.clearAtPremium, hardCostPerSf: heroStats.hardCostPerSf } : null),
+    [heroStats],
+  );
+  const askExplanations = useMemo(
+    () => (askEntry ? askTopicsOf(askEntry).map((t) => explainText(t, askScenario, askGreen)) : []),
+    [askEntry, askScenario, askGreen],
+  );
 
   // Pane widths: user-set via the handles, persisted, and dropped when they would squeeze the map.
   const layout = useSyncExternalStore(subscribeLayout, getLayout, getServerLayout);

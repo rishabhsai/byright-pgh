@@ -1,9 +1,9 @@
 // Ask ByRight's reply: composed by the app from the engine's own results, never by a model.
-import type { Comps, Finding, Lot, RuleParams, Triage, Typology } from "@/lib/types";
+import type { Comps, Finding, Lot, ReviewKind, RuleParams, Triage, Typology } from "@/lib/types";
 import { TYPOLOGY_LABEL } from "@/lib/types";
 import type { StatusGroup } from "@/lib/ranking";
-import type { FinanceAssumptions } from "@/lib/proforma";
-import { BILL_PARAMS, buildRegistry, DISTRICTS, evaluateLot, sameParams, TODAY_PARAMS, TYPOLOGY_ORDER, type Registry } from "@/lib/rules";
+import { NEW_CONSTRUCTION_PREMIUM, type FinanceAssumptions } from "@/lib/proforma";
+import { BILL_PARAMS, buildRegistry, DISTRICTS, evaluateLot, normalizeZone, sameParams, TODAY_PARAMS, TYPOLOGY_ORDER, type Registry } from "@/lib/rules";
 import { triageLot, GREEN_POLICY } from "@/lib/triage";
 import { DISTRICT_OPEN_ITEM, FUNNEL_STAGES, isCandidateLot } from "@/lib/plan";
 import { PRESETS } from "@/lib/levers";
@@ -69,26 +69,47 @@ const STATUS_PHRASE: Record<StatusGroup, string> = {
   other: " with another inventory status",
 };
 
+/** "A", "A or B", "A, B or C". */
+function orList(xs: string[]): string {
+  return xs.length <= 1 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} or ${xs[xs.length - 1]}`;
+}
+
+const APPROVAL: Record<ReviewKind, string> = { administrator: "staff approval", special: "board approval" };
+
 /**
  * One sentence from the engine: how many lots in scope pass the use-table and lot-size screen (by right) for the
- * home type, or for any small type, under the scenario; the change against today's code; and how many of them are
- * candidates for staff review that clear the cost screen at the displayed assumptions.
+ * home type, or for any small type, under the scenario; the change against today's code; how many more need an
+ * approval instead (so the two add up to the list); and how many of the passing lots are candidates for staff
+ * review that clear the cost screen at the displayed assumptions.
  */
 export function composeAnswer(a: AnswerInput): string {
   const isToday = sameParams(a.scenario.params, TODAY_PARAMS);
+  const { registry } = registryFor(a.scenario.params);
   const typIdx = a.typology ? TYPOLOGY_ORDER.indexOf(a.typology) : -1;
-  const passes = (fs: Finding[]) => (typIdx >= 0 ? fs[typIdx]?.verdict === "by-right" : fs.some((f) => f.verdict === "by-right"));
+  const pool = (fs: Finding[]) => (typIdx >= 0 ? fs.slice(typIdx, typIdx + 1) : fs);
+  const passes = (fs: Finding[]) => pool(fs).some((f) => f.verdict === "by-right");
   let now = 0,
     today = 0,
     clearing = 0,
-    gaining = 0;
+    gaining = 0,
+    review = 0;
   const gainedTypes = new Map<Typology, number>();
+  const reviewKinds = new Set<ReviewKind | null>();
+  const reviewDistricts = new Map<string, number>();
   a.lots.forEach((lot, i) => {
     if (!a.inScope[i]) return;
     const fs = findingsUnder(lot, a.scenario.params);
     const base = isToday ? fs : findingsUnder(lot, TODAY_PARAMS);
     if (passes(base)) today++;
-    if (!passes(fs)) return;
+    if (!passes(fs)) {
+      const approvals = pool(fs).filter((f) => f.verdict === "review");
+      if (!approvals.length) return;
+      review++;
+      for (const f of approvals) reviewKinds.add(f.reviewKind);
+      const district = registry[normalizeZone(lot.zone)]?.name.split(",")[0] ?? normalizeZone(lot.zone);
+      reviewDistricts.set(district, (reviewDistricts.get(district) ?? 0) + 1);
+      return;
+    }
     now++;
     if (!isToday && typIdx < 0) {
       const gained = fs.filter((f, t) => f.verdict === "by-right" && base[t]?.verdict !== "by-right").map((f) => f.typology);
@@ -104,10 +125,17 @@ export function composeAnswer(a: AnswerInput): string {
   const d = now - today;
   const delta = isToday ? "" : ` (${d < 0 ? "−" : "+"}${n(Math.abs(d))} vs today)`;
   const types = [...gainedTypes].sort((x, y) => y[1] - x[1]).map(([t]) => TYPOLOGY_LABEL[t]);
-  const gains = gaining ? `, and ${n(gaining)} of them ${gaining === 1 ? "gains a home type it lacks" : "gain a home type they lack"} today (${types.join(", ")})` : "";
+  const gains = gaining ? `, and ${n(gaining)} of them ${gaining === 1 ? "gains" : "gain"} ${orList(types)}` : "";
+  const kind = reviewKinds.size === 1 ? [...reviewKinds][0] : null;
+  const districts = [...reviewDistricts].sort((x, y) => y[1] - x[1]).map(([name]) => name);
+  const approval = review
+    ? ` and ${n(review)}${now ? " more" : ""} that ${review === 1 ? "needs" : "need"} ${kind ? APPROVAL[kind] : "approval"} (${districts.join(", ")})`
+    : "";
   const lotsWord = now === 1 ? "lot" : "lots";
-  const cost = `${n(clearing)} of them ${clearing === 1 ? "clears" : "clear"} the cost screen at $${n(a.assumptions.hardCostPerSf)}/sf`;
-  return `${head}, ${placeText(a.neighborhoods)} has ${n(now)} ${lotsWord}${scope} where ${what} the use-table and lot-size screen${delta}${gains}; ${cost}.`;
+  const clears = clearing === 1 ? "clears" : "clear";
+  // With approval lots in the sentence, "of them" would read as all of them; only lots that pass are screened.
+  const cost = `${n(clearing)}${review ? "" : " of them"} ${clears} the cost screen at $${n(a.assumptions.hardCostPerSf)}/sf`;
+  return `${head}, ${placeText(a.neighborhoods)} has ${n(now)} ${lotsWord}${scope} where ${what} the use-table and lot-size screen${delta}${gains}${approval}; ${cost}.`;
 }
 
 // ---- Fixed explanations ----------------------------------------------------------------------------------
@@ -123,11 +151,30 @@ export const HOW_SCREENED_TEXT = `${FUNNEL_STAGES} Rules decide: every verdict a
 
 const HYPOTHETICAL = "A hypothetical lever, compared with today's code; not the code.";
 
-/** A fixed paragraph for the topic; "lever" describes the scenario in force from the preset registry. */
-export function explainText(topic: ExplainTopic, scenario: Scenario): string {
+/** The hero's Green counts: lots Green now, lots Green at the new-construction premium, and the hard cost they used. */
+export interface GreenCounts {
+  green: number;
+  clearAtPremium: number;
+  hardCostPerSf: number;
+}
+
+/** "Nothing is Green because no lot clears the cost-and-return screen at $225/sf; 7 would at a 1.3× new-construction premium." */
+export function greenReason({ green, clearAtPremium, hardCostPerSf }: GreenCounts): string {
+  const at = `at $${n(hardCostPerSf)}/sf`;
+  const premium = `${n(clearAtPremium)} would at a ${NEW_CONSTRUCTION_PREMIUM}× new-construction premium`;
+  return green === 0
+    ? `Nothing is Green because no lot clears the cost-and-return screen ${at}; ${premium}.`
+    : `${n(green)} ${green === 1 ? "lot is" : "lots are"} Green ${at}; ${premium}.`;
+}
+
+/**
+ * A fixed paragraph for the topic; "lever" describes the scenario in force from the preset registry. With the
+ * hero's counts, the Green policy leads with the reason read off them.
+ */
+export function explainText(topic: ExplainTopic, scenario: Scenario, green?: GreenCounts | null): string {
   switch (topic) {
     case "green-policy":
-      return GREEN_POLICY;
+      return green ? `${greenReason(green)} ${GREEN_POLICY}` : GREEN_POLICY;
     case "finance-gate":
       return FINANCE_GATE_TEXT;
     case "district-unconfirmed":
