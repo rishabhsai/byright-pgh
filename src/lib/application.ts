@@ -193,8 +193,11 @@ function reliefOptions(c: Check): string {
 
 const measuredText = (c: Check) => (c.id === "far" ? `proposal is ${(c.measured ?? "not in record").replace(" proposed", "")}` : `lot has ${c.measured ?? "not in record"}`);
 
+/** One line per failed standard; lot standards get their options from DIM_PATH, printed once after them. */
 const reliefNeeded = (c: Check) =>
-  `Relief needed: ${standardName(c)} (${c.citation.section} ${c.citation.title}): required ${c.required ?? "n/a"}, ${measuredText(c)}. Options: ${reliefOptions(c)}.`;
+  `Relief needed: ${standardName(c)} (${c.citation.section} ${c.citation.title}): required ${c.required ?? "n/a"}, ${measuredText(c)}.${
+    LOT_STANDARDS.has(c.id) ? "" : ` Options: ${reliefOptions(c)}.`
+  }`;
 
 const DIM_PATH =
   `Relief path determined by zoning staff: dimensional variance under § 922.09 or nonconforming-lot exception under ${NONCONFORMING_LOTS.section} (${NONCONFORMING_LOTS.url}).`;

@@ -3,7 +3,7 @@
 ByRight PGH answers two questions for each City-owned vacant lot:
 
 1. **What does zoning allow?** Encoded Title Nine rules (see `docs/rules-sources.md`).
-2. **What pencils?** Revenue from sales or rents, taken from nearby comps, must exceed hard and soft costs by a margin.
+2. **Does it clear the cost-and-return screen?** A reference value from aggregate indices (Zillow ZHVI for the lot's neighborhood, ZORI for its ZIP; not identified nearby sales) must exceed land, hard and soft costs by a target margin.
 
 The answers combine into a Green / Yellow / Red triage, as defined by the hackathon organizers on Sept 26, 2026.
 
@@ -57,9 +57,9 @@ Action Housing's Sixth Ward Flats budget (35 LIHTC units, $16.4M total) was pres
 | Developer fee + overhead | 9 | | |
 | Other | 4 | | |
 
-The default soft cost leaves out reserves (5%) and syndication (1%). Both are LIHTC-specific, and a small for-sale builder does not carry them. With those two lines included, soft cost is 21% of total cost, or 31% of hard cost. Set `softCostPct` to 31 to model a tax-credit deal.
+The default soft cost leaves out reserves (5%) and syndication (1%). Syndication is a tax-credit cost; reserves are typical of rental and tax-credit deals, and a small for-sale builder usually does not carry them. With those two lines included, soft cost is 21% of total cost, or 31% of hard cost. Setting `softCostPct` to 31 approximates that deal's cost stack only; it does not model a tax-credit capital stack.
 
-A typical affordable deal is mostly subsidy. In Sixth Ward Flats, tax-credit equity alone is 71% of sources. Adding the URA, PHFA PHARE, and AHP grants brings equity and public money to 89% of the budget. Only the sponsor loan and the deferred fee (10%) are repaid from the project. The module exports these figures as `SIXTH_WARD_BENCHMARK` for the UI.
+This one 35-unit LIHTC deal is mostly subsidy; it does not establish how a small infill home is financed. In Sixth Ward Flats, tax-credit equity alone is 71% of sources. Adding the URA, PHFA PHARE, and AHP grants brings equity and public money to 89% of the budget. Only the sponsor loan and the deferred fee (10%) are repaid from the project. The module exports these figures as `SIXTH_WARD_BENCHMARK` for the UI.
 
 ### Revenue
 
@@ -87,7 +87,7 @@ A typical affordable deal is mostly subsidy. In Sixth Ward Flats, tax-credit equ
 - `margin` = revenue − total cost. `marginPct` = margin ÷ total cost.
 - `pencils` is true when margin ≥ the target margin (default 10%) of total cost.
 - `gap` is the modeled shortfall to the target return: (1 + target) × cost − revenue, or 0 when the deal pencils. It is not a subsidy award amount or a program-eligibility finding.
-- `breakEvenValue` = (1 + target) × cost: the value at which margin equals the target. The UI prints it under the result, with the result at hard cost + $10/sf ($195/sf at defaults).
+- `breakEvenValue` = (1 + target) × cost: the value at which margin equals the target. It includes the target return, so the UI and exports call it the target value ("target sale value" in sale mode, "target capitalized value" in rent mode), not zero-profit break-even; the CSV keeps the column name `break_even_value` for compatibility. The UI prints it under the result, with the result at hard cost + $10/sf ($195/sf at defaults).
 
 Worked example: a single-unit house on a lot assessed at $10,000 costs $10,000 + $222,000 hard + $48,840 soft + $28,860 fee = $309,700. At the 10% target it needs $340,670 in value. The 1,200 sf house sells at 0.857 of ZHVI, so that is a neighborhood ZHVI of about $397,000. At a ZHVI of $300,000 the modeled value is $257,143 and the shortfall is $83,527.
 
@@ -105,10 +105,10 @@ The developer fee and the target margin are two compensation layers: the example
 | --- | --- | --- |
 | Gray | Not evaluated | Every finding is `unknown`, because the district is not encoded (or the selected typology was not evaluated). |
 | Red | Major screening obstacle; specialist review | No typology is by-right, review, or variance (or the selected typology is not listed in the district). Also red when the lot is in a FEMA flood zone and on a steep slope or undermined ground: a prototype prioritization rule, not a verified prohibition. |
-| Green | Passes the preliminary screen under displayed assumptions | The typology is by right; lot area is known and at least 1,000 sq ft; flood screening is present (null is unresolved, not clear); no hazard flags; no lot-size check is unresolved; and the pro forma pencils. An unverified parking minimum does not block Green: on a vacant lot it is a site-plan question, and the reasons say "Confirm on-site parking on the site plan (§ 914.02.A)". |
+| Green | Passes the preliminary screen under displayed assumptions | `GREEN_POLICY` in `src/lib/triage.ts`, read off the same six-check evidence row the UI shows: the best typology is by right; Use (the inventory district agrees with the City zoning map at the lot's point), Lot size (area known, at least 1,000 sq ft, standards met), Width (frontage known) and Site (no hazard flag, flood screening present) all pass; Fit is not failing; Finance passes; and the City records the lot as Available for Sale with an inventory type other than Park, Greenway, Legislated Greenway or Infrastructure Protection. A lot that passes everything but disposition is Yellow with the reason "Not for sale (City status: Hold for Study)" (or its actual status), or "Not a disposition candidate (City inventory type: Greenway)". Fit is never a pass today (setbacks, height and coverage are not modeled; an LNC FAR pass is shown as Not checked). An unverified parking minimum does not block Green, but it stays visible: the evidence row lists it as unresolved, the CSV exports it in `unresolved_notes`, and the reasons say "Confirm on-site parking on the site plan (§ 914.02.A)". |
 | Yellow | Needs more information, review, or a different financial scenario | Everything else: review or relief is needed, a hazard flag is set or flood data is missing, lot area is unknown or below the floor, comps are unavailable, or there is a modeled shortfall. |
 
-`bestTypology` is the typology with the best verdict and, among those, the highest margin. If the lot lacks the comp for the chosen revenue mode, triage uses the other mode (for example, sale comps for a lot in 15208) and says so in the reasons.
+`bestTypology` is the typology with the best verdict and, among those, the highest margin, with one exception: on a lot whose parsed frontage is under 25 ft, where both the detached house and the attached townhouse are by right, the townhouse is the proposal (the prototype follows the lot: a detached house loses its side yards on a lot that narrow, and the attached form needs no parking under § 914.02.A). `prototypeNote(lot, typology)` in `src/lib/proforma.ts` returns the line the card shows, e.g. "Prototype chosen for a 20 ft lot: attached form, 0 parking under § 914.02.A". If the lot lacks the comp for the chosen revenue mode, triage uses the other mode (for example, sale comps for a lot in 15208) and says so in the reasons.
 
 `triageCounts(lots, ruleSet, compsFile, assumptions?, typology?)` returns `{green, yellow, red, gray}`.
 
@@ -116,30 +116,34 @@ Counts over the whole inventory, with the default assumptions and the Sept 26, 2
 
 | Scenario | Green | Yellow | Red | Gray |
 | --- | ---: | ---: | ---: | ---: |
-| Current code, sale | 28 | 8,996 | 6 | 2,308 |
-| Bill 2025-1545, sale | 28 | 8,996 | 6 | 2,308 |
+| Current code, sale | 9 | 9,015 | 6 | 2,308 |
+| Bill 2025-1545, sale | 9 | 9,015 | 6 | 2,308 |
 | Current code, rent | 0 | 9,024 | 6 | 2,308 |
 | Current code, no comps (finance not assessed) | 0 | 9,024 | 6 | 2,308 |
-| Current code, sale, hard cost $195/sf | 12 | 9,012 | 6 | 2,308 |
-| Current code, sale, 15% target margin | 12 | 9,012 | 6 | 2,308 |
+| Current code, sale, hard cost $195/sf | 0 | 9,024 | 6 | 2,308 |
+| Current code, sale, 15% target margin | 0 | 9,024 | 6 | 2,308 |
 
 With one home type selected (current code, sale):
 
 | Selected type | Green | Yellow | Red | Gray |
 | --- | ---: | ---: | ---: | ---: |
-| Single-unit detached | 26 | 8,998 | 6 | 2,308 |
+| Single-unit detached | 9 | 9,015 | 6 | 2,308 |
 | Single-unit + ADU | 0 | 0 | 9,030 | 2,308 |
-| Duplex | 6 | 2,635 | 6,389 | 2,308 |
-| Triplex | 4 | 1,306 | 7,720 | 2,308 |
-| Townhome | 26 | 8,998 | 6 | 2,308 |
+| Duplex | 0 | 2,641 | 6,389 | 2,308 |
+| Triplex | 0 | 1,310 | 7,720 | 2,308 |
+| Townhome | 9 | 9,015 | 6 | 2,308 |
 
 Run `TRIAGE_REPORT=1 pnpm vitest run src/lib/triage.test.ts` to reprint these counts.
 
-Green is a short list of candidates for verification, not confirmed feasible projects. Most lots are yellow: the steep-slope layer flags about half of the inventory, and most by-right lots show a modeled shortfall at market values. The Green count is sensitive to the assumptions: $10/sf more hard cost, or a 15% target, cuts it from 28 to 12. The bill leaves the counts unchanged because it adds ADUs and removes parking minimums; it does not change which typology is best on a lot or whether that typology pencils.
+Green is a short list of candidates for staff review, not confirmed feasible projects. 26 lots pass the zoning, lot-size, width, site and finance screens; 17 of them are not for sale or are park, greenway or infrastructure-protection records (Hold for Study, Sale Pending, Litigation Pending, Permanent City Ownership), so 9 are Green. All 9 are townhouses in R1A-VH in Central Northside (2 Public Sale, 7 URA Transfer); on all 9 Fit is Not checked and none has a required parking space (the attached form needs none under § 914.02.A). 5724 Murray Hill Pl (`0085K00296000000`) has no recorded frontage, and the City zoning map puts its point in R1D-L while the inventory says RM-M, so its evidence reads 3 pass · 2 unknown · 1 not checked and it is Yellow; 0586 Peebles St (`0176F00027000000`, inventory R1A-H, map R2-L) is held out of Green by the same zoning check. Most lots are Yellow: the steep-slope layer flags about half of the inventory, and most by-right lots show a modeled shortfall against the aggregate values. The Green count is sensitive to the assumptions: $10/sf more hard cost, or a 15% target, cuts it from 9 to 0. The bill leaves the color totals unchanged, but it changes the best-screening typology on 249 lots, so the same counts do not mean the same proposals.
+
+The Plan tab narrows further by disposition: citywide, 11,338 records → 9,030 encoded → 3,641 by right → 1,083 recorded available with no hazard flag → 1,040 at least 1,000 sf (candidates for staff review) → 9 clear the cost-and-return screen. Hazelwood: 797 → 754 → 285 → 123 → 106 → 0 (41 screened as a detached house, 65 as the attached form on lots under 25 ft). Hazelwood and Larimer together: 264 candidates.
+
+The Plan's shortfall table has four rows: the displayed hard cost, $150/sf, $215/sf, and a new-construction premium row that values each home at 1.3× the comp index at the displayed hard cost (new infill often sells above the index of existing homes; the URA would calibrate this against actual gap awards). For the ten lowest-shortfall Hazelwood candidates (all detached houses) at $185/sf: $2,593,699; at $150/sf: $1,969,999; at $215/sf: $3,128,299; at the 1.3× premium: $2,380,059. The premium narrows the Hazelwood gap by about $21k a home; it does not close it, because 1.3 × an $83k index is still far below the ~$331k the home costs plus the 10% return. The same premium case is the third clause of the per-lot sensitivity line (`sensitivityLine` in `src/lib/proforma.ts`) and the CSV column `shortfall_at_1_3x_value`. Candidates are a review queue: each CSV row's `next_action` names its first open item and recorded channel.
 
 ## Limits
 
-- ZHVI is the value of a typical existing home in the neighborhood, not the price of new construction. New homes usually sell above ZHVI, so sale revenue is conservative.
+- ZHVI is the value of a typical existing home in the neighborhood, not the price of new construction or of any one parcel. How a new small infill home would sell relative to it, and whether the size scaling holds, has not been validated; treat the value as an aggregate reference for a scenario, not an appraisal.
 - ZORI is the typical asking rent per unit, whatever the unit size. It overstates rent for a 600 sf ADU.
 - Neighborhood and ZIP averages hide block-level variation.
 - Hard cost is an assumption, not a bid. Steep, undermined, or flood-zone lots cost more to build, and the model does not add that cost.

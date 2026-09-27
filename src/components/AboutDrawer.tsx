@@ -3,6 +3,14 @@ import { useEffect, useRef } from "react";
 import type { CompsFile, LotsFile } from "@/lib/types";
 import { caveats, RULESET_LABEL, RULESET_NOTE } from "@/lib/engine";
 import { encodedDistricts } from "./district";
+import { GREEN_POLICY } from "@/lib/triage";
+
+/** How AI was used, short form. The README carries the long version. */
+const AI_USE = [
+  "Claude extracted the use and dimensional tables for the encoded districts from saved ecode360 captures of Title Nine (docs/sources). A person checked every row against the capture, and two independent audits re-verified the tables.",
+  "No model sits in the decision path. Every verdict, triage color, count and dollar figure comes from those tables, public data and arithmetic you can read in the code.",
+  "Where a model rewrites text (the optional wording suggestion in the filing packet), it is labeled as unverified model output and never replaces the deterministic text.",
+];
 
 const LIMITATIONS = [
   "City of Pittsburgh only. Lots in other Allegheny County municipalities are out of scope.",
@@ -12,7 +20,7 @@ const LIMITATIONS = [
   "Street frontage is parsed from the legal description and is approximate. A survey governs.",
   "The header counts lots, not homes. The five home types on a lot are alternatives, so lot × home-type combinations are not added up anywhere.",
   "No personal information is used or shown. Every parcel is publicly owned.",
-  "Rules decide, the language model explains. No verdict comes from a model.",
+  "Rules decide. No verdict comes from a model.",
 ];
 
 export default function AboutDrawer({
@@ -92,7 +100,15 @@ export default function AboutDrawer({
             )}
           </Block>
 
-          <Block title="Ready, needs work, blocked">
+          <Block title="How the AI was used">
+            <ul className="list-disc space-y-1.5 pl-4 text-[12px] leading-relaxed text-ink marker:text-faint">
+              {AI_USE.map((c) => (
+                <li key={c}>{c}</li>
+              ))}
+            </ul>
+          </Block>
+
+          <Block title="Green, Yellow, Red">
             <blockquote className="border-l-2 border-hairline pl-3 text-[13px] leading-relaxed text-ink">
               <p>
                 <Swatch c="#e11d48" /> Red: not developable.
@@ -106,13 +122,11 @@ export default function AboutDrawer({
             </blockquote>
             <p className="mt-1.5 text-[11px] text-muted">Hackathon housing mentors, Sept 26, 2026</p>
             <p className="mt-2 text-[12px] leading-relaxed text-muted">
-              ByRight keeps the colors but claims less. Green, &ldquo;Ready&rdquo;: a small home is allowed with no
-              hearing and pays for itself under the displayed assumptions. Yellow, &ldquo;Allowed, needs subsidy or a
-              hearing&rdquo;: something is unknown, needs staff approval or a Zoning Board hearing, or costs more than it
-              would be worth. Red, &ldquo;Blocked&rdquo;: no small home type is allowed, or flood zone on steep or
-              undermined ground. Gray, &ldquo;Not checked&rdquo;: the district is not encoded. None of them confirms a
-              project is feasible.
+              ByRight keeps the colors but claims less. Yellow: something is unknown, needs staff approval or a Zoning Board
+              hearing, costs more than it would be worth, or is not for sale. Red: no small home type is allowed, or flood zone
+              on steep or undermined ground. Gray: the district is not encoded. None of them confirms a project is feasible.
             </p>
+            <p className="mt-2 text-[12px] leading-relaxed text-ink">{GREEN_POLICY}</p>
           </Block>
 
           <Block title="Comps and finance">

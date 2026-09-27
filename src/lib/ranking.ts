@@ -35,7 +35,7 @@ export interface TriageRanked {
 
 export const AVAILABLE_FOR_SALE = "Available for Sale";
 
-export const isAvailable = (lot: Lot) => lot.status === AVAILABLE_FOR_SALE;
+export const isAvailable = (lot: Pick<Lot, "status">) => lot.status === AVAILABLE_FOR_SALE;
 
 /** Any slope, undermining or flood flag at the inventory point (missing flood data is not a flag). */
 export const hasHazardFlag = (lot: Lot) => lot.hazards.steepSlope || lot.hazards.undermined || lot.hazards.floodZone === true;

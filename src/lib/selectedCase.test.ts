@@ -41,8 +41,9 @@ describe.skipIf(!haveData)("selected case", () => {
   it("applies the lot's land figure to finance and to the application description", () => {
     const c = caseFor("0056N00203000000", null, 0);
     expect(c.proforma?.landSource).toBe("override");
-    expect(Math.round(c.proforma!.totalCost)).toBe(299_700);
+    expect(c.typology).toBe("townhome"); // 19.5 ft lot: the attached prototype
+    expect(Math.round(c.proforma!.totalCost)).toBe(349_650);
     const plan = buildApplicationPlan(c.lot, c.findings.current, "current", c.triage, c.proforma, c.comps, c.typology);
-    expect(plan.description).toContain("$299,700");
+    expect(plan.description).toContain("$349,650");
   });
 });

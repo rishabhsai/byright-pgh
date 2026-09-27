@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 import type { Comps, CompsFile, Lot } from "./types";
-import { compsForLot, computeProforma, DEFAULT_ASSUMPTIONS, DEFAULT_FINANCE, runProforma, saleScale, validateFinance } from "./proforma";
+import {
+  compsForLot,
+  computeProforma,
+  DEFAULT_ASSUMPTIONS,
+  DEFAULT_FINANCE,
+  NEW_CONSTRUCTION_PREMIUM,
+  prototypeNote,
+  runProforma,
+  saleScale,
+  sensitivityLine,
+  validateFinance,
+} from "./proforma";
 
 function lot(overrides: Partial<Lot> = {}): Lot {
   return {
@@ -108,6 +119,52 @@ describe("runProforma", () => {
   it("clamps the sale size scale", () => {
     expect(saleScale(400, 1400)).toBe(0.6);
     expect(saleScale(3000, 1400)).toBe(1.3);
+  });
+});
+
+describe("prototypeNote", () => {
+  it("names the attached prototype on a lot under 25 ft", () => {
+    expect(prototypeNote(lot({ frontageFt: 19.51 }), "townhome")).toBe("Prototype chosen for a 20 ft lot: attached form, 0 parking under § 914.02.A");
+  });
+
+  it("warns that a detached house is the wrong prototype on a lot under 25 ft", () => {
+    expect(prototypeNote(lot({ frontageFt: 20 }), "single")).toBe(
+      "Detached prototype on a 20 ft lot: side yards leave a narrow house; the attached form (0 parking under § 914.02.A) fits a lot this width",
+    );
+  });
+
+  it("says nothing on wider lots, unknown frontage, or other types", () => {
+    expect(prototypeNote(lot({ frontageFt: 25 }), "townhome")).toBeNull();
+    expect(prototypeNote(lot({ frontageFt: null }), "single")).toBeNull();
+    expect(prototypeNote(lot({ frontageFt: 20 }), "duplex")).toBeNull();
+  });
+});
+
+describe("new-construction premium", () => {
+  it("values the home at 1.3x the index and says so", () => {
+    const base = runProforma(lot(), "single", comps(300_000))!;
+    const prem = runProforma(lot(), "single", comps(300_000), { valuePremium: NEW_CONSTRUCTION_PREMIUM })!;
+    expect(NEW_CONSTRUCTION_PREMIUM).toBe(1.3);
+    // 1,200 sf / 1,400 sf typical = 0.857 scale; 300,000 x 0.857 = 257,143; x 1.3 = 334,286
+    expect(base.revenue).toBeCloseTo(257_142.86, 1);
+    expect(prem.revenue).toBeCloseTo(334_285.71, 1);
+    expect(prem.totalCost).toBe(base.totalCost);
+    expect(prem.revenueNote).toMatch(/× 1\.3 new-construction premium/);
+  });
+
+  it("ignores a non-positive or non-numeric premium", () => {
+    const base = runProforma(lot(), "single", comps(300_000))!;
+    expect(runProforma(lot(), "single", comps(300_000), { valuePremium: 0 })!.revenue).toBe(base.revenue);
+    expect(runProforma(lot(), "single", comps(300_000), { valuePremium: Number.NaN })!.revenue).toBe(base.revenue);
+  });
+
+  it("adds the premium case to the per-lot sensitivity line", () => {
+    // Worked example (docs/comps-and-proforma.md): cost $309,700, target value $340,670; at ZHVI $300k the shortfall is $83,527.
+    // +$10/sf: cost 309,700 + 12,000 x 1.35 = 325,900; target 358,490; value 257,143 -> short $101,347.
+    // 1.3x index: value 334,286 vs target 340,670 -> short $6,384.
+    expect(sensitivityLine(lot(), "single", comps(300_000))).toBe(
+      "Value needed for the target return $340,670; at $195/sq ft short by $101,347; at a new-construction premium (1.3× index) short by $6,384.",
+    );
   });
 });
 

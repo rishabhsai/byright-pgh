@@ -1,6 +1,7 @@
 "use client";
 import { memo, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { Lot, Triage } from "@/lib/types";
+import { TRIAGE_SHORT, TriageDot } from "./verdict";
 
 const LIMIT = 8;
 
@@ -195,7 +196,8 @@ function SearchBox({
                 onClick={() => pick(i)}
                 className={`cursor-pointer px-3 py-1.5 ${k === active ? "bg-accent-soft" : ""}`}
               >
-                <span className="flex items-baseline gap-2">
+                <span className="flex items-center gap-2">
+                  {triage?.[i] && <TriageDot triage={triage[i]} size={8} title={TRIAGE_SHORT[triage[i]]} />}
                   <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">{l.address || "No street address"}</span>
                   {triage?.[i] === "gray" ? (
                     <span className="shrink-0 text-[11px] text-muted">not evaluated</span>
@@ -203,7 +205,7 @@ function SearchBox({
                     <span className="shrink-0 text-[11px] text-muted">outside filters</span>
                   ) : null}
                 </span>
-                <span className="block truncate text-[11px] text-muted tabular-nums">
+                <span className={`block truncate text-[11px] text-muted tabular-nums ${triage?.[i] ? "pl-4" : ""}`}>
                   {l.neighborhood || "Neighborhood n/a"}, {l.zone || "no zone"}, parcel {l.id}
                 </span>
               </li>

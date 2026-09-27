@@ -1,8 +1,9 @@
 import type { CompsFile, Comps, Finding, Lot, RuleSet, Triage, TriageResult, Typology, Verdict } from "./types";
 import { TYPOLOGY_LABEL } from "./types";
 import { evaluateLot } from "./rules";
-import { deriveEvidence, MIN_PRACTICAL_LOT_SQFT, type Evidence, type EvidenceId } from "./evidence";
-import { compsForLot, DEFAULT_FINANCE, fmtNum, fmtUsd, runProforma, type FinanceAssumptions, type Proforma } from "./proforma";
+import { deriveEvidence, MIN_PRACTICAL_LOT_SQFT, zoneConflict, type Evidence, type EvidenceId } from "./evidence";
+import { isAvailable, isParkOrGreenway } from "./ranking";
+import { compsForLot, DEFAULT_FINANCE, fmtNum, fmtUsd, isNarrowLot, runProforma, type FinanceAssumptions, type Proforma } from "./proforma";
 
 /*
  * Green / Yellow / Red triage (organizer colors; the evidence behind them is narrower):
@@ -15,16 +16,34 @@ import { compsForLot, DEFAULT_FINANCE, fmtNum, fmtUsd, runProforma, type Finance
 /** The one statement of what Green means. Shown in the UI and About; meetsGreenPolicy implements it. */
 export const GREEN_POLICY =
   "Green means the lot passes this preliminary screen under the displayed assumptions: its best home type is allowed by right; " +
-  "the Use, Lot size, Width and Site checks all pass; Fit is not failing (setbacks, height and coverage are not modeled, so Fit is usually Not checked); " +
-  "and Finance passes the cost-and-return screen. Required parking and other unverified items stay listed on the lot. " +
+  "the Use, Lot size, Width and Site checks all pass (Use is Unknown when the City zoning map names a different district than the inventory at the lot's point); " +
+  "Fit is not failing (setbacks, height and coverage are not modeled, so Fit is usually Not checked); " +
+  "Finance passes the cost-and-return screen; and the City records the lot as Available for Sale and not as a park, greenway or infrastructure-protection parcel. " +
+  "Required parking and other unverified items stay listed on the lot. " +
   "Green is a candidate for staff review, not a determination that the lot can be built or released.";
 
 const GREEN_MUST_PASS: EvidenceId[] = ["use", "lotSize", "width", "site", "finance"];
 
-/** GREEN_POLICY as code: the best finding and its evidence row. */
-export function meetsGreenPolicy(best: Pick<Finding, "verdict">, evidence: Pick<Evidence, "checks">): boolean {
+/** Why the City's own record keeps a lot off the Green list, or null when it is recorded for sale and not a park type. */
+export function dispositionBlocker(lot: Pick<Lot, "status" | "inventoryType">): string | null {
+  if (!isAvailable(lot)) return `Not for sale (City status: ${lot.status || "not recorded"})`;
+  if (isParkOrGreenway(lot.inventoryType)) return `Not a disposition candidate (City inventory type: ${lot.inventoryType})`;
+  return null;
+}
+
+/** GREEN_POLICY as code: the best finding, its evidence row, and the lot's recorded disposition status. */
+export function meetsGreenPolicy(
+  best: Pick<Finding, "verdict">,
+  evidence: Pick<Evidence, "checks">,
+  lot: Pick<Lot, "status" | "inventoryType">,
+): boolean {
   const state = (id: EvidenceId) => evidence.checks.find((c) => c.id === id)?.state;
-  return best.verdict === "by-right" && GREEN_MUST_PASS.every((id) => state(id) === "pass") && state("fit") !== "fail";
+  return (
+    best.verdict === "by-right" &&
+    GREEN_MUST_PASS.every((id) => state(id) === "pass") &&
+    state("fit") !== "fail" &&
+    dispositionBlocker(lot) === null
+  );
 }
 
 const BUILDABLE: Verdict[] = ["by-right", "review", "variance"];
@@ -91,7 +110,10 @@ export function triageLot(
   }
 
   const bestRank = Math.min(...buildable.map((f) => VERDICT_RANK[f.verdict]));
-  const candidates = buildable.filter((f) => VERDICT_RANK[f.verdict] === bestRank);
+  let candidates = buildable.filter((f) => VERDICT_RANK[f.verdict] === bestRank);
+  // Prototype follows the lot: under 25 ft a detached house loses its side yards, so the attached form is the proposal.
+  const byRightTownhome = candidates.some((f) => f.typology === "townhome" && f.verdict === "by-right");
+  if (isNarrowLot(lot) && byRightTownhome) candidates = candidates.filter((f) => f.typology !== "single");
   let best: Finding = candidates[0];
   let pf: Proforma | null = null;
   const mode = assumptions?.mode ?? DEFAULT_FINANCE.mode;
@@ -108,6 +130,10 @@ export function triageLot(
   const reasons: string[] = [];
   const label = TYPOLOGY_LABEL[best.typology];
   reasons.push(`Zoning: ${label.toLowerCase()} ${VERDICT_PHRASE[best.verdict]} in ${lot.zone}.`);
+  const conflict = zoneConflict(lot);
+  if (conflict) reasons.push(`Zoning: ${conflict}`);
+  const blocker = dispositionBlocker(lot);
+  if (blocker) reasons.push(blocker);
 
   const unresolved = best.unresolved ?? [];
   const lotSizeOpen = unresolved.some((id) => BLOCKING_UNRESOLVED.has(id));
@@ -143,7 +169,7 @@ export function triageLot(
   }
   if (unresolved.includes("parking")) reasons.push(PARKING_REASON);
 
-  const green = best.verdict === "by-right" && meetsGreenPolicy(best, deriveEvidence(lot, best, null, pf, comps));
+  const green = best.verdict === "by-right" && meetsGreenPolicy(best, deriveEvidence(lot, best, null, pf, comps), lot);
   return result(green ? "green" : "yellow", reasons, best.typology, pf);
 }
 

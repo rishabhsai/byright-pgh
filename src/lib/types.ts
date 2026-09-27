@@ -13,6 +13,13 @@ export interface Lot {
   lat: number;
   lon: number;
   zone: string;
+  /**
+   * District of the City zoning map polygon under the inventory point (`zon_new`), from pipeline/build.py.
+   * null when no polygon contains the point. Optional only so hand-built fixtures stay valid; lots.json always has it.
+   */
+  zoneMap?: string | null;
+  /** `zone` equals `zoneMap`; null when either is missing (inventory zone blank, or no map polygon). */
+  zoneAgrees?: boolean | null;
   lotAreaSqFt: number | null;
   frontageFt: number | null;
   landValue: number | null;

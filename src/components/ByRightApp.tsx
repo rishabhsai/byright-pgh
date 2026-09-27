@@ -13,6 +13,8 @@ import TopBar from "./TopBar";
 import LeftRail, { DEFAULT_FILTERS, type Filters, type Tab } from "./LeftRail";
 import DetailPanel from "./DetailPanel";
 import AboutDrawer from "./AboutDrawer";
+import PlanView from "./PlanView";
+import PlanReader from "./PlanReader";
 import { TYPOLOGIES } from "./verdict";
 import type { HoverInfo, FitBounds } from "./MapView";
 import { money } from "./ui/answer";
@@ -24,8 +26,6 @@ const MapView = dynamic(() => import("./MapView"), {
 });
 
 export type { Evaluations, Triages };
-
-export type ColorMode = "triage" | "verdict";
 
 export interface RuleSetStats {
   byRightAny: number;
@@ -140,10 +140,11 @@ export default function ByRightApp() {
   const [fitTo, setFitTo] = useState<{ bounds: FitBounds; seq: number } | null>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  // The Plan tab in the wide reading overlay.
+  const [planReading, setPlanReading] = useState(false);
   const [assumptions, setAssumptions] = useState<FinanceAssumptions>(DEFAULT_FINANCE);
   const [compsFile, setCompsFile] = useState<CompsFile | null>(null);
   const [compsSettled, setCompsSettled] = useState(false);
-  const [colorMode, setColorMode] = useState<ColorMode>("triage");
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [tab, setTab] = useState<Tab>("lots");
   // The home type the user picked for the selected lot while the Home type filter is "Any".
@@ -351,13 +352,14 @@ export default function ByRightApp() {
       if (e.key === "Escape") {
         // Peel one layer per press: About drawer, then expanded reading mode, then the selection.
         if (aboutOpen) setAboutOpen(false);
+        else if (planReading) setPlanReading(false);
         else if (expanded) setExpanded(false);
         else clearSelection();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [aboutOpen, expanded, clearSelection]);
+  }, [aboutOpen, planReading, expanded, clearSelection]);
 
   // City-wide findings arrive slimmed from the worker; the panel gets the full text for its one lot.
   const selectedFull = useMemo<Record<RuleSet, Finding[]> | null>(
@@ -416,16 +418,13 @@ export default function ByRightApp() {
       const t = triages?.[ruleSet].results[i] ?? null;
       const f = evals?.[ruleSet].findings[i] ?? null;
       const ev = evidence?.[i] ?? null;
-      if (!t || !f) return { lot: l, triage: null, verdict: null, line: null, note: null };
+      if (!t || !f) return { lot: l, triage: null, line: null, note: null };
       const pick = pickFinding(f, t, filterTypology);
-      const verdict = typIdx < 0 ? evals![ruleSet].best[i] : f[typIdx].verdict;
       const typeName = `${TYPOLOGY_LABEL[pick.typology]} (${filterTypology ? "Home type filter" : "best type"})`;
       const label = verdictLabel(pick);
       const says = `${typeName}: ${label.charAt(0).toLowerCase()}${label.slice(1)}`;
       let line: string;
-      if (colorMode === "verdict") {
-        line = says;
-      } else if (t.triage === "gray" || t.triage === "red") {
+      if (t.triage === "gray" || t.triage === "red") {
         line = (t.reasons[0] ?? "").replace(/^(Zoning|Topography): /, "");
       } else {
         const money_ = t.pencils ? (t.margin != null ? `~${money(t.margin)} margin at market` : null) : t.gap != null ? `~${money(t.gap)} short at market` : null;
@@ -435,9 +434,9 @@ export default function ByRightApp() {
       }
       const sel = selectedCase && selectedIdx === i && selectedCase.typology !== pick.typology ? selectedCase : null;
       const note = sel ? `Panel shows ${TYPOLOGY_LABEL[sel.typology]} (selected).` : null;
-      return { lot: l, triage: t.triage, verdict, line, note };
+      return { lot: l, triage: t.triage, line, note };
     },
-    [lots, triages, evals, evidence, ruleSet, filterTypology, typIdx, colorMode, selectedCase, selectedIdx],
+    [lots, triages, evals, evidence, ruleSet, filterTypology, selectedCase, selectedIdx],
   );
 
   const retry = useCallback(() => {
@@ -467,16 +466,17 @@ export default function ByRightApp() {
           tab={tab}
           onTab={setTab}
           loading={!loadError && !city.error && !stats}
+          onReadPlan={() => {
+            setExpanded(false);
+            setPlanReading(true);
+          }}
         />
         {/* Positioning context for the expanded detail panel, which overlays the map area. */}
         <div className="relative flex min-w-0 flex-1">
           <main className="relative min-w-0 flex-1">
             <MapView
               lots={lots}
-              verdicts={mapVerdicts}
               triages={mapTriage}
-              colorMode={colorMode}
-              onColorMode={setColorMode}
               matches={matches}
               changed={ruleSet === "bill-2025-1545" && changed.length ? changed : null}
               ringNote={
@@ -518,6 +518,31 @@ export default function ByRightApp() {
             stats={city.error ? undefined : (stats?.[ruleSet] ?? null)}
             onSelectId={lots.length ? selectById : undefined}
           />
+          {planReading && evals && triages && evidence && (
+            <PlanReader
+              title={`${filters.neighborhoods.length ? filters.neighborhoods.join(", ") : "Citywide"}${filters.typology ? `, ${TYPOLOGY_LABEL[filters.typology]}` : ""}. Scope follows the neighborhood filter.`}
+              onClose={() => setPlanReading(false)}
+            >
+              <PlanView
+                layout="reading"
+                lots={lots}
+                evals={evals}
+                triages={triages[ruleSet].results}
+                evidence={evidence}
+                comps={comps}
+                assumptions={cityAssumptions}
+                landOverrides={cityLandOverrides}
+                neighborhoods={filters.neighborhoods}
+                typology={filterTypology}
+                ruleSet={ruleSet}
+                sources={sources}
+                onSelect={(i) => {
+                  setPlanReading(false);
+                  selectFromList(i);
+                }}
+              />
+            </PlanReader>
+          )}
         </div>
       </div>
       <AboutDrawer open={aboutOpen} onClose={() => setAboutOpen(false)} file={file} compsFile={activeComps} />

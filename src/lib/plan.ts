@@ -1,7 +1,17 @@
 import type { Citation, Comps, Finding, Lot, RuleSet, TriageResult, Typology } from "./types";
 import { REVIEW_KIND_LABEL } from "./types";
 import { lookupDistrict, normalizeZone, RULESET_LABEL, TYPOLOGY_ORDER, TYPOLOGY_USE_ROW, UNENCODED_DISTRICT_NAME } from "./rules";
-import { fmtNum, fmtUsd, UNIT_PLAN, ZILLOW_DATA_URL, type FinanceAssumptions, type Proforma, type RevenueMode } from "./proforma";
+import {
+  fmtNum,
+  fmtUsd,
+  NEW_CONSTRUCTION_PREMIUM,
+  PREMIUM_LABEL,
+  UNIT_PLAN,
+  ZILLOW_DATA_URL,
+  type FinanceAssumptions,
+  type Proforma,
+  type RevenueMode,
+} from "./proforma";
 import { hasHazardFlag, isAvailable } from "./ranking";
 import {
   fmtUsdShort,
@@ -47,6 +57,8 @@ export const CSV_COLUMNS = [
   "staff_review_candidate", "checks_unknown", "checks_not_checked", "units",
   "revenue_mode", "effective_land_cost", "land_source", "typical_home_sf", "cap_rate_pct", "opex_pct", "default_land_cost",
   "rule_citations", "cost_basis",
+  // Appended in cycle 3: the City zoning map district at the inventory point, and the new-construction premium case.
+  "zone_map", "zone_agrees", "shortfall_at_1_3x_value",
 ] as const;
 
 export type CsvColumn = (typeof CSV_COLUMNS)[number];
@@ -56,6 +68,8 @@ export interface RowFinance {
   gap: number;
   gap150: number | null;
   gap215: number | null;
+  /** Shortfall with value at 1.3× the comp index (new-construction premium), at the displayed hard cost. */
+  gapPremium: number | null;
   /** Total cost × (1 + target return): the value the project must reach, not zero-profit break-even. */
   targetValue: number;
   mode: RevenueMode;
@@ -109,6 +123,8 @@ export interface Gap extends GapScenario {
   hardCostPerSf: number;
   at150: GapScenario;
   at215: GapScenario;
+  /** Value at 1.3× the comp index, at the displayed hard cost: the new-construction premium case. */
+  atPremium: GapScenario;
   /** Mean target value per project: total cost plus the target return, at the displayed assumptions. */
   targetValueAvg: number;
   /** Revenue mode the projects were valued in; "mixed" when some fell back to the other comp. */
@@ -324,6 +340,38 @@ function reliefSections(f: Finding): string {
   return [...s].join("; ");
 }
 
+/** Minimum off-street spaces the finding's parking check requires (0 when none, or no finding). */
+function requiredSpaces(f: Finding | undefined): number {
+  const c = f?.checks.find((x) => x.id === "parking");
+  return c ? Number.parseInt(c.required ?? "0", 10) || 0 : 0;
+}
+
+interface BillTally {
+  candidates: number;
+  adu: number;
+  aduToday: number;
+  parkingDropped: number;
+  spacesToday: Set<number>;
+}
+
+/** "If Bill 2025-1545 passes: an ADU by right on N of M candidates; required parking 1 → 0 on K." */
+function billSentence(t: BillTally, ready: Record<RuleSet, number>): string {
+  if (t.candidates === 0) return "If Bill 2025-1545 passes: no candidates in scope to compare.";
+  const m = fmtNum(t.candidates);
+  const adu = `an ADU by right on ${fmtNum(t.adu)} of ${m} candidate${t.candidates === 1 ? "" : "s"}${t.aduToday ? ` (${fmtNum(t.aduToday)} today)` : ""}`;
+  const spaces = [...t.spacesToday].sort((a, b) => a - b);
+  const from = spaces.length <= 1 ? String(spaces[0] ?? 1) : `${spaces[0]}–${spaces[spaces.length - 1]}`;
+  const rest = t.candidates - t.parkingDropped;
+  const parking =
+    t.parkingDropped === 0
+      ? "no change to required parking (no candidate's screened type needs a space today)"
+      : `required parking ${from} → 0 on ${fmtNum(t.parkingDropped)}${rest > 0 ? ` (the other ${fmtNum(rest)} need${rest === 1 ? "s" : ""} none today)` : ""}`;
+  const cur = ready.current;
+  const bill = ready["bill-2025-1545"];
+  const count = cur === bill ? "" : ` Candidate count ${fmtNum(cur)} → ${fmtNum(bill)}.`;
+  return `If Bill 2025-1545 passes: ${adu}; ${parking}.${count}`;
+}
+
 export function buildPlan(
   lots: Lot[],
   evals: Record<RuleSet, { findings: Finding[][] }>,
@@ -348,7 +396,7 @@ export function buildPlan(
   let needsRelief = 0;
   let needsReliefWithApproval = 0;
   let hillsideReview = 0;
-  let aduOptions = 0;
+  const bill = { candidates: 0, adu: 0, aduToday: 0, parkingDropped: 0, spacesToday: new Set<number>() };
   const readyByRuleSet: Record<RuleSet, number> = { current: 0, "bill-2025-1545": 0 };
   const rows: PlanRow[] = [];
   const open = new Map<string, { label: string; state: EvidenceState; detail: string; count: number }>();
@@ -374,14 +422,6 @@ export function buildPlan(
     const otherFs = evals[other]?.findings[i];
     const otherReady = otherFs ? candidateStage(lot, otherFs, typology) === 5 : false;
     if (otherReady) readyByRuleSet[other]++;
-    // ADU options are counted on candidates under the bill, whichever rule set is active.
-    const billReady = ruleSet === "current" ? otherReady : ready;
-    if (billReady) {
-      const cur = ruleSet === "current" ? fs : otherFs;
-      const bill = ruleSet === "current" ? otherFs : fs;
-      const adu = (x: Finding[] | undefined) => x?.find((f) => f.typology === "single_adu")?.verdict === "by-right";
-      if (adu(bill) && !adu(cur)) aduOptions++;
-    }
     if (stage >= 2 && lotSizeReliefOnly(fs, typology)) {
       needsRelief++;
       if (lotSizeReliefKeepsApproval(fs, typology)) needsReliefWithApproval++;
@@ -390,6 +430,19 @@ export function buildPlan(
 
     const f = pickFinding(fs, tr, typology);
     if (ready) {
+      // The bill line is computed on the active plan's candidates: their ADU verdict and their proposal's parking under each code.
+      const curFs = ruleSet === "current" ? fs : otherFs;
+      const billFs = ruleSet === "current" ? otherFs : fs;
+      const aduByRight = (x: Finding[] | undefined) => x?.find((g) => g.typology === "single_adu")?.verdict === "by-right";
+      bill.candidates++;
+      if (aduByRight(billFs)) bill.adu++;
+      if (aduByRight(curFs)) bill.aduToday++;
+      const today = requiredSpaces(curFs?.find((g) => g.typology === f.typology));
+      const after = requiredSpaces(billFs?.find((g) => g.typology === f.typology));
+      if (today > 0 && after === 0) {
+        bill.parkingDropped++;
+        bill.spacesToday.add(today);
+      }
       byChannel[channelOf(lot)]++;
       byType[f.typology] = (byType[f.typology] ?? 0) + 1;
       const items = [
@@ -410,6 +463,7 @@ export function buildPlan(
     const pf = priced ? proformaFor(lot, f.typology, comps[i], a) : null;
     const pf150 = pf ? proformaFor(lot, f.typology, comps[i], { ...a, hardCostPerSf: 150 }) : null;
     const pf215 = pf ? proformaFor(lot, f.typology, comps[i], { ...a, hardCostPerSf: 215 }) : null;
+    const pfPremium = pf ? proformaFor(lot, f.typology, comps[i], { ...a, valuePremium: NEW_CONSTRUCTION_PREMIUM }) : null;
     const c = comps[i];
     const sale = pf?.mode === "sale";
     const dwellings = pf?.units ?? UNIT_PLAN[f.typology].units;
@@ -419,7 +473,15 @@ export function buildPlan(
       candidate: ready,
       ready,
       finance: pf
-        ? { gap: pf.gap, gap150: pf150?.gap ?? null, gap215: pf215?.gap ?? null, targetValue: pf.breakEvenValue, mode: pf.mode, dwellings }
+        ? {
+            gap: pf.gap,
+            gap150: pf150?.gap ?? null,
+            gap215: pf215?.gap ?? null,
+            gapPremium: pfPremium?.gap ?? null,
+            targetValue: pf.breakEvenValue,
+            mode: pf.mode,
+            dwellings,
+          }
         : null,
       parcel_id: lot.id,
       address: lot.address,
@@ -475,6 +537,9 @@ export function buildPlan(
       default_land_cost: assumptions.defaultLand,
       rule_citations: ruleCitations(lot, f, ruleSet),
       cost_basis: costBasis(pf),
+      zone_map: lot.zoneMap ?? "",
+      zone_agrees: lot.zoneAgrees == null ? "" : String(lot.zoneAgrees),
+      shortfall_at_1_3x_value: round(pfPremium?.gap),
     } as PlanRow;
     for (const x of ev.checks) row[EVIDENCE_COL[x.id]] = STATE_CSV[x.state];
     rows.push(row);
@@ -521,16 +586,14 @@ export function buildPlan(
       ...scen((f) => f.gap),
       at150: scen((f) => f.gap150),
       at215: scen((f) => f.gap215),
+      atPremium: scen((f) => f.gapPremium),
       targetValueAvg: priced.reduce((s, r) => s + r.finance.targetValue, 0) / priced.length,
       valueMode: modes.size === 1 ? [...modes][0] : "mixed",
       valueBasis: [...basis.values()],
     };
   }
 
-  const cur = readyByRuleSet.current;
-  const bill = readyByRuleSet["bill-2025-1545"];
-  const change = cur === bill ? "no change to the candidate count" : `candidate count ${fmtNum(cur)} → ${fmtNum(bill)}`;
-  const billLine = `If Bill 2025-1545 passes: +${fmtNum(aduOptions)} ADU options on candidates; ${change}.`;
+  const billLine = billSentence(bill, readyByRuleSet);
 
   return {
     scopeLabel: scopeLabel(scope),
@@ -621,8 +684,12 @@ export function toBrief(plan: Plan): string {
     L.push("| Hard cost | Total shortfall | Per project | Per dwelling |", "|---|---:|---:|---:|");
     L.push(`| $${g.hardCostPerSf}/sf (displayed) | ${fmtUsd(g.total)} | ${fmtUsd(g.perProject)} | ${fmtUsd(g.perDwelling)} |`);
     L.push(`| $150/sf | ${fmtUsd(g.at150.total)} | ${fmtUsd(g.at150.perProject)} | ${fmtUsd(g.at150.perDwelling)} |`);
-    L.push(`| $215/sf | ${fmtUsd(g.at215.total)} | ${fmtUsd(g.at215.perProject)} | ${fmtUsd(g.at215.perDwelling)} |`, "");
-    L.push("Shortfall to the target return against an aggregate reference value; not a subsidy award, eligibility finding, or parcel appraisal.", "");
+    L.push(`| $215/sf | ${fmtUsd(g.at215.total)} | ${fmtUsd(g.at215.perProject)} | ${fmtUsd(g.at215.perDwelling)} |`);
+    L.push(`| ${PREMIUM_LABEL} | ${fmtUsd(g.atPremium.total)} | ${fmtUsd(g.atPremium.perProject)} | ${fmtUsd(g.atPremium.perDwelling)} |`, "");
+    L.push(
+      `Shortfall to the target return against an aggregate reference value; not a subsidy award, eligibility finding, or parcel appraisal. The premium row values new homes at ${NEW_CONSTRUCTION_PREMIUM}× the index at $${g.hardCostPerSf}/sf; the URA would calibrate this against actual gap awards.`,
+      "",
+    );
   }
 
   L.push("## Needs relief", "");

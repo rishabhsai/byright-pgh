@@ -5,6 +5,7 @@ import { fmtUsd } from "@/lib/finance";
 import { EVIDENCE_STATE_LABEL } from "@/lib/evidence";
 import type { SelectedCase } from "@/lib/selectedCase";
 import { evidenceSummary } from "./ui/evidenceText";
+import { approvalRoute } from "./ui/answer";
 
 /**
  * The lot brief: the selected case as shown in the panel (proposal, rule set, this lot's land
@@ -26,7 +27,7 @@ export function buildMemo(c: SelectedCase, shown: { headline: string; districtNa
   L.push(`- Proposal: ${name} (${source})${c.bestTypology && c.bestTypology !== typology ? `. Best type here: ${TYPOLOGY_LABEL[c.bestTypology]}` : ""}`);
   L.push(`- Answer: ${shown.headline}`);
   if (finding) L.push(`- Zoning: ${verdictLabel(finding)}${finding.summary ? `. ${finding.summary}` : ""}`);
-  L.push(`- Evidence: ${evidenceSummary(evidence)}`);
+  L.push(`- Evidence: ${evidenceSummary(evidence, approvalRoute(finding, lot)?.full)}`);
   for (const ch of shown.changes) L.push(`- What would change this: ${ch}`);
   L.push("");
 
@@ -43,7 +44,8 @@ export function buildMemo(c: SelectedCase, shown: { headline: string; districtNa
   L.push(`## Six screening checks for the ${name.toLowerCase()}`);
   for (const e of evidence.checks) {
     const cite = e.citation ? ` [${e.citation.section}](${e.citation.url})` : "";
-    L.push(`- ${e.label}: ${EVIDENCE_STATE_LABEL[e.state]}. ${e.detail}${cite}`);
+    const word = (e.id === "use" && e.state === "unknown" && approvalRoute(finding, lot)?.full) || EVIDENCE_STATE_LABEL[e.state];
+    L.push(`- ${e.label}: ${word}. ${e.detail}${cite}`);
   }
   const open = (finding?.checks ?? []).filter((k) => k.passed === null);
   if (open.length) {

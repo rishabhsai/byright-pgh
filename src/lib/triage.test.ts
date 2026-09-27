@@ -19,8 +19,8 @@ function lot(overrides: Partial<Lot> = {}): Lot {
     lotAreaSqFt: 3000,
     frontageFt: 25,
     landValue: 1000,
-    status: "Vacant Land",
-    inventoryType: "City",
+    status: "Available for Sale",
+    inventoryType: "Public Sale",
     hazards: { steepSlope: false, undermined: false, floodZone: false },
     ...overrides,
   };
@@ -80,6 +80,29 @@ describe("triageLot", () => {
     expect(best.checks.find((c) => c.id === "parking")?.passed).toBeNull();
     expect(t.triage).toBe("green");
     expect(t.reasons).toContain("Confirm on-site parking on the site plan (§ 914.02.A)");
+  });
+
+  it("not green when the City zoning map disagrees with the inventory district", () => {
+    const l = lot({ zoneMap: "RM-M", zoneAgrees: false });
+    const t = triageLot(l, evaluateLot(l, "current"), RICH);
+    expect(t.triage).toBe("yellow");
+    expect(t.reasons).toContain(
+      "Zoning: Inventory says R1D-H; City zoning map says RM-M at this point. Confirm district before relying on this.",
+    );
+  });
+
+  it("not green when the lot is not for sale, even if everything else passes", () => {
+    const l = lot({ status: "Hold for Study", inventoryType: "Hold For Study" });
+    const t = triageLot(l, evaluateLot(l, "current"), RICH);
+    expect(t.triage).toBe("yellow");
+    expect(t.reasons).toContain("Not for sale (City status: Hold for Study)");
+  });
+
+  it("not green when the record is a park or greenway, even if recorded for sale", () => {
+    const l = lot({ inventoryType: "Greenway" });
+    const t = triageLot(l, evaluateLot(l, "current"), RICH);
+    expect(t.triage).toBe("yellow");
+    expect(t.reasons).toContain("Not a disposition candidate (City inventory type: Greenway)");
   });
 
   it("a selected home type drives the color: duplex is red where it is not listed", () => {
@@ -154,6 +177,17 @@ describe("triageLot", () => {
     expect(t.pencils).toBeNull();
   });
 
+  it("on a lot under 25 ft, prefers the attached townhouse over a detached house when both are by right", () => {
+    const f: Finding[] = [
+      { typology: "single", verdict: "by-right", checks: [], summary: "", unresolved: [], reviewKind: null },
+      { typology: "townhome", verdict: "by-right", checks: [], summary: "", unresolved: [], reviewKind: null },
+    ];
+    // At a $60k index the smaller detached house has the lower shortfall, so margin alone would pick it.
+    expect(triageLot(lot({ frontageFt: 30 }), f, POOR).bestTypology).toBe("single");
+    expect(triageLot(lot({ frontageFt: 20 }), f, POOR).bestTypology).toBe("townhome");
+    expect(triageLot(lot({ frontageFt: null }), f, POOR).bestTypology).toBe("single");
+  });
+
   it("picks the best-verdict typology with the highest margin", () => {
     const f: Finding[] = [
       { typology: "single", verdict: "by-right", checks: [], summary: "", unresolved: [], reviewKind: null },
@@ -172,6 +206,9 @@ describe("GREEN_POLICY", () => {
     expect(GREEN_POLICY).toMatch(/Fit is not failing/);
     expect(GREEN_POLICY).toMatch(/Finance passes/);
     expect(GREEN_POLICY).toMatch(/parking/i);
+    expect(GREEN_POLICY).toMatch(/Available for Sale/);
+    expect(GREEN_POLICY).toMatch(/park, greenway/i);
+    expect(GREEN_POLICY).toMatch(/zoning map/i);
   });
 
   it("a Fit failure keeps a lot out of Green even when everything else passes", () => {
@@ -180,9 +217,10 @@ describe("GREEN_POLICY", () => {
     type Ev = Parameters<typeof meetsGreenPolicy>[1];
     const row = (id: string, state: string) => ({ id, state, label: id, detail: "" });
     const ev = { checks: [...["use", "lotSize", "width", "site", "finance"].map((id) => row(id, "pass")), row("fit", "fail")] } as unknown as Ev;
-    expect(meetsGreenPolicy(f, ev)).toBe(false);
+    expect(meetsGreenPolicy(f, ev, l)).toBe(false);
     ev.checks.find((c) => c.id === "fit")!.state = "notChecked";
-    expect(meetsGreenPolicy(f, ev)).toBe(true);
+    expect(meetsGreenPolicy(f, ev, l)).toBe(true);
+    expect(meetsGreenPolicy(f, ev, { status: "Sale Pending", inventoryType: "Public Sale" })).toBe(false);
   });
 });
 

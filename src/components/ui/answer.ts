@@ -3,6 +3,8 @@ import type { Finding, Lot, RuleSet, TriageResult, Typology } from "@/lib/types"
 import { TYPOLOGY_LABEL, verdictLabel, verdictShort } from "@/lib/types";
 import { evaluateLot } from "@/lib/rules";
 import type { Proforma } from "@/lib/finance";
+import type { Evidence } from "@/lib/evidence";
+import { isParkOrGreenway } from "@/lib/ranking";
 
 /** Every UI verdict label goes through these (they keep the approval route). */
 export { verdictLabel, verdictShort };
@@ -19,14 +21,56 @@ export function money(n: number): string {
 
 export type AnswerTone = "ready" | "money" | "hearing" | "blocked" | "none";
 
-export function answerHeadline(t: TriageResult | null, best: Finding | null, pf: Proforma | null): { text: string; tone: AnswerTone } {
+export function answerHeadline(
+  t: TriageResult | null,
+  best: Finding | null,
+  pf: Proforma | null,
+  lot?: Pick<Lot, "status" | "inventoryType"> | null,
+): { text: string; tone: AnswerTone } {
   if (!t || t.triage === "gray") return { text: "Not checked", tone: "none" };
   if (t.triage === "red") return { text: "Blocked", tone: "blocked" };
   if (t.triage === "green") return { text: "Passes the screen: candidate for staff review", tone: "ready" };
   if (best?.verdict === "variance" || best?.verdict === "review") return { text: verdictLabel(best), tone: "hearing" };
+  if (lot && !cityStatus(lot).available) return { text: "Allowed, but not for sale", tone: "money" };
+  if (lot && isParkOrGreenway(lot.inventoryType)) return { text: "Allowed, but not a disposition candidate", tone: "money" };
   if (pf && !pf.pencils) return { text: "Allowed, needs subsidy", tone: "money" };
   if (!pf) return { text: "Allowed; finance not checked", tone: "money" };
   return { text: "Allowed, needs a check on site", tone: "money" };
+}
+
+/** Margins above this read as an artifact of an index value, not a comp; flagged on the card. */
+export const HIGH_MARGIN_PCT = 25;
+
+/**
+ * Why the selected proposal gets no money line: it fails Fit or Use, or the lot is not for sale.
+ * "Triplex: not buildable as proposed (FAR)", "House: not for sale (Hold for Study)". Null when a finance line is fair.
+ */
+export interface Blocker {
+  text: string;
+  /** Panel section that explains it; null when the card itself does (City status). */
+  why: "fits" | "allowed" | null;
+}
+
+export function blockerLine(
+  lot: Pick<Lot, "status" | "inventoryType">,
+  typology: Typology,
+  finding: Pick<Finding, "verdict" | "checks"> | null,
+  evidence: Pick<Evidence, "checks"> | null,
+): Blocker | null {
+  const name = TYPOLOGY_LABEL[typology];
+  const state = (id: string) => evidence?.checks.find((c) => c.id === id)?.state;
+  const useFails = finding?.verdict === "prohibited" || state("use") === "fail";
+  if (useFails) return { text: `${name}: not allowed here (use)`, why: "allowed" };
+  if (state("fit") === "fail") {
+    const far = finding?.checks.some((c) => c.id === "far" && c.passed === false);
+    return { text: `${name}: not buildable as proposed (${far ? "FAR" : "building fit"})`, why: "fits" };
+  }
+  if (!cityStatus(lot).available) {
+    const raw = (lot.status || "").trim();
+    return { text: `${name}: not for sale${raw ? ` (${raw})` : ""}`, why: null };
+  }
+  if (isParkOrGreenway(lot.inventoryType)) return { text: `${name}: not a disposition candidate (${lot.inventoryType})`, why: null };
+  return null;
 }
 
 export function financeLine(pf: Proforma | null): string | null {
@@ -47,7 +91,7 @@ const STATUS: Record<string, string> = {
   "privately owned": "Privately owned (not City property)",
 };
 
-export function cityStatus(lot: Lot): { text: string; available: boolean } {
+export function cityStatus(lot: Pick<Lot, "status">): { text: string; available: boolean } {
   const k = (lot.status || "unknown").trim().toLowerCase();
   return { text: STATUS[k] ?? `${lot.status} (confirm availability)`, available: k === "available for sale" };
 }
@@ -65,6 +109,11 @@ function reevaluate(lot: Lot, changed: Partial<Lot>, f: Finding): Finding | unde
 }
 
 const amount = (s: string | null) => Number((s ?? "").replace(/[^\d.]/g, ""));
+
+/** Homes per proposal, and the smallest floor area we would call a home, for the FAR delta. */
+const UNITS: Record<Typology, number> = { single: 1, single_adu: 2, duplex: 2, triplex: 3, townhome: 1 };
+const MIN_SF_PER_HOME = 400;
+const fmtSf = (n: number) => `${Math.round(n).toLocaleString("en-US")} sq ft`;
 
 /**
  * Deltas a planner thinks in: which single fact would change the result, and what the result would
@@ -94,9 +143,16 @@ export function whatWouldChange(lot: Lot, findings: Finding[], chosen: Finding |
         const after = reevaluate(lot, { frontageFt: amount(c.required) }, chosen);
         if (after) out.push(`Frontage of ${c.required} (by survey or consolidation) → ${outcome(after)}`);
       } else if (c.id === "far") {
-        // The prototype building size is fixed, so drop the FAR failure and keep the rest of the finding.
-        const after = { ...chosen, verdict: chosen.reviewKind ? ("review" as const) : ("by-right" as const), checks: chosen.checks.filter((x) => x.id !== "far") };
-        out.push(`A smaller building (${c.required}) → ${outcome(after)}`);
+        const cap = amount(c.required?.match(/at most ([\d,]+)/)?.[1] ?? null);
+        const units = UNITS[chosen.typology];
+        if (cap && cap / units < MIN_SF_PER_HOME) {
+          // A 518 sq ft triplex is not a proposal; the realistic path is more land.
+          out.push(`Combining with a neighbor → more floor area under the FAR cap (${fmtSf(cap)} here, too small for ${units > 1 ? `${units} homes` : "a home"})`);
+        } else {
+          // The prototype building size is fixed, so drop the FAR failure and keep the rest of the finding.
+          const after = { ...chosen, verdict: chosen.reviewKind ? ("review" as const) : ("by-right" as const), checks: chosen.checks.filter((x) => x.id !== "far") };
+          out.push(`A smaller building (${c.required}) → ${outcome(after)}`);
+        }
       }
     }
   }
@@ -108,4 +164,14 @@ export function whatWouldChange(lot: Lot, findings: Finding[], chosen: Finding |
 
 export function typologyPhrase(t: Typology, f: Finding | null): string {
   return `${TYPOLOGY_LABEL[t]}${f ? `, ${lowerFirst(verdictLabel(f))}` : ""}`;
+}
+
+/**
+ * The approval route an exception use needs, for the evidence row's Use pill (never "Unknown").
+ * Null when the zoning map disagrees with the inventory district: then Use is genuinely unknown.
+ */
+export function approvalRoute(f: Pick<Finding, "reviewKind"> | null, lot?: Pick<Lot, "zoneAgrees"> | null): { short: string; full: string } | null {
+  if (!f?.reviewKind || lot?.zoneAgrees === false) return null;
+  const route = { verdict: "review" as const, reviewKind: f.reviewKind };
+  return { short: verdictShort(route), full: verdictLabel(route) };
 }

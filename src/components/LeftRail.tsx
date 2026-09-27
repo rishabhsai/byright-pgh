@@ -116,6 +116,8 @@ interface Props {
   onTab: (t: Tab) => void;
   /** The city-wide evaluation has not arrived yet: show skeletons, never empty states. */
   loading: boolean;
+  /** Open the plan in the wide reading overlay. */
+  onReadPlan?: () => void;
 }
 
 export type Tab = "lots" | "plan";
@@ -174,6 +176,7 @@ function LeftRail({
   tab,
   onTab,
   loading,
+  onReadPlan,
 }: Props) {
   const [filtersOpen, setFiltersOpen] = useState(true);
   const filtersId = useId();
@@ -306,8 +309,21 @@ function LeftRail({
       {tab === "plan" ? (
         <div role="tabpanel" aria-label="Plan" className="scroll-thin min-h-0 flex-1 overflow-y-auto">
           <div className="border-b border-hairline px-4 pt-2 pb-3">
-            <h2 className="font-serif text-[22px] leading-none">Disposition plan</h2>
-            <p className="mt-1 text-[12px] text-muted">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="font-serif text-[22px] leading-none">Disposition plan</h2>
+              {onReadPlan && evals && triages && evidence && (
+                <button
+                  onClick={onReadPlan}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-hairline bg-white px-2 py-1 text-[12px] font-medium text-ink transition-colors hover:bg-surface active:scale-[0.98]"
+                >
+                  <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden>
+                    <path d="M7.5 1H11v3.5M4.5 11H1V7.5M11 1L7 5M1 11l4-4" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  Open in reading view
+                </button>
+              )}
+            </div>
+            <p className="mt-1.5 text-[13px] leading-[18px] text-muted">
               Which City lots can take a small home without a hearing, through which channel, and the gap per home. Scope follows the
               neighborhood filter.
             </p>

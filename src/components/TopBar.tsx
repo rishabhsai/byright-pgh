@@ -33,7 +33,7 @@ export default function TopBar({ ruleSet, onRuleSet, stats, onAbout }: Props) {
         <h1 className="shrink-0 font-serif text-[26px] leading-none tracking-[-0.01em] text-ink">
           ByRight <span className="italic text-accent">PGH</span>
         </h1>
-        <p className="min-w-0 truncate pt-1 text-[13px] text-muted">Screening Pittsburgh&apos;s vacant public lots for small homes</p>
+        <p className="min-w-0 truncate pt-1 text-[13px] text-muted">Which small homes are allowed on Pittsburgh&apos;s vacant public lots</p>
         <div className="ml-auto flex shrink-0 items-center gap-2">
           <ScenarioMenu ruleSet={ruleSet} onRuleSet={onRuleSet} />
           <button

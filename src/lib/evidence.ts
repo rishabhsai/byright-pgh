@@ -108,9 +108,17 @@ export function fmtUsdShort(n: number): string {
   return fmtUsd(n);
 }
 
+/** The inventory's district and the City zoning map disagree at the inventory point: the use result rests on an unconfirmed district. */
+export function zoneConflict(lot: Lot): string | null {
+  if (lot.zoneAgrees !== false) return null;
+  return `Inventory says ${lot.zone}; City zoning map says ${lot.zoneMap ?? "a different district"} at this point. Confirm district before relying on this.`;
+}
+
 function permittedUseCheck(lot: Lot, f: Finding): EvidenceCheck {
   const base = { id: "use" as const, label: EVIDENCE_LABEL.use };
   const c = find(f, "use");
+  const conflict = zoneConflict(lot);
+  if (conflict) return { ...base, state: "unknown", detail: conflict, ...(c ? { citation: c.citation } : {}) };
   if (f.verdict === "unknown" || !c) return { ...base, state: "unknown", detail: f.summary };
   const name = PROPOSAL[f.typology];
   const sec = c.citation.section;

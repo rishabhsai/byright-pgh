@@ -3,6 +3,10 @@ import type { Triage } from "@/lib/types";
 import CountUp from "../CountUp";
 import Tooltip from "./Tooltip";
 import { TIP } from "../verdict";
+import { GREEN_POLICY } from "@/lib/triage";
+
+/** Green requires a lot the City records as for sale (read off the policy text, so the copy follows the lib). */
+export const GREEN_NEEDS_SALE = /available for sale/i.test(GREEN_POLICY);
 
 /** The subset of the app's per-rule-set stats the funnel reads. */
 export interface FunnelStats {
@@ -18,7 +22,7 @@ export function funnelSteps(s: FunnelStats) {
     { key: "total", n: total, label: "vacant City lots" },
     { key: "evaluated", n: total - s.unknown, label: "evaluated" },
     { key: "allowed", n: s.byRightAny, label: "allowed, no hearing" },
-    { key: "pays", n: s.triage.green, label: "pay for themselves" },
+    { key: "pays", n: s.triage.green, label: GREEN_NEEDS_SALE ? "pay for themselves, for sale" : "pay for themselves" },
   ] as const;
 }
 
@@ -40,7 +44,8 @@ export function FunnelSentence({ s, className = "" }: { s: FunnelStats | null; c
   return (
     <p className={`text-muted ${className}`}>
       <N v={allowed.n} /> of <N v={total.n} /> vacant City lots allow a small home with{" "}
-      <Tooltip content={TIP.byRight}>no hearing</Tooltip>. <N v={pays.n} /> of those pay for themselves at today&apos;s prices.
+      <Tooltip content={TIP.byRight}>no hearing</Tooltip>. <N v={pays.n} /> of those{" "}
+      {GREEN_NEEDS_SALE ? "pay for themselves and are for sale." : "pay for themselves at today\u2019s prices."}
     </p>
   );
 }
@@ -56,7 +61,7 @@ export function FunnelLine({ s }: { s: FunnelStats | null }) {
       </span>
     );
   const steps = funnelSteps(s);
-  const short = ["", "evaluated", "allowed", "pay"];
+  const short = ["", "evaluated", "allowed", GREEN_NEEDS_SALE ? "pay, for sale" : "pay"];
   return (
     <ol aria-label="Lot funnel" className="flex items-center gap-1.5 text-[12px] whitespace-nowrap text-muted">
       {steps.map((st, i) => (

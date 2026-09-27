@@ -66,6 +66,20 @@ describe("deriveEvidence", () => {
     expect(check(evidence, "finance").detail).toMatch(/Screen, not underwriting/);
   });
 
+  it("marks use unknown when the City zoning map names a different district at the inventory point", () => {
+    const { evidence } = evidenceFor(lot({ zone: "R1D-H", zoneMap: "RM-M", zoneAgrees: false }), RICH);
+    expect(check(evidence, "use")).toMatchObject({
+      state: "unknown",
+      detail: "Inventory says R1D-H; City zoning map says RM-M at this point. Confirm district before relying on this.",
+    });
+    expect(evidence.counts.pass).toBe(4);
+  });
+
+  it("keeps use as the rule result when the map agrees or was not compared", () => {
+    expect(check(evidenceFor(lot({ zoneMap: "R2-M", zoneAgrees: true }), RICH).evidence, "use").state).toBe("pass");
+    expect(check(evidenceFor(lot({ zoneMap: null, zoneAgrees: null }), RICH).evidence, "use").state).toBe("pass");
+  });
+
   it("fails site on a steep-slope flag and says what was not checked", () => {
     const { evidence } = evidenceFor(lot({ hazards: { steepSlope: true, undermined: false, floodZone: false } }), RICH);
     expect(check(evidence, "site").state).toBe("fail");
@@ -139,14 +153,17 @@ describe("deriveEvidence", () => {
 const LOTS = "public/data/lots.json";
 const COMPS = "public/data/comps.json";
 describe.runIf(existsSync(LOTS) && existsSync(COMPS))("deriveEvidence on real records", () => {
-  it("5724 Murray Hill Pl (frontage missing) reads 4 pass · 1 unknown · 1 not checked", () => {
+  it("5724 Murray Hill Pl (frontage missing; inventory RM-M, zoning map R1D-L) reads 3 pass · 2 unknown · 1 not checked", () => {
     const l = (JSON.parse(readFileSync(LOTS, "utf8")) as LotsFile).lots.find((x) => x.id === "0085K00296000000")!;
     const c = compsFor(l, JSON.parse(readFileSync(COMPS, "utf8")) as CompsFile);
     const findings = evaluateLot(l, "current");
     const triage = triageLot(l, findings, c, DEFAULT_FINANCE);
     const ev = evidenceForLot(l, findings, triage, c, DEFAULT_FINANCE, null);
-    expect(ev.counts).toEqual({ pass: 4, fail: 0, unknown: 1, notChecked: 1 });
-    expect(summary(ev)).toBe("4 pass · 1 unknown · 1 not checked");
+    expect(ev.counts).toEqual({ pass: 3, fail: 0, unknown: 2, notChecked: 1 });
+    expect(summary(ev)).toBe("3 pass · 2 unknown · 1 not checked");
+    expect(ev.checks.find((x) => x.id === "use")!.detail).toBe(
+      "Inventory says RM-M; City zoning map says R1D-L at this point. Confirm district before relying on this.",
+    );
     expect(triage.triage).toBe("yellow");
   });
 });

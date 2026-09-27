@@ -4,7 +4,7 @@ import type { RuleSet } from "@/lib/types";
 import Tooltip from "./Tooltip";
 import EvidenceRow from "./EvidenceRow";
 import type { Evidence } from "@/lib/evidence";
-import type { AnswerTone } from "./answer";
+import type { AnswerTone, Blocker } from "./answer";
 import { TIP } from "../verdict";
 
 const TONE: Record<AnswerTone, { bar: string; ink: string }> = {
@@ -27,6 +27,11 @@ export default function AnswerCard({
   changes,
   ruleSet,
   onPlan,
+  blocker,
+  onWhyNot,
+  indexNote,
+  useRoute,
+  prototype,
 }: {
   headline: string;
   tone: AnswerTone;
@@ -39,6 +44,16 @@ export default function AnswerCard({
   changes: string[];
   ruleSet: RuleSet;
   onPlan: () => void;
+  /** The selected proposal fails Fit or Use, or the lot is not for sale: no money line, no planning CTA. */
+  blocker?: Blocker | null;
+  /** Scroll to the section that explains the blocker. */
+  onWhyNot?: (section: "fits" | "allowed") => void;
+  /** A margin high enough to be an artifact of the index value. */
+  indexNote?: boolean;
+  /** The approval route an exception use needs; the Use pill shows it instead of "Unknown". */
+  useRoute?: { short: string; full: string } | null;
+  /** Why this prototype suits (or strains) the lot's frontage. */
+  prototype?: string | null;
 }) {
   const t = TONE[tone];
   return (
@@ -49,21 +64,25 @@ export default function AnswerCard({
           {headline}
         </p>
         <p className="mt-2 text-[14px] leading-snug text-ink">
-          {typeLine}
-          {financeLine && (
+          {blocker ? <span className="font-medium">{blocker.text}</span> : typeLine}
+          {!blocker && financeLine && (
             <>
               <span className="px-1.5 text-faint">·</span>
               <span className="tabular-nums">{financeLine}</span>
             </>
           )}
         </p>
+        {!blocker && financeLine && indexNote && (
+          <p className="mt-1 text-[12px] leading-snug text-muted">Index-based value; confirm comps before relying on this margin.</p>
+        )}
+        {!blocker && prototype && <p className="mt-1 text-[12px] leading-snug text-muted">{prototype}</p>}
         {basisNote && <p className="mt-1 text-[12px] leading-snug text-[#7a5400]">{basisNote}</p>}
         {ruleSet === "bill-2025-1545" && (
           <p className="mt-1 text-[12px] text-[#6b5200]">
             <Tooltip content={TIP.bill}>Scenario: if the housing bill passes</Tooltip>
           </p>
         )}
-        {!status.available && (
+        {!status.available && !(blocker && !blocker.why) && (
           <p className="mt-2 flex items-start gap-1.5 text-[13px] leading-snug text-[#8a4b00]">
             <WarnIcon />
             <span>
@@ -74,7 +93,7 @@ export default function AnswerCard({
 
         {evidence && (
           <div className="mt-4">
-            <EvidenceRow evidence={evidence} />
+            <EvidenceRow evidence={evidence} useRoute={useRoute} />
           </div>
         )}
 
@@ -92,12 +111,23 @@ export default function AnswerCard({
         )}
 
         <div className="mt-4 flex items-center justify-between gap-3">
-          <button
-            onClick={onPlan}
-            className="shrink-0 rounded-lg bg-ink px-3.5 py-2 text-[13px] font-medium whitespace-nowrap text-white transition-[background-color,transform] hover:bg-accent active:scale-[0.98]"
-          >
-            Plan the application
-          </button>
+          {!blocker ? (
+            <button
+              onClick={onPlan}
+              className="shrink-0 rounded-lg bg-ink px-3.5 py-2 text-[13px] font-medium whitespace-nowrap text-white transition-[background-color,transform] hover:bg-accent active:scale-[0.98]"
+            >
+              Plan the application
+            </button>
+          ) : blocker.why && onWhyNot ? (
+            <button
+              onClick={() => onWhyNot(blocker.why!)}
+              className="shrink-0 text-[13px] font-medium text-accent underline decoration-accent/30 underline-offset-[3px] hover:decoration-accent"
+            >
+              Why not
+            </button>
+          ) : (
+            <span />
+          )}
           {status.available && (
             <span className="text-[12px] text-muted">
               <Tooltip content={TIP.cityStatus}>City status</Tooltip>: {status.text}

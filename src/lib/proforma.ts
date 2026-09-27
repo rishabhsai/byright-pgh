@@ -31,6 +31,11 @@ export interface FinanceAssumptions {
   opexPct: number;
   /** Required margin over total cost, % of cost, for a deal to pencil. */
   targetMarginPct: number;
+  /**
+   * Multiplier on the comp index (ZHVI or ZORI) for a scenario where new construction sells or rents above the
+   * index of existing homes. Absent or invalid = 1. Not an editable input; the plan and sensitivity line use 1.3.
+   */
+  valuePremium?: number;
 }
 
 export const DEFAULT_FINANCE: FinanceAssumptions = {
@@ -72,7 +77,28 @@ export function validateFinance(assumptions: Partial<FinanceAssumptions> = {}): 
   if (a.landOverride != null && !(Number.isFinite(a.landOverride) && a.landOverride >= 0)) a.landOverride = null;
   if (!(Number.isFinite(a.defaultLand) && a.defaultLand >= 0)) a.defaultLand = DEFAULT_FINANCE.defaultLand;
   if (a.mode !== "sale" && a.mode !== "rent") a.mode = DEFAULT_FINANCE.mode;
+  if (a.valuePremium !== undefined && !(Number.isFinite(a.valuePremium) && a.valuePremium > 0)) delete a.valuePremium;
   return a;
+}
+
+/** New-construction premium scenario: value at 1.3× the neighborhood index. The URA would calibrate this against actual gap awards. */
+export const NEW_CONSTRUCTION_PREMIUM = 1.3;
+export const PREMIUM_LABEL = `New-construction premium (${NEW_CONSTRUCTION_PREMIUM}× index)`;
+
+/** Frontage under which a detached house leaves too narrow a footprint after side yards; the attached form is the prototype. */
+export const NARROW_LOT_FT = 25;
+
+export const isNarrowLot = (lot: Pick<Lot, "frontageFt">) => lot.frontageFt !== null && lot.frontageFt < NARROW_LOT_FT;
+
+/** Why this prototype fits (or does not fit) a narrow lot; null when the frontage is unknown, 25 ft or more, or the type is not a house. */
+export function prototypeNote(lot: Pick<Lot, "frontageFt">, typology: Typology): string | null {
+  if (!isNarrowLot(lot)) return null;
+  const w = `${fmtNum(Math.round(lot.frontageFt!))} ft`;
+  if (typology === "townhome") return `Prototype chosen for a ${w} lot: attached form, 0 parking under § 914.02.A`;
+  if (typology === "single") {
+    return `Detached prototype on a ${w} lot: side yards leave a narrow house; the attached form (0 parking under § 914.02.A) fits a lot this width`;
+  }
+  return null;
 }
 
 export const SALE_SCALE_MIN = 0.6;
@@ -283,13 +309,15 @@ export function runProforma(
   let revenue: number;
   let grossAnnualRent: number | null = null;
   let revenueNote: string;
+  const premium = a.valuePremium ?? 1;
+  const premiumNote = premium === 1 ? "" : ` × ${premium} new-construction premium`;
   if (a.mode === "sale") {
     if (comps.zhvi == null) return null;
     const { saleUnits, sfPerSale } = SALE_PLAN[typology];
     const scale = saleScale(sfPerSale, a.typicalHomeSf);
-    const perUnit = comps.zhvi * scale;
+    const perUnit = comps.zhvi * scale * premium;
     revenue = perUnit * saleUnits;
-    revenueNote = `${saleUnits} × ${fmtUsd(perUnit)} (${comps.neighborhood} ZHVI ${fmtUsd(comps.zhvi)} × ${scale.toFixed(2)} size scale)${
+    revenueNote = `${saleUnits} × ${fmtUsd(perUnit)} (${comps.neighborhood} ZHVI ${fmtUsd(comps.zhvi)} × ${scale.toFixed(2)} size scale${premiumNote})${
       typology === "single_adu" ? "; ADU sold with the house" : ""
     }`;
     inputs.push(
@@ -314,10 +342,10 @@ export function runProforma(
     );
   } else {
     if (comps.zori == null) return null;
-    grossAnnualRent = comps.zori * 12 * plan.units;
+    grossAnnualRent = comps.zori * premium * 12 * plan.units;
     const noi = grossAnnualRent * (1 - a.opexPct / 100);
     revenue = noi / (a.capRate / 100);
-    revenueNote = `Capitalized value (NOI ÷ cap rate): ${plan.units} × ${fmtUsd(comps.zori)}/mo ZIP ${comps.zip} rent = ${fmtUsd(grossAnnualRent)}/yr gross, less ${a.opexPct}% opex, ÷ ${a.capRate}%`;
+    revenueNote = `Capitalized value (NOI ÷ cap rate): ${plan.units} × ${fmtUsd(comps.zori * premium)}/mo ZIP ${comps.zip} rent${premiumNote} = ${fmtUsd(grossAnnualRent)}/yr gross, less ${a.opexPct}% opex, ÷ ${a.capRate}%`;
     inputs.push(
       {
         key: "zori",
@@ -347,6 +375,16 @@ export function runProforma(
       },
     );
   }
+  if (premium !== 1) {
+    inputs.push({
+      key: "valuePremium",
+      label: "New-construction premium",
+      value: premium,
+      display: `${premium}× the ${a.mode === "sale" ? "ZHVI" : "ZORI"} index`,
+      source: "Scenario: new infill sells or rents above the index of existing homes; to be calibrated against actual sales and URA gap awards",
+      assumed: true,
+    });
+  }
   inputs.push({
     key: "targetMarginPct",
     label: "Required margin",
@@ -375,6 +413,21 @@ export function runProforma(
     breakEvenValue: c.totalCost + required,
     inputsUsed: inputs,
   };
+}
+
+/**
+ * One-line sensitivity for a lot's pro forma: the target value, then +$10/sf hard cost, then the new-construction
+ * premium. Falls back to the other revenue mode like the triage does. Empty string when no comp is available.
+ */
+export function sensitivityLine(lot: Lot, typology: Typology, comps: Comps | null, assumptions: Partial<FinanceAssumptions> = {}): string {
+  const a = validateFinance(assumptions);
+  const run = (x: FinanceAssumptions) => runProforma(lot, typology, comps, x) ?? runProforma(lot, typology, comps, { ...x, mode: x.mode === "sale" ? "rent" : "sale" });
+  const r = run(a);
+  if (!r) return "";
+  const alt = run({ ...a, hardCostPerSf: a.hardCostPerSf + 10 });
+  const prem = run({ ...a, valuePremium: NEW_CONSTRUCTION_PREMIUM });
+  const outcome = (p: Proforma | null) => (p ? (p.pencils ? `${Math.round(p.marginPct)}% margin` : `short by ${fmtUsd(p.gap)}`) : "n/a");
+  return `Value needed for the target return ${fmtUsd(r.breakEvenValue)}; at $${a.hardCostPerSf + 10}/sq ft ${outcome(alt)}; at a new-construction premium (${NEW_CONSTRUCTION_PREMIUM}× index) ${outcome(prem)}.`;
 }
 
 /* ---------- Legacy API (affordable sale at AMI / HUD FMR). Kept for existing UI callers. ---------- */

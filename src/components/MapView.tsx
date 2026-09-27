@@ -8,32 +8,15 @@ import {
   type MapLayerMouseEvent,
 } from "maplibre-gl";
 import type { ExpressionSpecification } from "maplibre-gl";
-import type { Lot, RuleSet, Triage, Typology, Verdict } from "@/lib/types";
+import type { Lot, RuleSet, Triage, Typology } from "@/lib/types";
 import { TYPOLOGY_LABEL } from "@/lib/types";
-import type { ColorMode } from "./ByRightApp";
-import { TRIAGE_COLOR, TRIAGE_INK, TRIAGE_ORDER, TRIAGE_WORD, VERDICT_COLOR, VERDICT_ORDER } from "./verdict";
-import Segmented from "./ui/Segmented";
+import { TRIAGE_COLOR, TRIAGE_INK, TRIAGE_ORDER, TRIAGE_WORD } from "./verdict";
 
 // Turbopack cannot resolve MapLibre 6's module worker; serve a copy from /public.
 setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
 
 const STYLE_URL = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
-const SORT: Record<Verdict, number> = { "by-right": 5, review: 4, variance: 3, prohibited: 2, unknown: 1 };
 const TSORT: Record<Triage, number> = { green: 5, yellow: 4, red: 3, gray: 1 };
-
-const VERDICT_PAINT: ExpressionSpecification = [
-  "match",
-  ["get", "v"],
-  "by-right",
-  VERDICT_COLOR["by-right"],
-  "review",
-  VERDICT_COLOR.review,
-  "variance",
-  VERDICT_COLOR.variance,
-  "prohibited",
-  VERDICT_COLOR.prohibited,
-  VERDICT_COLOR.unknown,
-];
 
 const TRIAGE_PAINT: ExpressionSpecification = [
   "match",
@@ -54,8 +37,6 @@ export type FitBounds = [number, number, number, number];
 export interface HoverInfo {
   lot: Lot;
   triage: Triage | null;
-  /** The verdict the dot is colored by in verdict mode. */
-  verdict: Verdict | null;
   line: string | null;
   /** Set when the detail panel shows a different proposal than the dot's color. */
   note: string | null;
@@ -63,10 +44,7 @@ export interface HoverInfo {
 
 interface Props {
   lots: Lot[];
-  verdicts: Verdict[];
   triages: Triage[];
-  colorMode: ColorMode;
-  onColorMode: (m: ColorMode) => void;
   matches: boolean[];
   /** Lots whose best verdict or triage changes under the bill; ringed in gold when set. */
   changed: boolean[] | null;
@@ -91,16 +69,13 @@ const reducedMotion = () => typeof window !== "undefined" && window.matchMedia("
 
 function buildData(
   lots: Lot[],
-  verdicts: Verdict[],
   triages: Triage[],
-  mode: ColorMode,
   matches: boolean[],
   changed: boolean[] | null,
 ): GeoData {
   return {
     type: "FeatureCollection",
     features: lots.map((l, i) => {
-      const v = verdicts[i] ?? "unknown";
       const t = triages[i] ?? "gray";
       const m = matches[i] ? 1 : 0;
       const c = changed?.[i] && m ? 1 : 0;
@@ -108,7 +83,7 @@ function buildData(
         type: "Feature" as const,
         id: i,
         geometry: { type: "Point" as const, coordinates: [l.lon, l.lat] },
-        properties: { i, v, t, m, c, k: c * 6 + (mode === "triage" ? TSORT[t] : SORT[v]) },
+        properties: { i, t, m, c, k: c * 6 + TSORT[t] },
       };
     }),
   };
@@ -119,27 +94,16 @@ const RADIUS: ExpressionSpecification = ["interpolate", ["linear"], ["zoom"], 9,
 const MATCHED: ExpressionSpecification = ["==", ["get", "m"], 1];
 const RINGED: ExpressionSpecification = ["==", ["get", "c"], 1];
 
-const STRIP_VERDICT: Record<Verdict, string> = {
-  "by-right": "Allowed",
-  review: "Staff approval",
-  variance: "Hearing",
-  prohibited: "Not allowed",
-  unknown: "Not checked",
-};
-
 const STRIP_TRIAGE: Record<Triage, string> = {
-  green: "Ready",
-  yellow: "Needs money or hearing",
+  green: "Passes the screen",
+  yellow: "Needs review, data or subsidy",
   red: "Blocked",
   gray: "Not checked",
 };
 
 function MapView({
   lots,
-  verdicts,
   triages,
-  colorMode,
-  onColorMode,
   matches,
   changed,
   selectedIdx,
@@ -179,7 +143,14 @@ function MapView({
     map.addControl(new NavigationControl({ showCompass: false }), "top-right");
     mapRef.current = map;
 
+    // Compact attribution opens expanded; fold it to its (i) button so it never sits under the legend strip.
+    const foldAttribution = () =>
+      map.getContainer().querySelector(".maplibregl-ctrl-attrib.maplibregl-compact-show")?.classList.remove("maplibregl-compact-show");
+    map.once("idle", foldAttribution);
+    map.on("resize", foldAttribution);
+
     map.on("load", () => {
+      foldAttribution();
       map.addSource("lots", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
       map.addSource("sel", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
       // Filtered-out lots stay as faint context but take no pointer events (no listeners on this layer).
@@ -259,11 +230,8 @@ function MapView({
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map) return;
-    (map.getSource("lots") as GeoJSONSource | undefined)?.setData(
-      buildData(lots, verdicts, triages, colorMode, matches, changed),
-    );
-    map.setPaintProperty("lots", "circle-color", colorMode === "triage" ? TRIAGE_PAINT : VERDICT_PAINT);
-  }, [ready, lots, verdicts, triages, colorMode, matches, changed]);
+    (map.getSource("lots") as GeoJSONSource | undefined)?.setData(buildData(lots, triages, matches, changed));
+  }, [ready, lots, triages, matches, changed]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -320,13 +288,7 @@ function MapView({
           <div className="text-[13px] leading-snug font-medium text-ink">{info.lot.address || info.lot.id}</div>
           <div className="mt-0.5 flex items-center gap-2 text-[12px] text-muted">
             <span className="tabular-nums">{info.lot.zone || "No zone"}</span>
-            {colorMode === "verdict" && info.verdict && (
-              <span className="inline-flex items-center gap-1 font-medium text-ink">
-                <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: VERDICT_COLOR[info.verdict] }} />
-                {STRIP_VERDICT[info.verdict]}
-              </span>
-            )}
-            {colorMode === "triage" && info.triage && (
+            {info.triage && (
               <span className="inline-flex items-center gap-1 font-medium" style={{ color: TRIAGE_INK[info.triage] }}>
                 <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: TRIAGE_COLOR[info.triage] }} />
                 {TRIAGE_WORD[info.triage]}
@@ -352,40 +314,20 @@ function MapView({
         </div>
       )}
       <div
-        className="absolute bottom-3 left-3 z-10 flex max-w-[calc(100%-56px)] items-center gap-3 overflow-hidden rounded-lg border border-hairline bg-panel/95 py-1 pr-3 pl-1 whitespace-nowrap shadow-sm backdrop-blur"
-        title={
-          colorMode === "triage"
-            ? `Can it be built, and does it pay for itself${colorBy ? ` as a ${TYPOLOGY_LABEL[colorBy].toLowerCase()}` : ""}; ${ruleSet === "current" ? "today's code" : "with Bill 2025-1545"}`
-            : `${colorBy ? `${TYPOLOGY_LABEL[colorBy]} verdict` : "Best verdict across five home types"}; ${ruleSet === "current" ? "today's code" : "with Bill 2025-1545"}`
-        }
+        className="absolute bottom-3 left-3 z-10 flex max-w-[calc(100%-64px)] items-center gap-3 overflow-hidden rounded-lg border border-hairline bg-panel/95 px-3 py-1.5 whitespace-nowrap shadow-sm backdrop-blur"
+        title={`Triage for ${colorBy ? `a ${TYPOLOGY_LABEL[colorBy].toLowerCase()} (Home type filter)` : "each lot's best home type"}; ${ruleSet === "current" ? "today's code" : "with Bill 2025-1545"}`}
       >
-        <Segmented<ColorMode>
-          label="Color the map by"
-          value={colorMode}
-          onChange={onColorMode}
-          className="shrink-0"
-          options={[
-            { value: "triage", label: "Triage" },
-            { value: "verdict", label: colorBy ? TYPOLOGY_LABEL[colorBy].replace("House + backyard unit", "+ADU") : "Verdict" },
-          ]}
-        />
+        <span className="shrink-0 text-[11px] font-medium text-ink">{colorBy ? TYPOLOGY_LABEL[colorBy] : "Best home type"}</span>
         {loading ? (
           <span className="text-[12px] text-muted">Evaluating 11,000+ lots…</span>
         ) : (
           <ul aria-label="Legend" className="flex min-w-0 items-center gap-2.5 text-[11px] text-muted">
-            {colorMode === "triage"
-              ? TRIAGE_ORDER.map((t) => (
-                  <li key={t} className="inline-flex items-center gap-1.5">
-                    <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: TRIAGE_COLOR[t] }} />
-                    {STRIP_TRIAGE[t]}
-                  </li>
-                ))
-              : VERDICT_ORDER.map((v) => (
-                  <li key={v} className="inline-flex items-center gap-1.5">
-                    <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: VERDICT_COLOR[v] }} />
-                    {STRIP_VERDICT[v]}
-                  </li>
-                ))}
+            {TRIAGE_ORDER.map((t) => (
+              <li key={t} className="inline-flex items-center gap-1.5">
+                <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: TRIAGE_COLOR[t] }} />
+                {STRIP_TRIAGE[t]}
+              </li>
+            ))}
           </ul>
         )}
       </div>

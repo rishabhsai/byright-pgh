@@ -97,7 +97,7 @@ export async function POST(request: Request) {
     filterTypology: null,
     pickedTypology: null,
   });
-  const deterministic = buildMemo(c, { headline: answerHeadline(c.triage, c.finding, c.proforma).text, districtName: districtName(lot.zone), changes: [] });
+  const deterministic = buildMemo(c, { headline: answerHeadline(c.triage, c.finding, c.proforma, lot).text, districtName: districtName(lot.zone), changes: [] });
   const facts = structuredFacts(lot, req.ruleSet, findings, req.ruleSet === "current" ? other : null, triage, comps);
 
   const out = await complete(SYSTEM, `Findings:\n${facts}`, 500);

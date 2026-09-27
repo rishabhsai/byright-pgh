@@ -39,12 +39,15 @@ export function EvidenceGlyphs({ evidence, extra }: { evidence: Evidence; extra?
  * Six screening checks as a segmented meter. Each segment explains itself on hover or focus;
  * clicking pins its detail (with the code citation) under the row.
  */
-export default function EvidenceRow({ evidence }: { evidence: Evidence }) {
+export default function EvidenceRow({ evidence, useRoute }: { evidence: Evidence; useRoute?: { short: string; full: string } | null }) {
   const [pinned, setPinned] = useState<string | null>(null);
   const open = evidence.checks.find((c) => c.id === pinned) ?? null;
+  // An exception use is a route (staff or Board approval), never shown as "Unknown".
+  const word = (c: Evidence["checks"][number], full = false) =>
+    useRoute && c.id === "use" && c.state === "unknown" ? (full ? useRoute.full : useRoute.short) : EVIDENCE_WORD[c.state];
   return (
     <div>
-      <p className="mb-2 text-[12px] leading-snug text-ink">{evidenceSummary(evidence)}</p>
+      <p className="mb-2 text-[12px] leading-snug text-ink">{evidenceSummary(evidence, useRoute?.full)}</p>
       <ul className="grid grid-cols-6 gap-0.5 min-[1440px]:gap-1" aria-label="Screening checks">
         {evidence.checks.map((c) => {
           const on = pinned === c.id;
@@ -55,7 +58,7 @@ export default function EvidenceRow({ evidence }: { evidence: Evidence }) {
                 content={
                   <>
                     <span className="block font-medium">
-                      {c.label}: {EVIDENCE_WORD[c.state]}
+                      {c.label}: {word(c, true)}
                     </span>
                     <span className="mt-0.5 block text-white/80">{c.detail}</span>
                   </>
@@ -64,20 +67,20 @@ export default function EvidenceRow({ evidence }: { evidence: Evidence }) {
                 <button
                   onClick={() => setPinned(on ? null : c.id)}
                   aria-expanded={on}
-                  aria-label={`${c.label}: ${EVIDENCE_WORD[c.state]}`}
+                  aria-label={`${c.label}: ${word(c, true)}`}
                   className={`group block w-full rounded-md px-px pt-1 pb-1.5 min-[1440px]:px-0.5 text-left transition-colors hover:bg-surface ${on ? "bg-surface" : ""}`}
                 >
                   <span
                     aria-hidden
                     className="block h-[6px] rounded-full"
                     style={{
-                      background: FILL[c.state],
+                      background: word(c) !== EVIDENCE_WORD[c.state] ? "#2563eb" : FILL[c.state],
                       boxShadow: c.state === "notChecked" ? "inset 0 0 0 1px #b9c0bb" : undefined,
                     }}
                   />
                   <span className="mt-1.5 block truncate text-[12px] leading-tight tracking-[-0.015em] text-ink">{c.label}</span>
-                  <span className={`block text-[11px] leading-tight ${c.state === "fail" ? "text-[#c2410c]" : "text-muted"}`}>
-                    {EVIDENCE_WORD[c.state]}
+                  <span className={`block text-[11px] leading-tight ${c.state === "fail" ? "text-[#c2410c]" : word(c) !== EVIDENCE_WORD[c.state] ? "text-[#1d4ed8]" : "text-muted"}`}>
+                    {word(c)}
                   </span>
                 </button>
               </Tooltip>
@@ -87,7 +90,10 @@ export default function EvidenceRow({ evidence }: { evidence: Evidence }) {
       </ul>
       {open && (
         <p className="fade-in mt-2 rounded-md bg-surface px-3 py-2 text-[12px] leading-snug text-ink">
-          <span className="font-medium">{open.label}.</span> {open.detail}
+          <span className="font-medium">
+            {open.label}: {word(open, true)}.
+          </span>{" "}
+          {open.detail}
           {open.citation && (
             <>
               {" "}

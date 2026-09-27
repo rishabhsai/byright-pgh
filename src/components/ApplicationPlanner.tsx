@@ -38,15 +38,16 @@ interface Suggestion {
 export default function ApplicationPlanner({ selected, onChangeType, onFlash, wide = false }: Props) {
   const { lot, ruleSet, typology, triage, proforma, comps, finding } = selected;
   const findings = selected.findings[ruleSet];
-  const [prepared, setPrepared] = useState(false);
   const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
   const [suggesting, setSuggesting] = useState(false);
 
-  /** Deterministic plan. Model text never replaces any of it. */
-  const plan = useMemo<ApplicationPlan | null>(() => {
-    if (!prepared) return null;
-    return buildApplicationPlan(lot, findings, ruleSet, triage, proforma, comps, typology);
-  }, [prepared, typology, lot, findings, ruleSet, triage, proforma, comps]);
+  const evaluable = findings.some((f) => f.verdict !== "unknown");
+
+  /** Deterministic plan for the selected proposal. Model text never replaces any of it. */
+  const plan = useMemo<ApplicationPlan | null>(
+    () => (evaluable ? buildApplicationPlan(lot, findings, ruleSet, triage, proforma, comps, typology) : null),
+    [evaluable, typology, lot, findings, ruleSet, triage, proforma, comps],
+  );
 
   // The server rebuilds the description with default assumptions; show its suggestion only when
   // that matches what this panel shows.
@@ -75,8 +76,11 @@ export default function ApplicationPlanner({ selected, onChangeType, onFlash, wi
     }
   };
 
-  const prepare = () => {
-    setPrepared(true);
+  // The optional model rewording is only asked for once someone opens the applicant packet.
+  const [asked, setAsked] = useState(false);
+  const onOpenPacket = (open: boolean) => {
+    if (!open || asked) return;
+    setAsked(true);
     void requestSuggestion();
   };
 
@@ -96,8 +100,6 @@ export default function ApplicationPlanner({ selected, onChangeType, onFlash, wi
     URL.revokeObjectURL(url);
   };
 
-  const evaluable = findings.some((f) => f.verdict !== "unknown");
-
   return (
     <div className="space-y-3">
       <p className="flex gap-2 rounded-lg border border-accent/30 bg-accent-soft px-3 py-2.5 text-[12px] leading-snug text-accent">
@@ -112,84 +114,68 @@ export default function ApplicationPlanner({ selected, onChangeType, onFlash, wi
         </p>
       ) : (
         <>
-          <p className="flex flex-wrap items-center gap-x-1.5 text-[13px] text-ink">
-            <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: VERDICT_COLOR[finding?.verdict ?? "unknown"] }} />
+          <p className="flex items-start gap-2 text-[13px] leading-snug text-ink">
+            <span aria-hidden className="mt-[6px] h-2 w-2 shrink-0 rounded-full" style={{ background: VERDICT_COLOR[finding?.verdict ?? "unknown"] }} />
             <span>
               For a <span className="font-medium">{TYPOLOGY_LABEL[typology].toLowerCase()}</span>
               {finding && <span className="text-muted">, {verdictLabel(finding).charAt(0).toLowerCase() + verdictLabel(finding).slice(1)}</span>}
-              {proforma && <span className="text-muted">, land {LAND_WORD[proforma.landSource]}</span>}
+              {proforma && <span className="text-muted">, land {LAND_WORD[proforma.landSource]}</span>}{" "}
+              <button onClick={onChangeType} className="text-[12px] text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent">
+                Change in Pays
+              </button>
             </span>
-            <button onClick={onChangeType} className="text-[12px] text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent">
-              Change in Pays
-            </button>
           </p>
 
-          {!plan && (
-            <button
-              onClick={prepare}
-              className="rounded-md bg-ink px-3 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-accent disabled:opacity-50"
-            >
-              Build my filing packet
-            </button>
-          )}
+          {plan && <p className="font-serif text-[20px] leading-tight text-ink">{packetHeadline(plan)}</p>}
         </>
       )}
 
       {plan && (
-        <div className="fade-in space-y-4 pt-1">
-          <p className="font-serif text-[20px] leading-tight text-ink">{packetHeadline(plan)}</p>
-          <Stepper steps={plan.steps} />
-          <Attachments items={plan.attachments} />
-          <details className="group rounded-lg border border-hairline bg-white">
-            <summary className="flex cursor-pointer items-center justify-between px-3 py-2 text-[13px] font-medium text-ink select-none">
-              For an applicant
-              <span className="text-[12px] font-normal text-muted">
-                Purchase form pre-fill{plan.zba ? " and hearing worksheet" : ""}
-              </span>
-            </summary>
-            <div className="space-y-4 border-t border-hairline p-3">
-              <PurchaseForm
-                fields={plan.purchaseForm}
-                acquisition={plan.acquisition}
-                suggestion={shownSuggestion}
-                suggesting={suggesting}
-                wide={wide}
-              />
-              {plan.zba && <ZbaCard plan={plan} />}
+        <details className="group rounded-lg border border-hairline bg-white" onToggle={(e) => onOpenPacket(e.currentTarget.open)}>
+          <summary className="flex cursor-pointer items-center justify-between gap-3 px-3 py-2 text-[13px] font-medium text-ink select-none">
+            For an applicant
+            <span className="text-right text-[12px] font-normal text-muted">
+              Filing steps, purchase form pre-fill{plan.zba ? ", hearing worksheet" : ""}
+            </span>
+          </summary>
+          <div className="fade-in space-y-4 border-t border-hairline p-3">
+            <Stepper steps={plan.steps} />
+            <Attachments items={plan.attachments} />
+            <PurchaseForm fields={plan.purchaseForm} acquisition={plan.acquisition} suggestion={shownSuggestion} suggesting={suggesting} wide={wide} />
+            {plan.zba && <ZbaCard plan={plan} />}
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={copy}
+                className="rounded-md bg-ink px-3 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-accent"
+              >
+                Copy packet
+              </button>
+              <button
+                onClick={download}
+                className="rounded-md border border-hairline bg-white px-3 py-1.5 text-[12px] font-medium text-ink hover:bg-surface"
+              >
+                Download .md
+              </button>
             </div>
-          </details>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={copy}
-              className="rounded-md bg-ink px-3 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-accent"
-            >
-              Copy packet
-            </button>
-            <button
-              onClick={download}
-              className="rounded-md border border-hairline bg-white px-3 py-1.5 text-[12px] font-medium text-ink hover:bg-surface"
-            >
-              Download .md
-            </button>
+            <details className="text-[12px] text-muted">
+              <summary className="cursor-pointer text-faint hover:text-muted">Sources ({plan.sources.length})</summary>
+              <ul className="mt-1.5 space-y-1">
+                {plan.sources.map((s) => (
+                  <li key={s.url + s.title}>
+                    <a
+                      href={s.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent"
+                    >
+                      {s.title}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </details>
           </div>
-          <details className="text-[12px] text-muted">
-            <summary className="cursor-pointer text-faint hover:text-muted">Sources ({plan.sources.length})</summary>
-            <ul className="mt-1.5 space-y-1">
-              {plan.sources.map((s) => (
-                <li key={s.url + s.title}>
-                  <a
-                    href={s.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent"
-                  >
-                    {s.title}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </details>
-        </div>
+        </details>
       )}
 
       <ReviewChecklist />

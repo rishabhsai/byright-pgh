@@ -50,6 +50,14 @@ HAZARD_LAYERS = {
     },
 }
 
+ZONING = {
+    "file": RAW / "zoning.geojson",
+    "url": f"{WPRDC}/dataset/01773197-baba-4f5e-aa77-ae87a04afafc/resource/6127f35e-f36b-4a53-80b3-f4409609e9df/download/zoning.geojson",
+    "resource": "6127f35e-f36b-4a53-80b3-f4409609e9df",
+    "page": f"{WPRDC}/dataset/01773197-baba-4f5e-aa77-ae87a04afafc",
+    "name": "City of Pittsburgh Zoning Districts, zon_new (WPRDC)",
+}
+
 FEMA_SERVICE = "https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer"
 FEMA_FILE = RAW / "fema_sfha.geojson"
 PGH_BBOX = "-80.10,40.36,-79.86,40.50"
@@ -269,6 +277,54 @@ def fema_vintage():
     return ""
 
 
+# ---------- Zoning map cross-check ----------
+
+def norm_zone(z):
+    z = re.sub(r"\s+", "", z or "").upper()
+    return z or None
+
+
+def zone_at_points(points):
+    """zon_new of the City zoning polygon under each point, or None (no polygon, or blank zon_new)."""
+    download(ZONING["url"], ZONING["file"])
+    gj = json.loads(ZONING["file"].read_text())
+    geoms, zones = [], []
+    for f in gj["features"]:
+        if not f.get("geometry"):
+            continue
+        g = shape(f["geometry"])
+        if g.is_empty:
+            continue
+        if not g.is_valid:
+            g = shapely.make_valid(g)
+        geoms.append(g)
+        zones.append(norm_zone(f["properties"].get("zon_new")))
+    log(f"zoning: {len(geoms)} polygons")
+    out = [None] * len(points)
+    tree = shapely.STRtree(geoms)
+    pt_idx, g_idx = tree.query(points, predicate="intersects")
+    seen = {}
+    for p, g in zip(pt_idx.tolist(), g_idx.tolist()):
+        seen.setdefault(p, set()).add(zones[g])
+    multi = 0
+    for p, zs in seen.items():
+        zs.discard(None)
+        if len(zs) == 1:
+            out[p] = zs.pop()
+        elif len(zs) > 1:
+            multi += 1  # point on a boundary between two districts: leave unresolved
+    log(f"zoning: {sum(z is not None for z in out)}/{len(points)} points matched; {multi} on a district boundary left null")
+    return out
+
+
+def zone_agrees(inventory_zone, map_zone):
+    """True/False when both sides name a district; None when either is missing."""
+    inv = norm_zone(inventory_zone)
+    if inv in (None, "UNKNOWN") or map_zone is None:
+        return None
+    return inv == map_zone
+
+
 # ---------- Main ----------
 
 def main():
@@ -297,6 +353,9 @@ def main():
         log(f"{key}: {len(polys)} polygons")
         layer["hits"] = flag_points(points, polys)
         hazard_vintage[key] = resource_last_modified(layer["resource"])
+
+    map_zones = zone_at_points(points)
+    zoning_vintage = resource_last_modified(ZONING["resource"])
 
     flood_hits, flood_ok = None, False
     try:
@@ -327,6 +386,8 @@ def main():
             "lat": round(l["lat"], 6),
             "lon": round(l["lon"], 6),
             "zone": (r["zoned_as"] or "").strip() or "UNKNOWN",
+            "zoneMap": map_zones[i],
+            "zoneAgrees": zone_agrees(r["zoned_as"], map_zones[i]),
             "lotAreaSqFt": round(lotarea) if lotarea is not None else None,
             "frontageFt": parse_frontage(a.get("LEGAL1"), a.get("LEGAL2")),
             "landValue": round(land) if land is not None else None,
@@ -357,6 +418,11 @@ def main():
             "vintage": assess_note,
         },
     ]
+    sources.append({
+        "name": ZONING["name"] + " (cross-check of the inventory's zoned_as at the inventory point)",
+        "url": ZONING["page"],
+        "vintage": f"resource last modified {zoning_vintage or 'unknown'}; retrieved {today}",
+    })
     for key, layer in HAZARD_LAYERS.items():
         sources.append({
             "name": layer["name"] + " (screening only)",
@@ -390,7 +456,7 @@ def main():
 def report(path):
     doc = json.loads(Path(path).read_text())
     lots = doc["lots"]
-    expected = ["id", "address", "neighborhood", "councilDistrict", "ward", "lat", "lon", "zone", "lotAreaSqFt",
+    expected = ["id", "address", "neighborhood", "councilDistrict", "ward", "lat", "lon", "zone", "zoneMap", "zoneAgrees", "lotAreaSqFt",
                 "frontageFt", "landValue", "status", "inventoryType", "hazards"]
     assert set(doc) == {"generatedAt", "sources", "lots"}
     assert all(list(l) == expected for l in lots)
@@ -399,6 +465,12 @@ def report(path):
     print(f"file: {path} ({path.stat().st_size / 1e6:.2f} MB)")
     print(f"lots: {len(lots)}")
     print("top zones:", Counter(l["zone"] for l in lots).most_common(15))
+    agree = Counter(l["zoneAgrees"] for l in lots)
+    compared = agree[True] + agree[False]
+    print(f"zoning map vs inventory: {agree[True]}/{compared} agree ({100 * agree[True] / max(compared, 1):.1f}%), "
+          f"{agree[False]} disagree, {agree[None]} not compared (inventory zone blank or no map polygon)")
+    print("top disagreements (inventory -> map):",
+          Counter((l["zone"], l["zoneMap"]) for l in lots if l["zoneAgrees"] is False).most_common(15))
     for h in ("steepSlope", "undermined", "floodZone"):
         print(f"{h}:", Counter(l["hazards"][h] for l in lots))
     for k in ("lotAreaSqFt", "frontageFt", "landValue"):

@@ -4,7 +4,7 @@ import type { Check, Finding, Lot, RuleSet, Typology, Verdict } from "@/lib/type
 import { TYPOLOGY_LABEL, VERDICT_LABEL, verdictLabel } from "@/lib/types";
 import type { FinanceAssumptions } from "@/lib/finance";
 import type { SelectedCase } from "@/lib/selectedCase";
-import { TIP, VERDICT_COLOR, VERDICT_TIP, VerdictChip, ZoneChip } from "./verdict";
+import { TIP, VERDICT_COLOR, VERDICT_TIP, VerdictChip, ZoneChip, zoneLabel } from "./verdict";
 import { districtName } from "./district";
 import { buildMemo, buildSummary } from "./memo";
 import ProForma from "./ProForma";
@@ -13,7 +13,9 @@ import Tooltip from "./ui/Tooltip";
 import Section from "./ui/Section";
 import AnswerCard from "./ui/AnswerCard";
 import { evidenceSummary } from "./ui/EvidenceRow";
-import { answerHeadline, cityStatus, financeLine, typologyPhrase, whatWouldChange } from "./ui/answer";
+import { answerHeadline, approvalRoute, blockerLine, cityStatus, financeLine, HIGH_MARGIN_PCT, typologyPhrase, whatWouldChange } from "./ui/answer";
+import { MIN_PRACTICAL_LOT_SQFT } from "@/lib/evidence";
+import { prototypeNote } from "@/lib/proforma";
 import { FunnelBars, FunnelSentence, type FunnelStats } from "./ui/Funnel";
 
 /** 5118 Ladora Way, Hazelwood: R1A-VH, URA Transfer, one of three adjacent ready-for-a-house lots. */
@@ -170,11 +172,13 @@ function LotDetail({
   // --- The answer: the selected proposal's triage, finance and evidence, all from the case.
   const chosen = c.finding;
   const pf = c.proforma;
-  const head = answerHeadline(c.triage, chosen, pf);
-  // No money line for a proposal zoning rules out or did not evaluate; the evidence says finance was not screened.
-  const fin = chosen && (chosen.verdict === "prohibited" || chosen.verdict === "unknown") ? null : financeLine(pf);
+  const head = answerHeadline(c.triage, chosen, pf, lot);
   const status = cityStatus(lot);
   const evidence = c.evidence;
+  // No money line for a proposal that fails Fit or Use, on a lot that is not for sale, or one zoning did not evaluate.
+  const blocker = chosen && chosen.verdict !== "unknown" ? blockerLine(lot, typology, chosen, evidence) : null;
+  const fin = blocker || (chosen && (chosen.verdict === "prohibited" || chosen.verdict === "unknown")) ? null : financeLine(pf);
+  const indexNote = !!fin && !!pf?.pencils && pf.marginPct > HIGH_MARGIN_PCT;
   const changes = whatWouldChange(lot, findings, chosen, fin ? pf : null);
   const typeLine = typologyPhrase(typology, chosen);
 
@@ -221,10 +225,10 @@ function LotDetail({
     await copyText(
       buildSummary(lot, ruleSet, {
         headline: head.text,
-        typeLine,
+        typeLine: blocker?.text ?? typeLine,
         financeLine: fin,
         status: status.text,
-        evidence: evidenceSummary(evidence),
+        evidence: evidenceSummary(evidence, approvalRoute(chosen, lot)?.full),
       }),
     );
     setExportOpen(false);
@@ -255,6 +259,13 @@ function LotDetail({
                 <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted">
                   <span>{lot.neighborhood}</span>
                   <ZoneChip zone={lot.zone} tip />
+                  {lot.zoneAgrees === false && (
+                    <Tooltip content={`Inventory says ${lot.zone || "no district"}; the City zoning map says ${lot.zoneMap ?? "a different district"} at this point. Confirm the district before relying on the use result.`}>
+                      <span className="inline-flex shrink-0 items-center rounded border border-gold/60 bg-gold-soft px-1.5 py-px text-[11px] font-medium whitespace-nowrap text-[#6b5200]">
+                        Map says {lot.zoneMap ? zoneLabel(lot.zoneMap) : "other"}
+                      </span>
+                    </Tooltip>
+                  )}
                   <button
                     onClick={async () => {
                       await copyText(lot.id);
@@ -321,6 +332,11 @@ function LotDetail({
             </>
           }
           financeLine={fin}
+          blocker={blocker}
+          onWhyNot={goTo}
+          indexNote={indexNote}
+          useRoute={approvalRoute(chosen, lot)}
+          prototype={prototypeNote(lot, typology)}
           basisNote={bestNote}
           status={status}
           evidence={chosen && chosen.verdict !== "unknown" ? evidence : null}
@@ -463,6 +479,8 @@ interface FitItem {
   state: FitState;
   citation?: Check["citation"];
   note?: string;
+  /** Overrides the state word (e.g. "Below floor" for the screening floor, which is not a code failure). */
+  word?: string;
 }
 
 function fitChecks(lot: Lot, f: Finding): FitItem[] {
@@ -480,12 +498,25 @@ function fitChecks(lot: Lot, f: Finding): FitItem[] {
     key: "area",
     label: "Lot area",
     value: lot.lotAreaSqFt != null ? `${lot.lotAreaSqFt.toLocaleString()} sq ft` : "Not in the record",
-    required: [area?.required && area.required !== "none" ? `min ${area.required}` : null, perUnit?.required && perUnit.required !== "none" ? `${perUnit.required} for the units` : null]
+    required: [
+      area?.required && area.required !== "none" ? (area.required.startsWith("0 ") ? "min 0 here" : `min ${area.required}`) : null,
+      perUnit?.required && perUnit.required !== "none" ? `${perUnit.required} for the units` : null,
+    ]
       .filter(Boolean)
       .join("; ") || "No minimum here",
     state: areaState,
     citation: (area ?? perUnit)?.citation,
   });
+  // Our screening floor, not code: its own row, so the code row can pass while the evidence row's Lot size fails.
+  if (areaState === "pass" && lot.lotAreaSqFt != null && lot.lotAreaSqFt < MIN_PRACTICAL_LOT_SQFT)
+    out.push({
+      key: "floor",
+      label: `Below ${MIN_PRACTICAL_LOT_SQFT.toLocaleString()} sf`,
+      value: "Consolidation candidate",
+      required: "our screening floor, not a code minimum",
+      state: "fail",
+      word: "Below floor",
+    });
   const width = get("lot-width");
   out.push({
     key: "width",
@@ -539,7 +570,7 @@ function FitRow({ r }: { r: FitItem }) {
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">
           <span className="text-[13px] text-ink">{r.label}</span>
-          <span className={`shrink-0 text-[12px] ${r.state === "fail" ? "text-[#c2410c]" : "text-muted"}`}>{FIT_WORD[r.state]}</span>
+          <span className={`shrink-0 text-[12px] ${r.state === "fail" ? "text-[#c2410c]" : "text-muted"}`}>{r.word ?? FIT_WORD[r.state]}</span>
         </div>
         <p className="mt-0.5 text-[12px] leading-snug text-muted">
           <span className="text-ink tabular-nums">{r.value}</span>
@@ -623,11 +654,11 @@ function VerdictList({
                       {tip ? (
                         <Tooltip content={tip} asChild>
                           <span tabIndex={0} className="cursor-help rounded-full">
-                            <VerdictChip verdict={f.verdict} full />
+                            <VerdictChip verdict={f.verdict} finding={f} full={columns === 2} />
                           </span>
                         </Tooltip>
                       ) : (
-                        <VerdictChip verdict={f.verdict} full />
+                        <VerdictChip verdict={f.verdict} finding={f} full={columns === 2} />
                       )}
                     </span>
                   </div>

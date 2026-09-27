@@ -92,10 +92,17 @@ export function VerdictChip({ verdict, full = false, finding }: { verdict: Verdi
   );
 }
 
+/** Chip text: the district code, spelled out where the code alone reads as blank (a lone "H" is Hillside). */
+export function zoneLabel(zone: string): string {
+  const z = zone.trim();
+  if (!z) return "none";
+  return z.length === 1 ? (districtName(z) ?? z) : z;
+}
+
 export function ZoneChip({ zone, tip = false }: { zone: string; tip?: boolean }) {
   const chip = (
     <span className="inline-flex shrink-0 items-center rounded border border-hairline bg-white px-1.5 py-px text-[11px] font-medium whitespace-nowrap text-ink">
-      {zone || "none"}
+      {zoneLabel(zone)}
     </span>
   );
   const t = tip ? zoneTip(zone) : null;
