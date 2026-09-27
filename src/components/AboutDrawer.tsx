@@ -20,20 +20,20 @@ export default function AboutDrawer({
   onClose,
   file,
   compsFile,
-  usingFixtures,
 }: {
   open: boolean;
   onClose: () => void;
   file: LotsFile | null;
   compsFile: CompsFile | null;
-  usingFixtures: boolean;
 }) {
   const districts = encodedDistricts();
   // Focus moves into the drawer on open (the close button's ref) and back to the opener on close.
   const opener = useRef<HTMLElement | null>(null);
+  const closeBtn = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (open) {
       opener.current = document.activeElement as HTMLElement | null;
+      closeBtn.current?.focus({ preventScroll: true });
       return;
     }
     const el = opener.current;
@@ -62,9 +62,7 @@ export default function AboutDrawer({
             </p>
           </div>
           <button
-            ref={(el) => {
-              if (open && el && !el.contains(document.activeElement)) el.focus({ preventScroll: true });
-            }}
+            ref={closeBtn}
             onClick={onClose}
             aria-label="Close (Esc)"
             className="flex h-7 w-7 items-center justify-center rounded-md text-muted hover:bg-surface hover:text-ink"
@@ -77,11 +75,6 @@ export default function AboutDrawer({
 
         <div className="space-y-7 px-6 py-6 text-[13px]">
           <Block title="Sources">
-            {usingFixtures && (
-              <p className="mb-2 rounded-md bg-[#fde8ec] px-2.5 py-1.5 text-[12px] text-[#9f1239]">
-                The full lot file did not load, so the app is showing a small sample.
-              </p>
-            )}
             <ul className="space-y-3">
               {(file?.sources ?? []).map((s) => (
                 <li key={s.name}>

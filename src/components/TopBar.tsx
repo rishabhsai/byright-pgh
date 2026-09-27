@@ -12,7 +12,6 @@ interface Props {
   onRuleSet: (r: RuleSet) => void;
   stats: Record<RuleSet, RuleSetStats> | null;
   onAbout: () => void;
-  usingFixtures: boolean;
 }
 
 const SCENARIO_LABEL: Record<RuleSet, string> = {
@@ -25,7 +24,7 @@ const SCENARIO_TIP: Record<RuleSet, string> = {
 };
 const OPTIONS: RuleSet[] = ["current", "bill-2025-1545"];
 
-export default function TopBar({ ruleSet, onRuleSet, stats, onAbout, usingFixtures }: Props) {
+export default function TopBar({ ruleSet, onRuleSet, stats, onAbout }: Props) {
   const s = stats?.[ruleSet] ?? null;
 
   return (
@@ -34,11 +33,8 @@ export default function TopBar({ ruleSet, onRuleSet, stats, onAbout, usingFixtur
         <h1 className="shrink-0 font-serif text-[26px] leading-none tracking-[-0.01em] text-ink">
           ByRight <span className="italic text-accent">PGH</span>
         </h1>
-        <p className="min-w-0 truncate pt-1 text-[13px] text-muted">Which small homes fit Pittsburgh&apos;s vacant public lots</p>
+        <p className="min-w-0 truncate pt-1 text-[13px] text-muted">Screening Pittsburgh&apos;s vacant public lots for small homes</p>
         <div className="ml-auto flex shrink-0 items-center gap-2">
-          {usingFixtures && (
-            <span className="rounded-full bg-[#fde8ec] px-2.5 py-1 text-[11px] font-medium text-[#9f1239]">Sample data</span>
-          )}
           <ScenarioMenu ruleSet={ruleSet} onRuleSet={onRuleSet} />
           <button
             onClick={onAbout}

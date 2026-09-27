@@ -1,10 +1,9 @@
 "use client";
 import { useMemo, useState } from "react";
-import type { Comps, Finding, Lot, RuleSet, TriageResult, Typology } from "@/lib/types";
-import { proformaWithFallback, type FinanceAssumptions } from "@/lib/finance";
+import { TYPOLOGY_LABEL, verdictLabel } from "@/lib/types";
+import type { SelectedCase } from "@/lib/selectedCase";
 import {
   buildApplicationPlan,
-  defaultTypology,
   NEVER_SUBMITS,
   renderApplicationMarkdown,
   SUGGESTION_LABEL,
@@ -14,20 +13,20 @@ import {
   type PrefilledField,
   type Step,
 } from "@/lib/application";
-import { TYPOLOGY_SHORT, VERDICT_COLOR, VERDICT_SHORT } from "./verdict";
+import { VERDICT_COLOR } from "./verdict";
 import { REVIEW_CHECKLIST } from "./memo";
 
 interface Props {
-  lot: Lot;
-  findings: Finding[];
-  ruleSet: RuleSet;
-  triage: TriageResult | null;
-  comps: Comps | null;
-  assumptions: FinanceAssumptions;
+  /** The selected case: the packet is for its proposal, rule set and effective land cost. */
+  selected: SelectedCase;
+  /** Jump to where the proposal is chosen (Pays). */
+  onChangeType: () => void;
   onFlash: (msg: string) => void;
   /** Expanded reading mode: wider form layout. */
   wide?: boolean;
 }
+
+const LAND_WORD = { override: "at your figure", assessed: "at the County value", default: "assumed (no assessment)" } as const;
 
 /** A model's rewording of the proposed-use description, tied to the exact text it was made from. */
 interface Suggestion {
@@ -36,18 +35,18 @@ interface Suggestion {
   text: string;
 }
 
-export default function ApplicationPlanner({ lot, findings, ruleSet, triage, comps, assumptions, onFlash, wide = false }: Props) {
-  const [typology, setTypology] = useState<Typology | null>(() => defaultTypology(findings, triage));
+export default function ApplicationPlanner({ selected, onChangeType, onFlash, wide = false }: Props) {
+  const { lot, ruleSet, typology, triage, proforma, comps, finding } = selected;
+  const findings = selected.findings[ruleSet];
   const [prepared, setPrepared] = useState(false);
   const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
   const [suggesting, setSuggesting] = useState(false);
 
   /** Deterministic plan. Model text never replaces any of it. */
   const plan = useMemo<ApplicationPlan | null>(() => {
-    if (!prepared || !typology) return null;
-    const pf = proformaWithFallback(lot, typology, comps, assumptions);
-    return buildApplicationPlan(lot, findings, ruleSet, triage, pf, comps, typology);
-  }, [prepared, typology, lot, findings, ruleSet, triage, comps, assumptions]);
+    if (!prepared) return null;
+    return buildApplicationPlan(lot, findings, ruleSet, triage, proforma, comps, typology);
+  }, [prepared, typology, lot, findings, ruleSet, triage, proforma, comps]);
 
   // The server rebuilds the description with default assumptions; show its suggestion only when
   // that matches what this panel shows.
@@ -56,7 +55,8 @@ export default function ApplicationPlanner({ lot, findings, ruleSet, triage, com
       ? suggestion.text
       : null;
 
-  const requestSuggestion = async (t: Typology) => {
+  const requestSuggestion = async () => {
+    const t = typology;
     const key = `${lot.id}|${t}|${ruleSet}`;
     setSuggesting(true);
     try {
@@ -75,15 +75,9 @@ export default function ApplicationPlanner({ lot, findings, ruleSet, triage, com
     }
   };
 
-  const prepare = (t: Typology | null = typology) => {
-    if (!t) return;
+  const prepare = () => {
     setPrepared(true);
-    void requestSuggestion(t);
-  };
-
-  const pick = (t: Typology) => {
-    setTypology(t);
-    if (prepared) prepare(t);
+    void requestSuggestion();
   };
 
   const md = () => (plan ? renderApplicationMarkdown(plan) : "");
@@ -118,34 +112,21 @@ export default function ApplicationPlanner({ lot, findings, ruleSet, triage, com
         </p>
       ) : (
         <>
-          <div>
-            <p className="mb-1.5 text-[12px] text-muted">What do you plan to build?</p>
-            <div role="radiogroup" aria-label="Home type" className="flex flex-wrap gap-1.5">
-              {findings.map((f) => {
-                const on = f.typology === typology;
-                return (
-                  <button
-                    key={f.typology}
-                    role="radio"
-                    aria-checked={on}
-                    onClick={() => pick(f.typology)}
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] transition-colors ${
-                      on ? "border-ink bg-ink text-white" : "border-hairline bg-white text-ink hover:bg-surface"
-                    }`}
-                  >
-                    <span className="h-1.5 w-1.5 rounded-full" style={{ background: VERDICT_COLOR[f.verdict] }} />
-                    {TYPOLOGY_SHORT[f.typology]}
-                    <span className={on ? "text-white/70" : "text-faint"}>{VERDICT_SHORT[f.verdict]}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          <p className="flex flex-wrap items-center gap-x-1.5 text-[13px] text-ink">
+            <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: VERDICT_COLOR[finding?.verdict ?? "unknown"] }} />
+            <span>
+              For a <span className="font-medium">{TYPOLOGY_LABEL[typology].toLowerCase()}</span>
+              {finding && <span className="text-muted">, {verdictLabel(finding).charAt(0).toLowerCase() + verdictLabel(finding).slice(1)}</span>}
+              {proforma && <span className="text-muted">, land {LAND_WORD[proforma.landSource]}</span>}
+            </span>
+            <button onClick={onChangeType} className="text-[12px] text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent">
+              Change in Pays
+            </button>
+          </p>
 
           {!plan && (
             <button
-              onClick={() => prepare()}
-              disabled={!typology}
+              onClick={prepare}
               className="rounded-md bg-ink px-3 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-accent disabled:opacity-50"
             >
               Build my filing packet

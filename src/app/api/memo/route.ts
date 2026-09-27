@@ -1,7 +1,9 @@
 import type { Comps, Finding, Lot, RuleSet, TriageResult } from "@/lib/types";
 import { TRIAGE_LABEL, TYPOLOGY_LABEL, VERDICT_LABEL } from "@/lib/types";
 import { evaluateLot } from "@/lib/rules";
-import { compsFor, fmtUsd, proformaWithFallback, triageLot } from "@/lib/finance";
+import { compsFor, DEFAULT_FINANCE, fmtUsd, proformaWithFallback, triageLot } from "@/lib/finance";
+import { buildSelectedCase } from "@/lib/selectedCase";
+import { answerHeadline } from "@/components/ui/answer";
 import { buildMemo } from "@/components/memo";
 import { districtName } from "@/components/district";
 import { badRequest, complete, loadData, parseLotRequest } from "../_lib/server";
@@ -85,7 +87,17 @@ export async function POST(request: Request) {
   const other = evaluateLot(lot, otherRs);
   const comps = compsFor(lot, compsFile);
   const triage = triageLot(lot, findings, comps);
-  const deterministic = buildMemo(lot, req.ruleSet, findings, { ruleSet: otherRs, findings: other }, districtName(lot.zone));
+  const c = buildSelectedCase({
+    lot,
+    ruleSet: req.ruleSet,
+    findings: { [req.ruleSet]: findings, [otherRs]: other } as Record<RuleSet, Finding[]>,
+    comps,
+    assumptions: DEFAULT_FINANCE,
+    landOverride: null,
+    filterTypology: null,
+    pickedTypology: null,
+  });
+  const deterministic = buildMemo(c, { headline: answerHeadline(c.triage, c.finding, c.proforma).text, districtName: districtName(lot.zone), changes: [] });
   const facts = structuredFacts(lot, req.ruleSet, findings, req.ruleSet === "current" ? other : null, triage, comps);
 
   const out = await complete(SYSTEM, `Findings:\n${facts}`, 500);

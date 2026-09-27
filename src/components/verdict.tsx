@@ -1,5 +1,5 @@
-import type { Triage, Typology, Verdict } from "@/lib/types";
-import { TRIAGE_LABEL, VERDICT_LABEL } from "@/lib/types";
+import type { LabelInput, Triage, Typology, Verdict } from "@/lib/types";
+import { TRIAGE_LABEL, VERDICT_SHORT_LABEL, verdictLabel, verdictShort } from "@/lib/types";
 import Tooltip from "./ui/Tooltip";
 import { districtName } from "./district";
 
@@ -21,25 +21,23 @@ export const VERDICT_COLOR: Record<Verdict, string> = {
   unknown: "#9ca3af",
 };
 
-export const VERDICT_SHORT: Record<Verdict, string> = {
-  "by-right": "Allowed",
-  review: "Staff approval",
-  variance: "Needs a hearing",
-  prohibited: "Not allowed",
-  unknown: "Not checked",
-};
+/** Generic short labels (legend). For one finding use verdictShort(finding), which names the approval route. */
+export const VERDICT_SHORT: Record<Verdict, string> = VERDICT_SHORT_LABEL;
 
 /** Plain-language glossary for the terms that have to stay (UX copy pass, cycle 1). */
 export const TIP = {
-  byRight: "By right: the code permits this use and size outright. City staff review it; no public hearing.",
-  review: "An administrator exception or special exception. Staff or the Board decide against written criteria.",
-  hearing: "The Zoning Board of Adjustment must grant relief from a size rule at a public hearing.",
+  byRight:
+    "By right: the use is permitted and no encoded size standard fails. Staff zoning review still applies, with no public hearing expected; setbacks, height and parking are confirmed on the site plan.",
+  review:
+    "Administrator exception (§ 922.08): zoning staff decide. Special exception (§ 922.07): the Zoning Board of Adjustment decides after a hearing. Both apply written criteria.",
+  hearing:
+    "A size rule fails. Relief may be a dimensional variance (Zoning Board hearing) or, for a qualifying nonconforming lot, a § 921.04 exception; for floor area, a smaller building. Zoning staff determine the path.",
   notChecked: "ByRight only encodes residential, LNC and Hillside districts. Parks, industrial and downtown are out of scope.",
   adu: "ADU: accessory dwelling unit, a small second home on the same lot (garage apartment, cottage).",
   landValue: "The County's 2012-base assessment, not a market price.",
   frontage: "Parsed from the legal description. A survey governs.",
-  cityStatus: "The City's own disposition status. Only 'Available for Sale' lots can be bought today.",
-  bill: "Bill 2025-1545 (substitute, heard Sept 23 2026): citywide ADUs, no parking minimums, affordable bonus. Not yet voted.",
+  cityStatus: "The City's own recorded disposition status. 'Available for Sale' is a listing, not proof a sale can close; confirm with the City or URA.",
+  bill: "Bill 2025-1545 (substitute, heard Sept 23 2026): citywide ADUs, no parking minimums, affordable bonus. Not voted as of Sept 26, 2026.",
   capRate: "Yield a buyer expects from rent; lower means a higher value.",
 } as const;
 
@@ -79,15 +77,17 @@ const VERDICT_INK: Record<Verdict, string> = {
   unknown: "#5d6762",
 };
 
-export function VerdictChip({ verdict, full = false }: { verdict: Verdict; full?: boolean }) {
+/** Pass `finding` so the chip names the approval route (staff vs Board approval, FAR vs lot-size relief). */
+export function VerdictChip({ verdict, full = false, finding }: { verdict: Verdict; full?: boolean; finding?: LabelInput }) {
   const c = VERDICT_COLOR[verdict];
+  const f: LabelInput = finding ?? { verdict };
   return (
     <span
       className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[12px] font-medium whitespace-nowrap"
       style={{ background: `${c}14`, color: VERDICT_INK[verdict] }}
     >
       <VerdictDot verdict={verdict} size={6} />
-      {full ? VERDICT_LABEL[verdict] : VERDICT_SHORT[verdict]}
+      {full ? verdictLabel(f) : verdictShort(f)}
     </span>
   );
 }

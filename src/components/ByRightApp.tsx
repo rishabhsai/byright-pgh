@@ -2,8 +2,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { countByRight, evaluateLot } from "@/lib/engine";
+import { buildSelectedCase, showsOtherThanBest, type SelectedCase } from "@/lib/selectedCase";
 import type { Comps, CompsFile, Finding, Lot, LotsFile, RuleSet, Triage, Typology, Verdict } from "@/lib/types";
-import { VERDICT_LABEL } from "@/lib/types";
+import { TYPOLOGY_LABEL, verdictLabel } from "@/lib/types";
 import { isParkOrGreenway, statusGroup } from "@/lib/ranking";
 import { yellowReason, pickFinding, type Evidence } from "@/lib/evidence";
 import { RULE_SETS, type Evaluations, type Triages, type TriageInput } from "@/lib/evalCompute";
@@ -34,11 +35,6 @@ export interface RuleSetStats {
   /** Lots with more by-right home types than under today's code. Zero for "current". */
   lotsGaining: number;
   triage: Record<Triage, number>;
-}
-
-export interface ByRightAppProps {
-  /** Hook for an AI memo endpoint. Receives the lot and findings under the active rule set. */
-  onGenerateMemo?: (lot: Lot, findings: Finding[], ruleSet: RuleSet) => Promise<string>;
 }
 
 function computeStats(evals: Evaluations, triages: Triages): Record<RuleSet, RuleSetStats> {
@@ -103,9 +99,11 @@ function boundsOf(lots: Lot[], keep: (l: Lot, i: number) => boolean): FitBounds 
   return Number.isFinite(w) ? [w, s, e, n] : null;
 }
 
-/** URL state: ?lot=<id>&hoods=a,b&scenario=bill&tab=plan (history.replaceState, no router). */
+/** URL state: ?lot=<id>&type=duplex&hoods=a,b&scenario=bill&tab=plan (history.replaceState, no router). */
 interface UrlState {
   lot: string | null;
+  /** The proposal picked for the selected lot, when the user picked one. */
+  type: Typology | null;
   hoods: string[];
   bill: boolean;
   tab: Tab;
@@ -114,6 +112,7 @@ function readUrl(): UrlState {
   const p = new URLSearchParams(window.location.search);
   return {
     lot: p.get("lot"),
+    type: (TYPOLOGIES as string[]).includes(p.get("type") ?? "") ? (p.get("type") as Typology) : null,
     hoods: (p.get("hoods") ?? "").split(",").map((h) => h.trim()).filter(Boolean),
     bill: p.get("scenario") === "bill",
     tab: p.get("tab") === "plan" ? "plan" : "lots",
@@ -122,6 +121,7 @@ function readUrl(): UrlState {
 function writeUrl(s: UrlState) {
   const p = new URLSearchParams();
   if (s.lot) p.set("lot", s.lot);
+  if (s.lot && s.type) p.set("type", s.type);
   if (s.hoods.length) p.set("hoods", s.hoods.join(","));
   if (s.bill) p.set("scenario", "bill");
   if (s.tab === "plan") p.set("tab", "plan");
@@ -130,7 +130,7 @@ function writeUrl(s: UrlState) {
   if (url !== `${window.location.pathname}${window.location.search}${window.location.hash}`) window.history.replaceState(window.history.state, "", url);
 }
 
-export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
+export default function ByRightApp() {
   const [file, setFile] = useState<LotsFile | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
@@ -158,6 +158,7 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
     const u = readUrl();
     pendingLot.current = u.lot;
     /* eslint-disable react-hooks/set-state-in-effect -- one-time restore of URL state after hydration */
+    if (u.lot && u.type) setPickedTypology(u.type);
     if (u.bill) setRuleSet("bill-2025-1545");
     if (u.tab === "plan") setTab("plan");
     if (u.hoods.length) setFilters((f) => ({ ...f, neighborhoods: u.hoods }));
@@ -237,13 +238,9 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
 
   const stats = useMemo(() => (evals && triages ? computeStats(evals, triages) : null), [evals, triages]);
 
+  // Time-to-stats, readable as performance.getEntriesByName("byright:stats").
   useEffect(() => {
-    if (!stats) return;
-    const w = window as unknown as { __byrightStatsAt?: number };
-    if (w.__byrightStatsAt == null) {
-      w.__byrightStatsAt = performance.now();
-      console.info(`[byright] stats ready ${Math.round(w.__byrightStatsAt)} ms after navigation start`);
-    }
+    if (stats && !performance.getEntriesByName("byright:stats").length) performance.mark("byright:stats");
   }, [stats]);
 
   const typIdx = filters.typology ? TYPOLOGIES.indexOf(filters.typology) : -1;
@@ -340,8 +337,14 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
 
   useEffect(() => {
     if (!urlRead || (pendingLot.current && !lots.length)) return;
-    writeUrl({ lot: selectedLot?.id ?? null, hoods: filters.neighborhoods, bill: ruleSet === "bill-2025-1545", tab });
-  }, [urlRead, lots.length, selectedLot, filters.neighborhoods, ruleSet, tab]);
+    writeUrl({
+      lot: selectedLot?.id ?? null,
+      type: pickedTypology ?? filterTypology,
+      hoods: filters.neighborhoods,
+      bill: ruleSet === "bill-2025-1545",
+      tab,
+    });
+  }, [urlRead, lots.length, selectedLot, pickedTypology, filterTypology, filters.neighborhoods, ruleSet, tab]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -361,16 +364,26 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
     () => (selectedLot && evals ? { current: evaluateLot(selectedLot, "current"), "bill-2025-1545": evaluateLot(selectedLot, "bill-2025-1545") } : null),
     [selectedLot, evals],
   );
-  const selectedTriage = selectedIdx != null && triages ? triages[ruleSet].results[selectedIdx] : null;
-  const selectedFindings = selectedFull?.[ruleSet] ?? null;
+  const selectedLandOverride = selectedLot ? (landOverrides[selectedLot.id] ?? null) : null;
 
-  // One proposal for the selected lot, shared by zoning, finance and the application worksheet.
-  // The default follows pickFinding, the same rule the list's evidence pill uses.
-  const selectedTypology: Typology =
-    filterTypology ??
-    pickedTypology ??
-    (selectedFindings ? pickFinding(selectedFindings, selectedTriage, null).typology : null) ??
-    "single";
+  // The one selected case: proposal, rule set, effective land cost, findings, finance, evidence.
+  // Every section of the panel and every export reads from it.
+  const selectedCase = useMemo<SelectedCase | null>(
+    () =>
+      selectedLot && selectedFull && selectedIdx != null
+        ? buildSelectedCase({
+            lot: selectedLot,
+            ruleSet,
+            findings: selectedFull,
+            comps: comps[selectedIdx],
+            assumptions,
+            landOverride: selectedLandOverride,
+            filterTypology,
+            pickedTypology,
+          })
+        : null,
+    [selectedLot, selectedFull, selectedIdx, ruleSet, comps, assumptions, selectedLandOverride, filterTypology, pickedTypology],
+  );
 
   const onTypology = useCallback(
     (t: Typology) => {
@@ -380,7 +393,6 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
     [filters.typology],
   );
 
-  const selectedLandOverride = selectedLot ? (landOverrides[selectedLot.id] ?? null) : null;
   const onLandOverride = useCallback(
     (v: number | null) => {
       if (!selectedLot) return;
@@ -396,7 +408,7 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
     [selectedLot],
   );
 
-  // Hover card: one line that says why, never two competing colors.
+  // Hover card: one line that says why, and which proposal the color is for.
   const hoverInfo = useCallback(
     (i: number): HoverInfo | null => {
       const l = lots[i];
@@ -404,20 +416,28 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
       const t = triages?.[ruleSet].results[i] ?? null;
       const f = evals?.[ruleSet].findings[i] ?? null;
       const ev = evidence?.[i] ?? null;
-      if (!t || !f) return { lot: l, triage: null, line: null };
+      if (!t || !f) return { lot: l, triage: null, verdict: null, line: null, note: null };
+      const pick = pickFinding(f, t, filterTypology);
+      const verdict = typIdx < 0 ? evals![ruleSet].best[i] : f[typIdx].verdict;
+      const typeName = `${TYPOLOGY_LABEL[pick.typology]} (${filterTypology ? "Home type filter" : "best type"})`;
+      const label = verdictLabel(pick);
+      const says = `${typeName}: ${label.charAt(0).toLowerCase()}${label.slice(1)}`;
       let line: string;
-      if (t.triage === "gray" || t.triage === "red") {
+      if (colorMode === "verdict") {
+        line = says;
+      } else if (t.triage === "gray" || t.triage === "red") {
         line = (t.reasons[0] ?? "").replace(/^(Zoning|Topography): /, "");
       } else {
-        const pick = pickFinding(f, t, filterTypology);
         const money_ = t.pencils ? (t.margin != null ? `~${money(t.margin)} margin at market` : null) : t.gap != null ? `~${money(t.gap)} short at market` : null;
         const reason = ev ? yellowReason(t, ev) : null;
         const second = reason === "unknowns to resolve" ? "site unknowns to resolve" : (money_ ?? "finance not checked");
-        line = `${VERDICT_LABEL[pick.verdict]} · ${second}`;
+        line = `${says} · ${second}`;
       }
-      return { lot: l, triage: t.triage, line };
+      const sel = selectedCase && selectedIdx === i && selectedCase.typology !== pick.typology ? selectedCase : null;
+      const note = sel ? `Panel shows ${TYPOLOGY_LABEL[sel.typology]} (selected).` : null;
+      return { lot: l, triage: t.triage, verdict, line, note };
     },
-    [lots, triages, evals, evidence, ruleSet, filterTypology],
+    [lots, triages, evals, evidence, ruleSet, filterTypology, typIdx, colorMode, selectedCase, selectedIdx],
   );
 
   const retry = useCallback(() => {
@@ -427,7 +447,7 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
 
   return (
     <div className="flex h-dvh flex-col">
-      <TopBar ruleSet={ruleSet} onRuleSet={setRuleSet} stats={stats} onAbout={() => setAboutOpen(true)} usingFixtures={false} />
+      <TopBar ruleSet={ruleSet} onRuleSet={setRuleSet} stats={stats} onAbout={() => setAboutOpen(true)} />
       <div className="flex min-h-0 flex-1">
         <LeftRail
           lots={lots}
@@ -446,7 +466,7 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
           sources={sources}
           tab={tab}
           onTab={setTab}
-          loading={!loadError && !stats}
+          loading={!loadError && !city.error && !stats}
         />
         {/* Positioning context for the expanded detail panel, which overlays the map area. */}
         <div className="relative flex min-w-0 flex-1">
@@ -460,7 +480,7 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
               matches={matches}
               changed={ruleSet === "bill-2025-1545" && changed.length ? changed : null}
               ringNote={
-                ruleSet === "bill-2025-1545" && stats && !filters.typology
+                ruleSet === "bill-2025-1545" && stats && !filters.typology && stats["bill-2025-1545"].lotsGaining > 0
                   ? `${stats["bill-2025-1545"].lotsGaining.toLocaleString("en-US")} lots gain a backyard unit; pick +ADU under Home type to ring them.`
                   : null
               }
@@ -471,47 +491,49 @@ export default function ByRightApp({ onGenerateMemo }: ByRightAppProps = {}) {
               colorBy={filters.typology || null}
               ruleSet={ruleSet}
               hoverInfo={hoverInfo}
-              loading={!stats}
+              loading={!stats && !city.error}
             />
             {loadError && <LoadError reason={loadError} onRetry={retry} />}
+            {!loadError && city.error && (
+              <LoadError title="The lots could not be evaluated" reason={`the rules engine stopped: ${city.error}`} onRetry={() => window.location.reload()} />
+            )}
           </main>
           <DetailPanel
             key={selectedIdx ?? "empty"}
-            lot={selectedLot}
+            selected={selectedCase}
             ruleSet={ruleSet}
-            findings={selectedFindings}
-            findingsCurrent={selectedFull?.current ?? null}
-            findingsBill={selectedFull?.["bill-2025-1545"] ?? null}
+            bestNote={
+              selectedCase && showsOtherThanBest(selectedCase)
+                ? `Showing: ${TYPOLOGY_LABEL[selectedCase.typology]} (${selectedCase.typologySource === "filter" ? "Home type filter" : "selected"}). Best type here: ${TYPOLOGY_LABEL[selectedCase.bestTypology!]}.`
+                : null
+            }
             onClose={clearSelection}
-            triage={selectedTriage}
-            typology={selectedTypology}
             onTypology={onTypology}
-            landOverride={selectedLandOverride}
             onLandOverride={onLandOverride}
-            comps={selectedIdx != null ? comps[selectedIdx] : null}
             assumptions={assumptions}
             onAssumptions={setAssumptions}
             recomputing={recomputing}
             expanded={expanded}
             onExpanded={setExpanded}
-            onGenerateMemo={onGenerateMemo}
-            stats={stats?.[ruleSet] ?? null}
+            stats={city.error ? undefined : (stats?.[ruleSet] ?? null)}
             onSelectId={lots.length ? selectById : undefined}
           />
         </div>
       </div>
-      <AboutDrawer open={aboutOpen} onClose={() => setAboutOpen(false)} file={file} compsFile={activeComps} usingFixtures={false} />
+      <AboutDrawer open={aboutOpen} onClose={() => setAboutOpen(false)} file={file} compsFile={activeComps} />
     </div>
   );
 }
 
-function LoadError({ reason, onRetry }: { reason: string; onRetry: () => void }) {
+function LoadError({ title = "The lot file did not load", reason, onRetry }: { title?: string; reason: string; onRetry: () => void }) {
   return (
     <div className="absolute inset-0 z-20 flex items-center justify-center bg-surface/70 backdrop-blur-[2px]">
       <div role="alert" className="w-[360px] rounded-xl border border-hairline bg-panel px-5 py-4 shadow-[0_12px_32px_-12px_rgba(23,33,30,.35)]">
-        <p className="font-serif text-[20px] leading-tight text-ink">The lot file did not load</p>
+        <p className="font-serif text-[20px] leading-tight text-ink">{title}</p>
         <p className="mt-1.5 text-[13px] leading-5 text-muted">
-          /data/lots.json could not be read ({reason}). Nothing below is evaluated until it loads. Check the connection and retry.
+          {title === "The lot file did not load"
+            ? `/data/lots.json could not be read (${reason}). Nothing below is evaluated until it loads. Check the connection and retry.`
+            : `Screening results are unavailable (${reason}). Reload to try again.`}
         </p>
         <button
           onClick={onRetry}

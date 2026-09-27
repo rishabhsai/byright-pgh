@@ -1,5 +1,5 @@
 import type { Check, Comps, Finding, Lot, RuleSet, TriageResult, Typology, Verdict } from "./types";
-import { TYPOLOGY_LABEL, VERDICT_LABEL } from "./types";
+import { TYPOLOGY_LABEL, verdictLabel } from "./types";
 import { evaluateLot, lookupDistrict } from "./rules";
 import { buildingSf, fmtUsd, UNIT_PLAN, type Proforma } from "./proforma";
 
@@ -105,6 +105,8 @@ export interface ApplicationPlan {
   address: string;
   typology: Typology;
   verdict: Verdict;
+  /** verdictLabel(finding): the verdict with its approval route (staff vs Board approval, FAR vs lot-size relief). */
+  verdictLabel: string;
   ruleSet: RuleSet;
   banner: typeof NEVER_SUBMITS;
   steps: Step[];
@@ -138,7 +140,15 @@ export function formatBlockLot(parid: string): { text: string; note?: string } {
 
 /* ---------- Helpers ---------- */
 
-const DIMENSIONAL = new Set(["lot-area", "lot-width", "lot-area-per-unit"]);
+/** Standards where a § 921.04 nonconforming-lot exception is an alternative to a variance. */
+const LOT_STANDARDS = new Set(["lot-area", "lot-width", "lot-area-per-unit"]);
+
+const STANDARD_NAME: Record<string, string> = {
+  "lot-area": "minimum lot size",
+  "lot-area-per-unit": "minimum lot area per unit",
+  "lot-width": "minimum lot width",
+  far: "FAR",
+};
 
 const TYPOLOGY_NOUN: Record<Typology, string> = {
   single: "a single-unit detached house",
@@ -164,9 +174,27 @@ function letterOf(finding: Finding): UseLetter {
   return "P";
 }
 
+/** Every failed standard on the finding (anything but the use and ADU rows). Relief is derived from this, not a list. */
 function failingDimensional(finding: Finding): Check[] {
-  return finding.checks.filter((c) => DIMENSIONAL.has(c.id) && c.passed === false);
+  return finding.checks.filter((c) => c.passed === false && c.id !== "use" && c.id !== "adu-eligibility");
 }
+
+const standardName = (c: Check) => STANDARD_NAME[c.id] ?? c.label.toLowerCase();
+
+/** "≤ 518 sq ft" from an FAR check's "at most 518 sq ft (2:1 × 259 sq ft lot)". */
+const farCap = (c: Check) => `≤ ${c.required?.match(/at most ([\d,]+ sq ft)/)?.[1] ?? c.required ?? "the FAR cap"}`;
+
+/** The relief options for one failed standard. */
+function reliefOptions(c: Check): string {
+  if (c.id === "far") return `a smaller building (${farCap(c)}) or a dimensional variance under § 922.09; zoning staff determine the path`;
+  if (LOT_STANDARDS.has(c.id)) return `a dimensional variance under § 922.09 or a nonconforming-lot exception under ${NONCONFORMING_LOTS.section}; zoning staff determine which`;
+  return "a dimensional variance under § 922.09; zoning staff determine the path";
+}
+
+const measuredText = (c: Check) => (c.id === "far" ? `proposal is ${(c.measured ?? "not in record").replace(" proposed", "")}` : `lot has ${c.measured ?? "not in record"}`);
+
+const reliefNeeded = (c: Check) =>
+  `Relief needed: ${standardName(c)} (${c.citation.section} ${c.citation.title}): required ${c.required ?? "n/a"}, ${measuredText(c)}. Options: ${reliefOptions(c)}.`;
 
 const DIM_PATH =
   `Relief path determined by zoning staff: dimensional variance under § 922.09 or nonconforming-lot exception under ${NONCONFORMING_LOTS.section} (${NONCONFORMING_LOTS.url}).`;
@@ -175,8 +203,13 @@ const SPECIAL_PATH = "Special Exception hearing under § 922.07.";
 
 function requestTypes(finding: Finding): string[] {
   const types: string[] = [];
-  if (failingDimensional(finding).length)
+  const failed = failingDimensional(finding);
+  if (failed.some((c) => LOT_STANDARDS.has(c.id)))
     types.push(`Dimensional variance (§ 922.09) or nonconforming-lot exception (${NONCONFORMING_LOTS.section}); zoning staff determine which`);
+  for (const c of failed.filter((x) => x.id === "far"))
+    types.push(`Smaller building (${farCap(c)}) or dimensional variance (§ 922.09) for FAR (${c.citation.section})`);
+  for (const c of failed.filter((x) => !LOT_STANDARDS.has(x.id) && x.id !== "far"))
+    types.push(`Dimensional variance (§ 922.09) for ${standardName(c)} (${c.citation.section})`);
   const letter = letterOf(finding);
   if (letter === "N") types.push("Use variance");
   if (letter === "A") types.push("Administrator exception (§ 922.08)");
@@ -192,7 +225,7 @@ function reliefChecks(finding: Finding): Check[] {
   for (const c of finding.checks) {
     const isUse = c.id === "use" && letter !== "P";
     const isAdu = c.id === "adu-eligibility" && c.passed === false && letter === "N";
-    const isDim = DIMENSIONAL.has(c.id) && c.passed === false;
+    const isDim = c.passed === false && c.id !== "use" && c.id !== "adu-eligibility";
     if (!isUse && !isAdu && !isDim) continue;
     const key = `${c.citation.section}|${c.citation.title}`;
     if (seen.has(key)) continue;
@@ -202,8 +235,7 @@ function reliefChecks(finding: Finding): Check[] {
   return out;
 }
 
-const reliefLine = (c: Check) =>
-  `${c.citation.section} ${c.citation.title}: required ${c.required ?? "n/a"}, lot has ${c.measured ?? "not in record"}`;
+const reliefLine = (c: Check) => `${c.citation.section} ${c.citation.title}: required ${c.required ?? "n/a"}, ${measuredText(c)}`;
 
 function hazardList(lot: Lot): string[] {
   const h: string[] = [];
@@ -324,9 +356,10 @@ function worksheet(lot: Lot, finding: Finding, byRight: Typology[], zoneName: st
     letter !== "P" && useCheck
       ? `Use: ${TYPOLOGY_LABEL[finding.typology]} is ${useCheck.measured ?? "not listed"} in ${lot.zone} (${useCheck.citation.section}).`
       : null;
+  const scope = "(use, lot area, lot width, and floor area where encoded; parking, setbacks, height, and overlays not verified)";
   const screened = byRight.length
-    ? `Under the checks we ran (use, lot area, lot width, parking; setbacks, height, and overlays not checked), ${byRight.map((t) => TYPOLOGY_LABEL[t].toLowerCase()).join(", ")} passed on this lot.`
-    : "Under the checks we ran (use, lot area, lot width, parking; setbacks, height, and overlays not checked), none of the five small-home types we screened passed on this lot.";
+    ? `Under the checks we ran ${scope}, ${byRight.map((t) => TYPOLOGY_LABEL[t].toLowerCase()).join(", ")} did not fail on this lot.`
+    : `Under the checks we ran ${scope}, none of the five small-home types we screened is allowed by right on this lot.`;
 
   const parking = finding.checks.find((c) => c.id === "parking");
 
@@ -466,7 +499,9 @@ export function buildApplicationPlan(
         }`,
       );
     }
-    if (dimsFail) body.push(DIM_PATH);
+    const failed = failingDimensional(finding);
+    for (const c of failed) body.push(reliefNeeded(c));
+    if (failed.some((c) => LOT_STANDARDS.has(c.id))) body.push(DIM_PATH);
     if (letter === "S") body.push(SPECIAL_PATH);
     if (letter === "A") body.push("The use also needs an Administrator Exception under § 922.08; staff confirm how the two reviews combine.");
     body.push("File a BDA on OneStopPGH; staff determine whether a Zoning Board of Adjustment hearing is required and schedule it.");
@@ -508,7 +543,7 @@ export function buildApplicationPlan(
         body: [
           bill.verdict === "by-right"
             ? "Council's pending bill would make this by right; consider timing."
-            : `Council's pending bill would change this to "${VERDICT_LABEL[bill.verdict]}"; consider timing.`,
+            : `Council's pending bill would change this to "${verdictLabel(bill)}"; consider timing.`,
         ],
         chips: [{ label: "Pending in Council", tone: "warn" }],
       });
@@ -517,7 +552,12 @@ export function buildApplicationPlan(
 
   const description = describe(lot, typology, zoneName, pf, comps);
   const blockLot = formatBlockLot(lot.id);
-  const reliefSections = relief.map((c) => c.citation.section).filter((s, i, a) => a.indexOf(s) === i);
+  // What the applicant would seek: every failed standard, then the use route. Derived, never a fixed list.
+  const seek: string[] = failingDimensional(finding).map((c) => `${standardName(c)} (${c.citation.section})`);
+  if (letter === "N") seek.push(`use variance (§ 922.09; use not listed, ${finding.checks.find((c) => c.id === "use")?.citation.section ?? "§ 911.02"})`);
+  if (letter === "A") seek.push(`administrator exception (§ 922.08)${seek.length ? "" : ", decided by zoning staff"}`);
+  if (letter === "S") seek.push(`special exception (§ 922.07)${seek.length ? "" : ", Zoning Board hearing"}`);
+  const seekItems = seek.filter((x, i, a) => a.indexOf(x) === i);
 
   const purchaseForm: PrefilledField[] = [
     {
@@ -542,7 +582,7 @@ export function buildApplicationPlan(
     { label: "Will you need to seek a building permit?", value: "Yes", who: "prefilled" },
     {
       label: "Will you need to seek a variance or special exception?",
-      value: needsRelief && reliefSections.length ? `Yes: ${reliefSections.join(", ")}` : BY_RIGHT_VARIANCE_ANSWER,
+      value: needsRelief && seekItems.length ? `Yes: ${seekItems.join("; ")}` : BY_RIGHT_VARIANCE_ANSWER,
       who: "prefilled",
     },
     {
@@ -572,9 +612,11 @@ export function buildApplicationPlan(
           label: WORKSHEET_LABEL,
           note: !variancePossible
             ? "Special exceptions are decided under § 922.07 criteria, not the § 922.09.E variance conditions; ask staff for the criteria that apply."
-            : dimsFail
+            : failingDimensional(finding).some((c) => LOT_STANDARDS.has(c.id))
               ? `These § 922.09.E questions apply if staff route this as a variance. If staff route it under ${NONCONFORMING_LOTS.section} (nonconforming lots) instead, bring the same deed and plat evidence.`
-              : undefined,
+              : dimsFail
+                ? "These § 922.09.E questions apply if you seek a variance rather than reducing the building to the permitted size."
+                : undefined,
         }
       : null;
 
@@ -593,7 +635,8 @@ export function buildApplicationPlan(
 
   const sources: { title: string; url: string }[] =
     channel === "ura" ? [SOURCE.uraContact, SOURCE.landBank] : [SOURCE.purchaseForm, SOURCE.landBank];
-  if (dimsFail) sources.push({ title: `${NONCONFORMING_LOTS.section} ${NONCONFORMING_LOTS.title}`, url: NONCONFORMING_LOTS.url });
+  if (failingDimensional(finding).some((c) => LOT_STANDARDS.has(c.id)))
+    sources.push({ title: `${NONCONFORMING_LOTS.section} ${NONCONFORMING_LOTS.title}`, url: NONCONFORMING_LOTS.url });
   if (zba)
     sources.push(
       SOURCE.zbaGuide,
@@ -615,6 +658,7 @@ export function buildApplicationPlan(
     address: lot.address,
     typology,
     verdict,
+    verdictLabel: verdictLabel(finding),
     ruleSet,
     banner: NEVER_SUBMITS,
     steps,
@@ -646,7 +690,7 @@ export function renderApplicationMarkdown(plan: ApplicationPlan): string {
   L.push("");
   L.push(`> ${plan.banner}`);
   L.push("");
-  L.push(`Parcel ${plan.lotId}. Proposed: ${TYPOLOGY_LABEL[plan.typology]} (${VERDICT_LABEL[plan.verdict]}${plan.ruleSet === "bill-2025-1545" ? ", if Bill 2025-1545 passes" : ", today's code"}).`);
+  L.push(`Parcel ${plan.lotId}. Proposed: ${TYPOLOGY_LABEL[plan.typology]} (${plan.verdictLabel}${plan.ruleSet === "bill-2025-1545" ? ", if Bill 2025-1545 passes" : ", today's code"}).`);
   L.push("");
   L.push("## Steps");
   plan.steps.forEach((s, i) => {

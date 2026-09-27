@@ -21,6 +21,7 @@ export default function AnswerCard({
   tone,
   typeLine,
   financeLine,
+  basisNote,
   status,
   evidence,
   changes,
@@ -31,6 +32,8 @@ export default function AnswerCard({
   tone: AnswerTone;
   typeLine: ReactNode;
   financeLine: string | null;
+  /** Names the proposal shown when it is not the map's best type. */
+  basisNote?: string | null;
   status: { text: string; available: boolean };
   evidence: Evidence | null;
   changes: string[];
@@ -54,6 +57,7 @@ export default function AnswerCard({
             </>
           )}
         </p>
+        {basisNote && <p className="mt-1 text-[12px] leading-snug text-[#7a5400]">{basisNote}</p>}
         {ruleSet === "bill-2025-1545" && (
           <p className="mt-1 text-[12px] text-[#6b5200]">
             <Tooltip content={TIP.bill}>Scenario: if the housing bill passes</Tooltip>

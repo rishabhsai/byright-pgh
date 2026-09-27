@@ -111,10 +111,12 @@ export interface EvalRequest extends TriageInput {
 }
 
 /**
- * The worker answers in up to three parts so the header stats paint before the evidence pass:
- * "evals" (first request only), then "triages", then "evidence" (the last part for a request).
+ * The worker answers in up to three parts: "evals" (when lots were sent), then "triages", then
+ * "evidence" (the last part for a request), or "error" if the request threw. `seq` is the request's
+ * revision; the hook publishes one revision's parts together and drops parts from older revisions.
  */
 export type EvalResponse =
   | { seq: number; part: "evals"; evals: Evaluations; ms: number }
   | { seq: number; part: "triages"; triages: Triages; ms: number }
-  | { seq: number; part: "evidence"; evidence: EvidenceByRuleSet; ms: number };
+  | { seq: number; part: "evidence"; evidence: EvidenceByRuleSet; ms: number }
+  | { seq: number; part: "error"; message: string };

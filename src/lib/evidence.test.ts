@@ -1,9 +1,10 @@
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import type { Comps, Lot, RuleSet, Typology } from "./types";
+import type { Comps, CompsFile, Lot, LotsFile, RuleSet, Typology } from "./types";
 import { evaluateLot } from "./rules";
 import { triageLot } from "./triage";
-import { proformaWithFallback } from "./finance";
-import { deriveEvidence, yellowReason } from "./evidence";
+import { compsFor, DEFAULT_FINANCE, proformaWithFallback } from "./finance";
+import { deriveEvidence, evidenceForLot, summary, yellowReason } from "./evidence";
 
 function lot(overrides: Partial<Lot> = {}): Lot {
   return {
@@ -48,10 +49,12 @@ function evidenceFor(l: Lot, c: Comps | null, typology: Typology = "single", rul
 const check = (e: ReturnType<typeof deriveEvidence>, id: string) => e.checks.find((c) => c.id === id)!;
 
 describe("deriveEvidence", () => {
-  it("scores a clean, penciling, by-right lot 6 of 6, with fit visible as not checked", () => {
+  it("counts a clean, penciling, by-right lot as 5 pass and 1 not checked: fit is never a pass by omission", () => {
     const { evidence } = evidenceFor(lot(), RICH);
     expect(evidence.total).toBe(6);
-    expect(evidence.passed).toBe(6);
+    expect(evidence.passed).toBe(5);
+    expect(evidence.counts).toEqual({ pass: 5, fail: 0, unknown: 0, notChecked: 1 });
+    expect(summary(evidence)).toBe("5 pass · 1 not checked");
     expect(evidence.checks.map((c) => c.id)).toEqual(["use", "lotSize", "width", "fit", "site", "finance"]);
     expect(check(evidence, "use")).toMatchObject({ state: "pass" });
     expect(check(evidence, "use").detail).toContain("§ 911.02");
@@ -68,7 +71,8 @@ describe("deriveEvidence", () => {
     expect(check(evidence, "site").state).toBe("fail");
     expect(check(evidence, "site").detail).toMatch(/^Slope ≥ 25% flag at the inventory point \(City GIS\)\. Site review needed; H-district conditions in § 911\.04\.A\.69\(a\)/);
     expect(check(evidence, "site").detail).toMatch(/Access, water\/sewer, soils not checked/);
-    expect(evidence.passed).toBe(5);
+    expect(evidence.passed).toBe(4);
+    expect(summary(evidence)).toBe("4 pass · 1 fail · 1 not checked");
   });
 
   it("marks site unknown when flood screening is missing", () => {
@@ -88,6 +92,26 @@ describe("deriveEvidence", () => {
     expect(evidence.needsApproval).toBe(true);
   });
 
+  it("an LNC FAR pass is not a building-fit pass: fit stays not checked", () => {
+    const { evidence } = evidenceFor(lot({ zone: "LNC", lotAreaSqFt: 3000 }), RICH);
+    expect(check(evidence, "fit")).toMatchObject({
+      state: "notChecked",
+      detail: "FAR 2:1 passes; setbacks, height, coverage not modeled · § 904.02.C",
+    });
+  });
+
+  it("keeps required parking visible as an unresolved requirement", () => {
+    const { evidence } = evidenceFor(lot({ zone: "R1D-H", frontageFt: 40 }), RICH);
+    expect(evidence.unresolved).toEqual([
+      expect.objectContaining({ id: "parking", label: "Parking", detail: expect.stringMatching(/^1 space required · § 914\.02\.A\. Must fit on the site plan; not verified/) }),
+    ]);
+  });
+
+  it("no unresolved parking where the rule set has no minimum", () => {
+    const { evidence } = evidenceFor(lot(), RICH, "single", "bill-2025-1545");
+    expect(evidence.unresolved).toEqual([]);
+  });
+
   it("fails fit on a 259 sf LNC lot where FAR 2:1 caps a three-unit at 518 sf", () => {
     const { evidence } = evidenceFor(lot({ zone: "LNC", lotAreaSqFt: 259 }), RICH, "triplex");
     expect(check(evidence, "fit")).toMatchObject({
@@ -105,10 +129,25 @@ describe("deriveEvidence", () => {
 
   it("marks finance unknown without comps, and fails it with the shortfall when the numbers do not pencil", () => {
     const none = evidenceFor(lot({ neighborhood: "New Homestead" }), null).evidence;
-    expect(check(none, "finance")).toMatchObject({ state: "unknown", detail: "No Zillow series for New Homestead. Enter a comp to screen." });
+    expect(check(none, "finance")).toMatchObject({ state: "unknown", detail: "No Zillow series for New Homestead; finance not screened." });
     const poor = evidenceFor(lot(), POOR).evidence;
     expect(check(poor, "finance").state).toBe("fail");
-    expect(check(poor, "finance").detail).toMatch(/^Modeled shortfall \$[\d,]+ to a 10% return at \$185\/sf\. Break-even sale value \$[\d,]+; Test ZHVI \$83,082 \(2026-08\)\.$/);
+    expect(check(poor, "finance").detail).toMatch(/^Modeled shortfall \$[\d,]+ to a 10% return at \$185\/sf\. Target sale value \$[\d,]+; Test ZHVI \$83,082 \(2026-08\)\.$/);
+  });
+});
+
+const LOTS = "public/data/lots.json";
+const COMPS = "public/data/comps.json";
+describe.runIf(existsSync(LOTS) && existsSync(COMPS))("deriveEvidence on real records", () => {
+  it("5724 Murray Hill Pl (frontage missing) reads 4 pass · 1 unknown · 1 not checked", () => {
+    const l = (JSON.parse(readFileSync(LOTS, "utf8")) as LotsFile).lots.find((x) => x.id === "0085K00296000000")!;
+    const c = compsFor(l, JSON.parse(readFileSync(COMPS, "utf8")) as CompsFile);
+    const findings = evaluateLot(l, "current");
+    const triage = triageLot(l, findings, c, DEFAULT_FINANCE);
+    const ev = evidenceForLot(l, findings, triage, c, DEFAULT_FINANCE, null);
+    expect(ev.counts).toEqual({ pass: 4, fail: 0, unknown: 1, notChecked: 1 });
+    expect(summary(ev)).toBe("4 pass · 1 unknown · 1 not checked");
+    expect(triage.triage).toBe("yellow");
   });
 });
 

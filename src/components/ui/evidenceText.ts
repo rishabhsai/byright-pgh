@@ -1,0 +1,25 @@
+// Evidence in words. Plain module (no "use client") so server routes and exports can use it too.
+import type { Evidence, EvidenceState } from "@/lib/evidence";
+
+const lower = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+const list = (xs: string[]) => (xs.length < 3 ? xs.join(" and ") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
+
+/**
+ * One sentence that never rounds a gap up to a pass: "4 of 6 checks pass. Finance fails; fit not checked."
+ * Only literal passes count.
+ */
+export function evidenceSummary(e: Evidence): string {
+  const c = e.counts;
+  const names = (s: EvidenceState) => e.checks.filter((x) => x.state === s).map((x) => lower(x.label));
+  const head = `${c.pass} of ${e.checks.length} checks pass.`;
+  const rest = [
+    c.fail && `${list(names("fail"))} ${c.fail === 1 ? "fails" : "fail"}`,
+    c.unknown && `${list(names("unknown"))} unknown`,
+    c.notChecked && `${list(names("notChecked"))} not checked`,
+  ].filter(Boolean) as string[];
+  for (const u of e.unresolved ?? []) rest.push(`${lower(u.label)} unresolved`);
+  if (!rest.length) return head;
+  const tail = rest.join("; ");
+  return `${head} ${tail.charAt(0).toUpperCase()}${tail.slice(1)}.`;
+}
+

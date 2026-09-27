@@ -1,13 +1,18 @@
 import type { Check, Citation, Comps, Finding, Lot, TriageResult, Typology, Verdict } from "./types";
 import { lookupDistrict } from "./rules";
 import { DEFAULT_FINANCE, fmtNum, fmtUsd, runProforma, type FinanceAssumptions, type Proforma } from "./proforma";
-import { MIN_PRACTICAL_LOT_SQFT } from "./triage";
 
 /*
  * The evidence row: six screening checks for one proposal on one lot, each Pass, Fail, Unknown or
- * Not checked. "Not checked" is out of scope: it never blocks a full score but is always shown, so a
- * 6 of 6 lot literally reads "fit not checked". Copy follows research/07-brainstorm-product-cycle1.md § 3.
+ * Not checked. Only literal passes count as passes: "Not checked" is its own bucket, never folded into
+ * the score. Fit passes only when every fit requirement is encoded and passes; setbacks, height and
+ * coverage are never encoded, so Fit is at best Not checked (an LNC FAR pass included). Requirements
+ * outside the six (required parking) are carried in `unresolved`, never dropped.
+ * Copy follows research/07-brainstorm-product-cycle1.md § 3 and research/08-audit2-gpt6-astra.md § 1.
  */
+
+/** Screening floor for a buildable footprint; the code sets no minimum in LNC or VH districts. */
+export const MIN_PRACTICAL_LOT_SQFT = 1000;
 
 export type EvidenceId = "use" | "lotSize" | "width" | "fit" | "site" | "finance";
 export type EvidenceState = "pass" | "fail" | "unknown" | "notChecked";
@@ -20,13 +25,32 @@ export interface EvidenceCheck {
   citation?: Citation;
 }
 
+export interface EvidenceCounts {
+  pass: number;
+  fail: number;
+  unknown: number;
+  notChecked: number;
+}
+
+/** A requirement the screen applies but cannot verify, outside the six checks (e.g. required parking). */
+export interface UnresolvedRequirement {
+  id: string;
+  label: string;
+  detail: string;
+  citation?: Citation;
+}
+
 export interface Evidence {
   checks: EvidenceCheck[];
-  /** Checks that pass or are out of scope (not checked); the "N" in "N/6". */
+  /** How many of the six checks are in each state. */
+  counts: EvidenceCounts;
+  /** Literal passes only (counts.pass). Not checked is never a pass. */
   passed: number;
   total: 6;
   /** The use needs an exception, or a dimensional standard needs relief: a hearing or staff approval. */
   needsApproval: boolean;
+  /** Required but unverified items outside the six checks, e.g. on-site parking. Empty when none. */
+  unresolved: UnresolvedRequirement[];
 }
 
 export const EVIDENCE_LABEL: Record<EvidenceId, string> = {
@@ -44,6 +68,20 @@ export const EVIDENCE_STATE_LABEL: Record<EvidenceState, string> = {
   unknown: "Unknown",
   notChecked: "Not checked",
 };
+
+const COUNT_ORDER: [keyof EvidenceCounts, string][] = [
+  ["pass", "pass"],
+  ["fail", "fail"],
+  ["unknown", "unknown"],
+  ["notChecked", "not checked"],
+];
+
+/** "4 pass · 1 fail · 1 not checked": every non-empty bucket, in that order. */
+export function summary(evidence: Pick<Evidence, "counts">): string {
+  return COUNT_ORDER.filter(([k]) => evidence.counts[k] > 0)
+    .map(([k, word]) => `${evidence.counts[k]} ${word}`)
+    .join(" · ");
+}
 
 /** Proposal names used in evidence sentences (kept here so label rewrites elsewhere do not change the copy). */
 const PROPOSAL: Record<Typology, string> = {
@@ -168,6 +206,7 @@ function fitCheck(lot: Lot, f: Finding): EvidenceCheck {
   const base = { id: "fit" as const, label: EVIDENCE_LABEL.fit };
   const far = find(f, "far");
   if (!far) return { ...base, state: "notChecked", detail: "Setbacks, height, lot coverage not modeled; LNC FAR only" };
+  // FAR is the only encoded fit requirement; setbacks, height and coverage are not, so a FAR pass stays Not checked.
   const sec = far.citation.section;
   const ratio = far.required?.match(/(\d+(?:\.\d+)?):1/)?.[1] ?? "";
   const proposed = far.measured?.replace(" sq ft proposed", " sf") ?? "";
@@ -176,7 +215,7 @@ function fitCheck(lot: Lot, f: Finding): EvidenceCheck {
   }
   const cap = lot.lotAreaSqFt !== null ? `${fmtNum(Math.floor(Number(ratio) * lot.lotAreaSqFt))} sf` : "";
   return far.passed
-    ? { ...base, state: "pass", detail: `FAR ${ratio}:1 allows up to ${cap} · ${sec}. The ${proposed} proposal fits; setbacks and height not modeled.`, citation: far.citation }
+    ? { ...base, state: "notChecked", detail: `FAR ${ratio}:1 passes; setbacks, height, coverage not modeled · ${sec}`, citation: far.citation }
     : { ...base, state: "fail", detail: `FAR ${ratio}:1 caps floor area at ${cap} · ${sec}. The ${proposed} proposal does not fit.`, citation: far.citation };
 }
 
@@ -215,7 +254,7 @@ function financeCheck(lot: Lot, f: Finding, pf: Proforma | null, comps: Comps | 
     return { ...base, state: "unknown", detail: "Not screened: the proposal is not permitted or not evaluated here." };
   }
   if (!pf || !comps) {
-    return { ...base, state: "unknown", detail: `No Zillow series for ${lot.neighborhood || "this lot"}. Enter a comp to screen.` };
+    return { ...base, state: "unknown", detail: `No Zillow series for ${lot.neighborhood || "this lot"}; finance not screened.` };
   }
   const input = (k: string) => pf.inputsUsed.find((i) => i.key === k)?.value;
   const psf = input("hardCostPerSf");
@@ -238,8 +277,26 @@ function financeCheck(lot: Lot, f: Finding, pf: Proforma | null, comps: Comps | 
   return {
     ...base,
     state: "fail",
-    detail: `Modeled shortfall ${fmtUsd(pf.gap)} to a ${target}% return at $${psf}/sf. Break-even ${pf.mode === "sale" ? "sale " : ""}value ${fmtUsd(pf.breakEvenValue)}; ${comp}.`,
+    detail: `Modeled shortfall ${fmtUsd(pf.gap)} to a ${target}% return at $${psf}/sf. Target ${pf.mode === "sale" ? "sale" : "capitalized"} value ${fmtUsd(pf.breakEvenValue)}; ${comp}.`,
   };
+}
+
+/** Check ids the six evidence rows already account for. */
+const COVERED = new Set(["use", "adu-eligibility", "lot-area", "lot-area-per-unit", "lot-width", "far", "building-fit"]);
+
+function unresolvedRequirements(f: Finding): UnresolvedRequirement[] {
+  return f.checks
+    .filter((c) => c.passed === null && !COVERED.has(c.id))
+    .map((c) =>
+      c.id === "parking"
+        ? {
+            id: c.id,
+            label: "Parking",
+            detail: `${(c.required ?? "").replace(/ \(.*\)$/, "")} required · ${c.citation.section}. Must fit on the site plan; not verified by this screen.`,
+            citation: c.citation,
+          }
+        : { id: c.id, label: c.label, detail: `${c.required ? `${c.required} required · ` : ""}${c.citation.section}. Not verified by this screen.`, citation: c.citation },
+    );
 }
 
 export function deriveEvidence(
@@ -258,13 +315,14 @@ export function deriveEvidence(
     reviewKind: null,
   };
   const checks = [permittedUseCheck(lot, finding), lotSizeCheck(lot, finding), widthCheck(lot, finding), fitCheck(lot, finding), siteCheck(lot), financeCheck(lot, finding, proforma, comps)];
-  const passed = checks.filter((c) => c.state === "pass" || c.state === "notChecked").length;
+  const counts: EvidenceCounts = { pass: 0, fail: 0, unknown: 0, notChecked: 0 };
+  for (const c of checks) counts[c.state]++;
   const needsApproval =
     finding.verdict === "review" ||
     finding.verdict === "variance" ||
     finding.verdict === "prohibited" ||
     checks.some((c) => (c.id === "width" || c.id === "fit") && c.state === "fail");
-  return { checks, passed, total: 6, needsApproval };
+  return { checks, counts, passed: counts.pass, total: 6, needsApproval, unresolved: unresolvedRequirements(finding) };
 }
 
 export type YellowReason = "needs subsidy" | "needs a hearing or staff approval" | "unknowns to resolve";

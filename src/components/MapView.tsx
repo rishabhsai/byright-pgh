@@ -54,7 +54,11 @@ export type FitBounds = [number, number, number, number];
 export interface HoverInfo {
   lot: Lot;
   triage: Triage | null;
+  /** The verdict the dot is colored by in verdict mode. */
+  verdict: Verdict | null;
   line: string | null;
+  /** Set when the detail panel shows a different proposal than the dot's color. */
+  note: string | null;
 }
 
 interface Props {
@@ -174,8 +178,6 @@ function MapView({
     map.touchZoomRotate.disableRotation();
     map.addControl(new NavigationControl({ showCompass: false }), "top-right");
     mapRef.current = map;
-    // Test hook for browser checks in development.
-    if (process.env.NODE_ENV !== "production") (window as unknown as { __byrightMap?: MLMap }).__byrightMap = map;
 
     map.on("load", () => {
       map.addSource("lots", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
@@ -309,16 +311,22 @@ function MapView({
       <div ref={el} className="h-full w-full" />
       {info && hover && (
         <div
-          className="pointer-events-none absolute z-20 w-max max-w-[270px] rounded-lg border border-hairline bg-panel/95 px-3 py-2 shadow-[0_6px_20px_-6px_rgba(23,33,30,.25)] backdrop-blur"
+          className="pointer-events-none absolute z-20 w-max max-w-[300px] rounded-lg border border-hairline bg-panel/95 px-3 py-2 shadow-[0_6px_20px_-6px_rgba(23,33,30,.25)] backdrop-blur"
           style={{
             ...(flip ? { right: width - hover.x + 14 } : { left: hover.x + 14 }),
             ...(above ? { bottom: hover.h - hover.y + 14 } : { top: hover.y + 14 }),
           }}
         >
-          <div className="truncate text-[13px] font-medium text-ink">{info.lot.address || info.lot.id}</div>
+          <div className="text-[13px] leading-snug font-medium text-ink">{info.lot.address || info.lot.id}</div>
           <div className="mt-0.5 flex items-center gap-2 text-[12px] text-muted">
             <span className="tabular-nums">{info.lot.zone || "No zone"}</span>
-            {info.triage && (
+            {colorMode === "verdict" && info.verdict && (
+              <span className="inline-flex items-center gap-1 font-medium text-ink">
+                <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: VERDICT_COLOR[info.verdict] }} />
+                {STRIP_VERDICT[info.verdict]}
+              </span>
+            )}
+            {colorMode === "triage" && info.triage && (
               <span className="inline-flex items-center gap-1 font-medium" style={{ color: TRIAGE_INK[info.triage] }}>
                 <span aria-hidden className="h-2 w-2 rounded-full" style={{ background: TRIAGE_COLOR[info.triage] }} />
                 {TRIAGE_WORD[info.triage]}
@@ -330,16 +338,16 @@ function MapView({
           ) : (
             <div className="mt-1 text-[12px] text-faint">Evaluating…</div>
           )}
+          {info.note && <div className="mt-1 text-[12px] leading-4 text-[#7a5400]">{info.note}</div>}
         </div>
       )}
-      {changed && !loading && (
+      {changed && !loading && (changedCount > 0 || ringNote) && (
         <div className="fade-in absolute bottom-[52px] left-3 z-10 flex max-w-[calc(100%-24px)] items-center gap-1.5 rounded-md border border-gold/50 bg-gold-soft/95 px-2 py-1 text-[11px] text-[#6b5200] shadow-sm">
           <span aria-hidden className="h-2.5 w-2.5 rounded-full border-2 border-[#e0a800]/70" />
           <span>
             {changedCount > 0
               ? `Gold ring: ${colorBy ? `${TYPOLOGY_LABEL[colorBy].toLowerCase()} verdict` : "best verdict"} or triage changes if the bill passes (${changedCount.toLocaleString("en-US")} lots)`
-              : `The bill changes no ${colorBy ? `${TYPOLOGY_LABEL[colorBy].toLowerCase()} verdict` : "best verdict"} or triage here.`}
-            {changedCount === 0 && ringNote && <> {ringNote}</>}
+              : `The bill changes no ${colorBy ? `${TYPOLOGY_LABEL[colorBy].toLowerCase()} verdict` : "best verdict"} or triage here. ${ringNote}`}
           </span>
         </div>
       )}

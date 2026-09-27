@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Segmented from "./ui/Segmented";
 import type { Comps, Finding, Lot, Typology } from "@/lib/types";
-import { TYPOLOGY_LABEL, VERDICT_LABEL } from "@/lib/types";
+import { TYPOLOGY_LABEL, verdictLabel } from "@/lib/types";
 import {
   fmtUsd,
   proformaWithFallback,
@@ -94,6 +94,7 @@ export default function ProForma({
   const mode: RevenueMode = a.mode;
   const verdictOf = (t: Typology) => findings.find((f) => f.typology === t)?.verdict ?? "unknown";
   const selectedVerdict = verdictOf(typology);
+  const selectedFinding = findings.find((f) => f.typology === typology) ?? null;
 
   if (!comps) {
     return <p className="rounded-lg border border-dashed border-hairline px-3 py-3 text-[13px] text-muted">{NO_COMPS}.</p>;
@@ -116,10 +117,10 @@ export default function ProForma({
           </p>
           <p className="mt-1 text-[13px] leading-snug text-muted">
             {r.pencils
-              ? `A ${TYPOLOGY_LABEL[typology].toLowerCase()} here is worth more than it costs to build.`
-              : `A ${TYPOLOGY_LABEL[typology].toLowerCase()} here costs more to build than it would be worth, after a ${target}% return.`}{" "}
+              ? `Against the ${r.mode === "rent" ? "ZIP rent index" : "neighborhood home-value index"}, a modeled ${TYPOLOGY_LABEL[typology].toLowerCase()} covers its costs and a ${target}% return. An index, not an appraisal.`
+              : `Against the ${r.mode === "rent" ? "ZIP rent index" : "neighborhood home-value index"}, a modeled ${TYPOLOGY_LABEL[typology].toLowerCase()} costs more than it would be worth after a ${target}% return.`}{" "}
             <span className="tabular-nums">
-              Break-even value {fmtUsd(r.breakEvenValue)}; at ${altHard}/sq ft{" "}
+              Value needed for the target return {fmtUsd(r.breakEvenValue)}; at ${altHard}/sq ft{" "}
               {rAlt ? (rAlt.pencils ? `${Math.round(rAlt.marginPct)}% margin` : `short by ${fmtUsd(rAlt.gap)}`) : "n/a"}.
             </span>
           </p>
@@ -151,7 +152,7 @@ export default function ProForma({
         <span className="text-muted tabular-nums">{plan.note}</span>
         {selectedVerdict !== "by-right" && (
           <span className="block w-full text-[12px] text-[#7a5400]">
-            Zoning: {VERDICT_LABEL[selectedVerdict].toLowerCase()} for this type; these numbers assume it gets approved.
+            Zoning: {selectedFinding ? verdictLabel(selectedFinding).toLowerCase() : "not checked"} for this type; these numbers assume it gets approved.
           </span>
         )}
       </div>

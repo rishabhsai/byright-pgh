@@ -1,7 +1,13 @@
 // Plain-language answer for one lot: the triage in words, the money line, the City status, and deltas.
-import type { Finding, Lot, TriageResult, Typology } from "@/lib/types";
-import { TYPOLOGY_LABEL, VERDICT_LABEL } from "@/lib/types";
+import type { Finding, Lot, RuleSet, TriageResult, Typology } from "@/lib/types";
+import { TYPOLOGY_LABEL, verdictLabel, verdictShort } from "@/lib/types";
+import { evaluateLot } from "@/lib/rules";
 import type { Proforma } from "@/lib/finance";
+
+/** Every UI verdict label goes through these (they keep the approval route). */
+export { verdictLabel, verdictShort };
+
+const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 
 /** "$226k", "$1.4M", "$940" */
 export function money(n: number): string {
@@ -16,9 +22,8 @@ export type AnswerTone = "ready" | "money" | "hearing" | "blocked" | "none";
 export function answerHeadline(t: TriageResult | null, best: Finding | null, pf: Proforma | null): { text: string; tone: AnswerTone } {
   if (!t || t.triage === "gray") return { text: "Not checked", tone: "none" };
   if (t.triage === "red") return { text: "Blocked", tone: "blocked" };
-  if (t.triage === "green") return { text: "Ready: allowed and pays for itself", tone: "ready" };
-  if (best?.verdict === "variance") return { text: "Needs a hearing", tone: "hearing" };
-  if (best?.verdict === "review") return { text: "Needs staff approval", tone: "hearing" };
+  if (t.triage === "green") return { text: "Passes the screen: candidate for staff review", tone: "ready" };
+  if (best?.verdict === "variance" || best?.verdict === "review") return { text: verdictLabel(best), tone: "hearing" };
   if (pf && !pf.pencils) return { text: "Allowed, needs subsidy", tone: "money" };
   if (!pf) return { text: "Allowed; finance not checked", tone: "money" };
   return { text: "Allowed, needs a check on site", tone: "money" };
@@ -47,7 +52,24 @@ export function cityStatus(lot: Lot): { text: string; available: boolean } {
   return { text: STATUS[k] ?? `${lot.status} (confirm availability)`, available: k === "available for sale" };
 }
 
-/** Deltas a planner thinks in: which single fact would flip the result. Up to two lines. */
+/** "house allowed, no hearing" or "house would still need staff approval (administrator exception)". */
+function outcome(f: Pick<Finding, "typology" | "verdict" | "reviewKind" | "checks">): string {
+  const name = TYPOLOGY_LABEL[f.typology].toLowerCase();
+  return f.verdict === "by-right" ? `${name} allowed, no hearing` : `${name} would still need ${lowerFirst(verdictLabel(f))}`;
+}
+
+/** Re-run the rules on the lot as it would be after one change, for the same home type. */
+function reevaluate(lot: Lot, changed: Partial<Lot>, f: Finding): Finding | undefined {
+  const rs: RuleSet = f.checks.find((c) => c.id === "use")?.citation.ruleSet ?? "current";
+  return evaluateLot({ ...lot, ...changed }, rs).find((x) => x.typology === f.typology);
+}
+
+const amount = (s: string | null) => Number((s ?? "").replace(/[^\d.]/g, ""));
+
+/**
+ * Deltas a planner thinks in: which single fact would change the result, and what the result would
+ * then be (re-evaluated, so a Hillside use approval survives a lot-size fix). Up to two lines.
+ */
 export function whatWouldChange(lot: Lot, findings: Finding[], chosen: Finding | null, pf: Proforma | null): string[] {
   const out: string[] = [];
   // A use that is by right only below a width threshold, with frontage unknown.
@@ -56,7 +78,8 @@ export function whatWouldChange(lot: Lot, findings: Finding[], chosen: Finding |
     const use = f.checks.find((c) => c.id === "use");
     const m = use?.note?.match(/by right only if lot width is ([\d.]+) ft or less/);
     if (m) {
-      out.push(`Survey confirming width ≤ ${m[1]} ft → ${TYPOLOGY_LABEL[f.typology].toLowerCase()} allowed, no hearing`);
+      const after = reevaluate(lot, { frontageFt: Number(m[1]) }, f);
+      if (after) out.push(`Survey confirming width ≤ ${m[1]} ft → ${outcome(after)}`);
       break;
     }
   }
@@ -64,18 +87,25 @@ export function whatWouldChange(lot: Lot, findings: Finding[], chosen: Finding |
     const failed = chosen.checks.filter((c) => c.passed === false && c.id !== "use");
     if (failed.length === 1) {
       const c = failed[0];
-      const name = TYPOLOGY_LABEL[chosen.typology].toLowerCase();
-      if (c.id === "lot-area" || c.id === "lot-area-per-unit")
-        out.push(`Combining with a neighbor to reach ${c.required} → ${name} ${VERDICT_LABEL["by-right"].toLowerCase()}`);
-      else if (c.id === "lot-width") out.push(`Frontage of ${c.required} (by survey or consolidation) → ${name} allowed, no hearing`);
-      else if (c.id === "far") out.push(`A smaller building (${c.required}) → ${name} allowed, no hearing`);
+      if (c.id === "lot-area" || c.id === "lot-area-per-unit") {
+        const after = reevaluate(lot, { lotAreaSqFt: amount(c.required) }, chosen);
+        if (after) out.push(`Combining with a neighbor to reach ${c.required} → ${outcome(after)}`);
+      } else if (c.id === "lot-width") {
+        const after = reevaluate(lot, { frontageFt: amount(c.required) }, chosen);
+        if (after) out.push(`Frontage of ${c.required} (by survey or consolidation) → ${outcome(after)}`);
+      } else if (c.id === "far") {
+        // The prototype building size is fixed, so drop the FAR failure and keep the rest of the finding.
+        const after = { ...chosen, verdict: chosen.reviewKind ? ("review" as const) : ("by-right" as const), checks: chosen.checks.filter((x) => x.id !== "far") };
+        out.push(`A smaller building (${c.required}) → ${outcome(after)}`);
+      }
     }
   }
   if (lot.lotAreaSqFt === null) out.push("A survey with the lot area → the lot-size checks resolve");
-  if (pf && !pf.pencils && out.length < 2) out.push(`Subsidy of ${money(pf.gap)}, or a sale value of ${money(pf.breakEvenValue)} → passes finance`);
+  if (pf && !pf.pencils && out.length < 2)
+    out.push(`Subsidy of ${money(pf.gap)}, or a ${pf.mode === "rent" ? "capitalized" : "sale"} value of ${money(pf.breakEvenValue)} → clears the cost-and-return screen`);
   return out.slice(0, 2);
 }
 
 export function typologyPhrase(t: Typology, f: Finding | null): string {
-  return `${TYPOLOGY_LABEL[t]}${f ? `, ${VERDICT_LABEL[f.verdict].charAt(0).toLowerCase()}${VERDICT_LABEL[f.verdict].slice(1)}` : ""}`;
+  return `${TYPOLOGY_LABEL[t]}${f ? `, ${lowerFirst(verdictLabel(f))}` : ""}`;
 }

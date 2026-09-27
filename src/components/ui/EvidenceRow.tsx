@@ -1,7 +1,10 @@
 "use client";
 import { useState } from "react";
 import Tooltip from "./Tooltip";
-import { EVIDENCE_STATE_LABEL as EVIDENCE_WORD, type Evidence, type EvidenceState } from "@/lib/evidence";
+import { EVIDENCE_STATE_LABEL as EVIDENCE_WORD, summary, type Evidence, type EvidenceState } from "@/lib/evidence";
+import { evidenceSummary } from "./evidenceText";
+
+export { evidenceSummary } from "./evidenceText";
 
 const FILL: Record<EvidenceState, string> = {
   pass: "var(--accent)",
@@ -10,16 +13,26 @@ const FILL: Record<EvidenceState, string> = {
   notChecked: "transparent",
 };
 
-export function evidenceSummary(e: Evidence): string {
-  const n = (s: EvidenceState) => e.checks.filter((c) => c.state === s).length;
-  // `passed` counts out-of-scope checks too, so name them: "6 of 6 checks pass · fit not checked".
-  const parts = [`${e.passed} of ${e.total} checks pass`];
-  const failed = e.checks.filter((c) => c.state === "fail");
-  if (failed.length === 1) parts.push(`${failed[0].label.toLowerCase()} fails`);
-  else if (failed.length > 1) parts.push(`${failed.length} fail`);
-  if (n("unknown")) parts.push(`${n("unknown")} unknown`);
-  for (const c of e.checks) if (c.state === "notChecked") parts.push(`${c.label.toLowerCase()} not checked`);
-  return parts.join(" · ");
+/** Six tiny squares in check order, colored by state; the list row's evidence at a glance. */
+export function EvidenceGlyphs({ evidence, extra }: { evidence: Evidence; extra?: string[] }) {
+  const title = [
+    summary(evidence),
+    ...evidence.checks.map((c) => `${c.label}: ${EVIDENCE_WORD[c.state]}`),
+    ...(evidence.unresolved ?? []).map((u) => `${u.label}: unresolved, confirm on the site plan`),
+    ...(extra ?? []),
+  ].join("\n");
+  return (
+    <span title={title} role="img" aria-label={`Checks: ${summary(evidence)}`} className="inline-flex shrink-0 items-center gap-[1.5px] py-[3px]">
+      {evidence.checks.map((c) => (
+        <span
+          key={c.id}
+          aria-hidden
+          className="block h-[6px] w-[5px] rounded-[1px]"
+          style={{ background: FILL[c.state], boxShadow: c.state === "notChecked" || c.state === "unknown" ? "inset 0 0 0 1px #aab1ac" : undefined }}
+        />
+      ))}
+    </span>
+  );
 }
 
 /**
@@ -31,9 +44,7 @@ export default function EvidenceRow({ evidence }: { evidence: Evidence }) {
   const open = evidence.checks.find((c) => c.id === pinned) ?? null;
   return (
     <div>
-      <p className="mb-2 text-[12px] text-muted">
-        <span className="font-medium text-ink">{evidenceSummary(evidence)}</span>
-      </p>
+      <p className="mb-2 text-[12px] leading-snug text-ink">{evidenceSummary(evidence)}</p>
       <ul className="grid grid-cols-6 gap-0.5 min-[1440px]:gap-1" aria-label="Screening checks">
         {evidence.checks.map((c) => {
           const on = pinned === c.id;

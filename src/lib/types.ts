@@ -69,19 +69,64 @@ export const TYPOLOGY_LABEL: Record<Typology, string> = {
   townhome: "Townhouse",
 };
 
+/** Generic label per verdict. UI copy should go through verdictLabel(finding), which keeps the approval route. */
 export const VERDICT_LABEL: Record<Verdict, string> = {
   "by-right": "Allowed, no hearing",
-  review: "Needs staff approval",
-  variance: "Needs a hearing",
+  review: "Needs approval",
+  variance: "Relief needed (variance or § 921.04 exception)",
   prohibited: "Not allowed here",
   unknown: "Not checked yet",
 };
 
+/** Short chip label per verdict; verdictShort(finding) refines review by route. */
+export const VERDICT_SHORT_LABEL: Record<Verdict, string> = {
+  "by-right": "Allowed",
+  review: "Needs approval",
+  variance: "Relief needed",
+  prohibited: "Not allowed",
+  unknown: "Not checked",
+};
+
+export const REVIEW_KIND_LABEL: Record<ReviewKind, string> = {
+  administrator: "Staff approval (administrator exception)",
+  special: "Board approval (special exception)",
+};
+
+const REVIEW_KIND_SHORT: Record<ReviewKind, string> = { administrator: "Staff approval", special: "Board approval" };
+
+/** What verdictLabel reads: the verdict, the approval route, and (for relief) which checks failed. Slim findings work. */
+export type LabelInput = Pick<Finding, "verdict"> & Partial<Pick<Finding, "reviewKind" | "checks">>;
+
+const failedStandards = (f: LabelInput) =>
+  (f.checks ?? []).filter((c) => c.passed === false && c.id !== "use" && c.id !== "adu-eligibility");
+
+/**
+ * Plain-language label for one finding. Keeps the distinctions the verdict alone loses: administrator vs
+ * special exception, FAR relief vs lot-size relief, and a use approval that remains after dimensional relief.
+ */
+export function verdictLabel(f: LabelInput): string {
+  if (f.verdict === "review") return f.reviewKind ? REVIEW_KIND_LABEL[f.reviewKind] : VERDICT_LABEL.review;
+  if (f.verdict === "variance") {
+    const failed = failedStandards(f);
+    const base = failed.length > 0 && failed.every((c) => c.id === "far") ? "Relief needed (smaller building or variance)" : VERDICT_LABEL.variance;
+    if (!f.reviewKind) return base;
+    const route = REVIEW_KIND_LABEL[f.reviewKind];
+    return `${base} + ${route.charAt(0).toLowerCase()}${route.slice(1)}`;
+  }
+  return VERDICT_LABEL[f.verdict];
+}
+
+/** Chip-length label: "Staff approval", "Board approval", "Relief needed", "Allowed". */
+export function verdictShort(f: LabelInput): string {
+  if (f.verdict === "review" && f.reviewKind) return REVIEW_KIND_SHORT[f.reviewKind];
+  return VERDICT_SHORT_LABEL[f.verdict];
+}
+
 export type Triage = "green" | "yellow" | "red" | "gray";
 
 export const TRIAGE_LABEL: Record<Triage, string> = {
-  green: "Ready",
-  yellow: "Allowed, needs subsidy or a hearing",
+  green: "Passes the screen",
+  yellow: "Needs review, relief, data or subsidy",
   red: "Blocked",
   gray: "Not checked",
 };

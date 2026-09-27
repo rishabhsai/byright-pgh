@@ -1,16 +1,31 @@
 import type { CompsFile, Comps, Finding, Lot, RuleSet, Triage, TriageResult, Typology, Verdict } from "./types";
 import { TYPOLOGY_LABEL } from "./types";
 import { evaluateLot } from "./rules";
+import { deriveEvidence, MIN_PRACTICAL_LOT_SQFT, type Evidence, type EvidenceId } from "./evidence";
 import { compsForLot, DEFAULT_FINANCE, fmtNum, fmtUsd, runProforma, type FinanceAssumptions, type Proforma } from "./proforma";
 
 /*
  * Green / Yellow / Red triage (organizer colors; the evidence behind them is narrower):
  *   red    = major screening obstacle: no small home type is permitted, or flood zone on steep or undermined ground
  *   yellow = needs more information, review, relief, or a different financial scenario
- *   green  = passes the preliminary screen under the displayed assumptions: a by-right type, lot area,
- *            frontage and flood screening known, no hazard flags, lot-size checks resolved, and the numbers pencil
+ *   green  = GREEN_POLICY, read off the same evidence row the UI shows
  *   gray   = district not encoded, so zoning was not evaluated
  */
+
+/** The one statement of what Green means. Shown in the UI and About; meetsGreenPolicy implements it. */
+export const GREEN_POLICY =
+  "Green means the lot passes this preliminary screen under the displayed assumptions: its best home type is allowed by right; " +
+  "the Use, Lot size, Width and Site checks all pass; Fit is not failing (setbacks, height and coverage are not modeled, so Fit is usually Not checked); " +
+  "and Finance passes the cost-and-return screen. Required parking and other unverified items stay listed on the lot. " +
+  "Green is a candidate for staff review, not a determination that the lot can be built or released.";
+
+const GREEN_MUST_PASS: EvidenceId[] = ["use", "lotSize", "width", "site", "finance"];
+
+/** GREEN_POLICY as code: the best finding and its evidence row. */
+export function meetsGreenPolicy(best: Pick<Finding, "verdict">, evidence: Pick<Evidence, "checks">): boolean {
+  const state = (id: EvidenceId) => evidence.checks.find((c) => c.id === id)?.state;
+  return best.verdict === "by-right" && GREEN_MUST_PASS.every((id) => state(id) === "pass") && state("fit") !== "fail";
+}
 
 const BUILDABLE: Verdict[] = ["by-right", "review", "variance"];
 const VERDICT_RANK: Record<Verdict, number> = { "by-right": 0, review: 1, variance: 2, prohibited: 3, unknown: 4 };
@@ -23,8 +38,7 @@ const VERDICT_PHRASE: Record<Verdict, string> = {
   unknown: "was not evaluated",
 };
 
-/** Screening floor for a buildable footprint; the code sets no minimum in LNC or VH districts. */
-export const MIN_PRACTICAL_LOT_SQFT = 1000;
+export { MIN_PRACTICAL_LOT_SQFT };
 
 function hazardList(lot: Lot): string[] {
   const h: string[] = [];
@@ -129,16 +143,7 @@ export function triageLot(
   }
   if (unresolved.includes("parking")) reasons.push(PARKING_REASON);
 
-  const green =
-    best.verdict === "by-right" &&
-    !areaUnknown &&
-    !lotSizeOpen &&
-    !widthUnknown &&
-    !floodUnknown &&
-    hazards.length === 0 &&
-    !sliver &&
-    pf !== null &&
-    pf.pencils;
+  const green = best.verdict === "by-right" && meetsGreenPolicy(best, deriveEvidence(lot, best, null, pf, comps));
   return result(green ? "green" : "yellow", reasons, best.typology, pf);
 }
 

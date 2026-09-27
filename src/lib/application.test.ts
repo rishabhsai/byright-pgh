@@ -200,3 +200,72 @@ describe("renderApplicationMarkdown", () => {
     expect(md).not.toMatch(/\bsubmit(ted|ting)? (your|the) application\b/i);
   });
 });
+
+describe("buildApplicationPlan: relief comes from every failed check and the review route", () => {
+  // Real inventory records (public/data/lots.json), inlined so the test does not depend on the data build.
+  const FORBES = lot({ id: "0086L00500000000", address: "0 Forbes Av", zone: "LNC", lotAreaSqFt: 259, frontageFt: 14.4, status: "Hold for Study", inventoryType: "Hold For Study" });
+  const HAZELWOOD_AVE = lot({
+    id: "0055R00106000000",
+    address: "4613 Hazelwood Ave",
+    zone: "H",
+    lotAreaSqFt: 43045,
+    frontageFt: 198,
+    status: "Permanent City Ownership",
+    hazards: { steepSlope: true, undermined: false, floodZone: false },
+  });
+  const SACRAMENTO = lot({ id: "0021N00315000000", address: "2680 Sacramento Ave", zone: "H", lotAreaSqFt: 2000, frontageFt: 25, status: "Sale Pending" });
+  const zoningText = (p: ApplicationPlan) => p.steps.find((s) => s.id === "zoning")!.body.join(" ");
+
+  it("0 Forbes Av (259 sf LNC): FAR relief with § 904.02.C, a smaller building or a variance, and a worksheet", () => {
+    for (const t of ["single", "triplex"] as const) {
+      const p = plan(FORBES, t);
+      expect(p.verdict).toBe("variance");
+      const z = zoningText(p);
+      expect(z).toContain("Relief needed: FAR (§ 904.02.C");
+      expect(z).toContain("a smaller building (≤ 518 sq ft) or a dimensional variance");
+      const v = field(p, "Will you need to seek a variance")?.value ?? "";
+      expect(v).toMatch(/^Yes: FAR \(§ 904\.02\.C\)/);
+      expect(v).not.toBe("Not under the checks we ran; zoning staff confirm");
+      expect(p.zba?.requestTypes.join(" ")).toMatch(/smaller building \(≤ 518 sq ft\) or dimensional variance/i);
+      expect(p.zba?.sections.map((s) => s.text).join(" ")).toContain("§ 904.02.C");
+      expect(p.zba?.findings).toHaveLength(5);
+      expect(p.zba?.note ?? "").not.toMatch(/Special exceptions are decided/);
+      expect(p.verdictLabel).toBe("Relief needed (smaller building or variance)");
+    }
+  });
+
+  it("4613 Hazelwood Ave (H, 43,045 sf): a house routes to an administrator exception, a townhouse to a special exception", () => {
+    const single = plan(HAZELWOOD_AVE, "single");
+    expect(single.verdict).toBe("review");
+    expect(single.steps.find((s) => s.id === "zoning")!.title).toBe("Zoning review: Administrator Exception");
+    expect(single.zba).toBeNull();
+    expect(field(single, "Will you need to seek a variance")?.value).toBe("Yes: administrator exception (§ 922.08), decided by zoning staff");
+    expect(single.verdictLabel).toBe("Staff approval (administrator exception)");
+
+    const town = plan(HAZELWOOD_AVE, "townhome");
+    expect(town.verdict).toBe("review");
+    expect(zoningText(town)).toContain("Special Exception hearing under § 922.07.");
+    expect(town.zba?.requestTypes).toEqual(["Special exception (§ 922.07)"]);
+    expect(field(town, "Will you need to seek a variance")?.value).toBe("Yes: special exception (§ 922.07), Zoning Board hearing");
+    expect(town.verdictLabel).toBe("Board approval (special exception)");
+  });
+
+  it("2680 Sacramento Ave (H, 2,000 sf): lot-size relief and the administrator exception both stay on the filing", () => {
+    const p = plan(SACRAMENTO, "single");
+    expect(p.verdict).toBe("variance");
+    const z = zoningText(p);
+    expect(z).toContain("Relief needed: minimum lot size (§ 905.02.C");
+    expect(z).toContain("The use also needs an Administrator Exception under § 922.08");
+    const v = field(p, "Will you need to seek a variance")?.value ?? "";
+    expect(v).toMatch(/^Yes: minimum lot size \(§ 905\.02\.C\)/);
+    expect(v).toContain("administrator exception (§ 922.08)");
+    expect(p.zba?.requestTypes).toEqual([
+      "Dimensional variance (§ 922.09) or nonconforming-lot exception (§ 921.04); zoning staff determine which",
+      "Administrator exception (§ 922.08)",
+    ]);
+  });
+
+  it("never says parking passed: parking is unverified on a vacant lot", () => {
+    for (const s of sentences(plan(SMALL_R2, "single"))) expect(s).not.toMatch(/checks we ran \(use, lot area, lot width, parking/);
+  });
+});

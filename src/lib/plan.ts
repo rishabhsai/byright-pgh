@@ -1,14 +1,25 @@
-import type { Comps, Finding, Lot, RuleSet, TriageResult, Typology } from "./types";
-import { lookupDistrict, normalizeZone, RULESET_LABEL, TYPOLOGY_ORDER, UNENCODED_DISTRICT_NAME } from "./rules";
-import { fmtNum, fmtUsd, type FinanceAssumptions } from "./proforma";
-import { MIN_PRACTICAL_LOT_SQFT } from "./triage";
+import type { Citation, Comps, Finding, Lot, RuleSet, TriageResult, Typology } from "./types";
+import { REVIEW_KIND_LABEL } from "./types";
+import { lookupDistrict, normalizeZone, RULESET_LABEL, TYPOLOGY_ORDER, TYPOLOGY_USE_ROW, UNENCODED_DISTRICT_NAME } from "./rules";
+import { fmtNum, fmtUsd, UNIT_PLAN, ZILLOW_DATA_URL, type FinanceAssumptions, type Proforma, type RevenueMode } from "./proforma";
 import { hasHazardFlag, isAvailable } from "./ranking";
-import { fmtUsdShort, pickFinding, proformaFor, type Evidence, type EvidenceId, type EvidenceState } from "./evidence";
+import {
+  fmtUsdShort,
+  MIN_PRACTICAL_LOT_SQFT,
+  pickFinding,
+  proformaFor,
+  summary,
+  type Evidence,
+  type EvidenceId,
+  type EvidenceState,
+} from "./evidence";
 
 /*
- * The Disposition plan: a scope-aware funnel, the ready-now split, the gap to make N homes, and the
- * exports (CSV, one-page brief). Pure: every number comes from the rules, triage and pro forma.
- * Spec: research/07-brainstorm-product-cycle1.md § 4.
+ * The Disposition plan: a scope-aware funnel, the candidates for staff review, the modeled shortfall
+ * for N projects, and the exports (CSV, brief). Pure: every number comes from the rules, triage and
+ * pro forma. A candidate is a review-queue entry, never a release decision: its next action is the
+ * first open review item from the same assessment, plus the recorded channel.
+ * Spec: research/07-brainstorm-product-cycle1.md § 4, corrected by research/08-audit2-gpt6-astra.md § 1 and § 3.
  */
 
 export type Channel = "Public Sale" | "URA Transfer" | "PLB Transfer" | "Other";
@@ -32,10 +43,33 @@ export const CSV_COLUMNS = [
   "adjacent_city_lots_150ft",
   "triage", "next_action",
   "rule_set", "hard_cost_psf", "soft_pct", "fee_pct", "target_margin_pct", "generated_at",
+  // Appended in cycle 2; the 47 columns above keep their names and order.
+  "staff_review_candidate", "checks_unknown", "checks_not_checked", "units",
+  "revenue_mode", "effective_land_cost", "land_source", "typical_home_sf", "cap_rate_pct", "opex_pct", "default_land_cost",
+  "rule_citations", "cost_basis",
 ] as const;
 
 export type CsvColumn = (typeof CSV_COLUMNS)[number];
-export type PlanRow = Record<CsvColumn, string | number> & { lotIndex: number; ready: boolean };
+
+/** Unrounded finance for one row, so totals sum exact values rather than rounded cells. */
+export interface RowFinance {
+  gap: number;
+  gap150: number | null;
+  gap215: number | null;
+  /** Total cost × (1 + target return): the value the project must reach, not zero-profit break-even. */
+  targetValue: number;
+  mode: RevenueMode;
+  dwellings: number;
+}
+
+export type PlanRow = Record<CsvColumn, string | number> & {
+  lotIndex: number;
+  /** Candidate for staff review (by right, recorded available, no hazard flag, ≥ 1,000 sf). */
+  candidate: boolean;
+  /** @deprecated Same as `candidate`. */
+  ready: boolean;
+  finance: RowFinance | null;
+};
 
 export interface PlanScope {
   /** Empty means citywide. */
@@ -61,20 +95,26 @@ export interface Funnel {
 
 export interface GapScenario {
   total: number;
-  perHome: number;
+  perProject: number;
+  perDwelling: number;
 }
 
 export interface Gap extends GapScenario {
-  /** Homes asked for. */
+  /** Projects asked for (one project per parcel). */
   n: number;
-  /** Ready lots with a modeled shortfall that went into the total (≤ n). */
-  lots: number;
+  /** Candidate projects with a modeled shortfall that went into the total (≤ n). */
+  projects: number;
+  /** Dwellings those projects deliver (a duplex is one project, two dwellings). */
+  dwellings: number;
   hardCostPerSf: number;
   at150: GapScenario;
   at215: GapScenario;
-  /** Mean break-even value of those lots at the displayed assumptions. */
-  breakEvenAvg: number;
-  zhvi: { neighborhood: string; value: number; date: string | null }[];
+  /** Mean target value per project: total cost plus the target return, at the displayed assumptions. */
+  targetValueAvg: number;
+  /** Revenue mode the projects were valued in; "mixed" when some fell back to the other comp. */
+  valueMode: RevenueMode | "mixed";
+  /** The aggregate reference values used: neighborhood ZHVI (sale) or ZIP ZORI (rent). */
+  valueBasis: { label: string; value: number; date: string | null; mode: RevenueMode }[];
 }
 
 export interface Plan {
@@ -83,15 +123,19 @@ export interface Plan {
   generatedAt: string;
   assumptions: FinanceAssumptions;
   funnel: Funnel;
-  ready: { total: number; byChannel: Record<Channel, number>; byType: Partial<Record<Typology, number>> };
+  /** Candidates for staff review, split by recorded channel and by screened type. */
+  candidates: { total: number; byChannel: Record<Channel, number>; byType: Partial<Record<Typology, number>> };
   gap: Gap | null;
+  /** Lots whose most permissive option fails only a lot-size standard. */
   needsRelief: number;
+  /** Of needsRelief, lots where every such option also needs a use approval (Hillside) that relief does not remove. */
+  needsReliefWithApproval: number;
   hillsideReview: number;
   notEvaluated: number;
   billLine: string;
   shortlist: PlanRow[];
   rows: PlanRow[];
-  /** Unknown and not-checked evidence on ready lots, verbatim, with how many ready lots carry it. */
+  /** Unknown and not-checked evidence and unverified requirements (parking) on candidates, verbatim, with counts. */
   openItems: { label: string; state: EvidenceState; detail: string; count: number }[];
   sources: { name: string; url: string; vintage: string }[];
 }
@@ -132,6 +176,13 @@ function lotSizeReliefOnly(fs: Finding[], typology: Typology | null): boolean {
   return pool.some((f) => f.verdict === "variance" && f.checks.every((c) => c.passed !== false || LOT_SIZE_IDS.has(c.id)));
 }
 
+/** Relief-only lots where every lot-size-only option also carries a use approval (Hillside). */
+function lotSizeReliefKeepsApproval(fs: Finding[], typology: Typology | null): boolean {
+  const pool = typology ? fs.filter((f) => f.typology === typology) : fs;
+  const reliefOnly = pool.filter((f) => f.verdict === "variance" && f.checks.every((c) => c.passed !== false || LOT_SIZE_IDS.has(c.id)));
+  return reliefOnly.length > 0 && reliefOnly.every((f) => f.reviewKind !== null);
+}
+
 /** Hillside lots that meet the lot standards and need only the § 911.04.A.69 exception. */
 function hillsideException(lot: Lot, fs: Finding[], rs: RuleSet, typology: Typology | null): boolean {
   if (!isHillside(lot, rs)) return false;
@@ -149,7 +200,7 @@ function zoneName(zone: string, rs: RuleSet): string {
   return UNENCODED_DISTRICT_NAME[normalizeZone(zone).split("-")[0]] ?? "";
 }
 
-function readyStage(lot: Lot, fs: Finding[], typology: Typology | null): number {
+function candidateStage(lot: Lot, fs: Finding[], typology: Typology | null): number {
   if (!isEncoded(fs)) return 1;
   if (!byRightFor(fs, typology)) return 2;
   if (!isAvailable(lot) || hasHazardFlag(lot)) return 3;
@@ -157,10 +208,17 @@ function readyStage(lot: Lot, fs: Finding[], typology: Typology | null): number 
   return 5;
 }
 
-/** By right (for the Home type filter, or any type), available for sale, no hazard flag, at least 1,000 sf. */
-export function isReadyLot(lot: Lot, findings: Finding[], typology: Typology | null): boolean {
-  return readyStage(lot, findings, typology) === 5;
+/**
+ * Candidate for staff review: by right (for the Home type filter, or any type), recorded Available for Sale,
+ * no hazard flag at the inventory point, at least 1,000 sf. Open items (fit, parking, finance, unknowns,
+ * channel) stay on the row as its next action; this is a review queue, not a release list.
+ */
+export function isCandidateLot(lot: Lot, findings: Finding[], typology: Typology | null): boolean {
+  return candidateStage(lot, findings, typology) === 5;
 }
+
+/** @deprecated Use isCandidateLot. */
+export const isReadyLot = isCandidateLot;
 
 function scopeLabel(scope: PlanScope): string {
   const n = scope.neighborhoods;
@@ -171,19 +229,88 @@ function scopeLabel(scope: PlanScope): string {
 
 const round = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? "" : Math.round(n));
 
-function nextAction(lot: Lot, f: Finding, ev: Evidence, rs: RuleSet, triage: TriageResult | null): string {
-  if (f.verdict === "unknown" || f.verdict === "prohibited" || triage?.triage === "red") return "";
+const lowerFirst = (x: string) => x.charAt(0).toLowerCase() + x.slice(1);
+const ROUTE_SECTION = { administrator: "§ 922.08", special: "§ 922.07" } as const;
+
+/**
+ * Open review items for one row, in the order staff clear them: channel and status, use approval, failed
+ * standards, missing data, site, finance, fit, then requirements outside the six checks (parking).
+ */
+function reviewItems(lot: Lot, f: Finding, ev: Evidence, pf: Proforma | null): string[] {
+  const items: string[] = [];
   const state = (id: EvidenceId) => ev.checks.find((c) => c.id === id)?.state;
-  if (isHillside(lot, rs)) return "Hillside site conditions (§ 911.04.A.69)";
+  if (channelOf(lot) === "Other") items.push(`confirm disposition channel (inventory type ${lot.inventoryType || "not recorded"})`);
+  if (!isAvailable(lot)) items.push(`confirm status (${lot.status || "not recorded"})`);
+  if (f.reviewKind) items.push(`use needs ${lowerFirst(REVIEW_KIND_LABEL[f.reviewKind])}, ${ROUTE_SECTION[f.reviewKind]}`);
+  const failed = new Set(f.checks.filter((c) => c.passed === false).map((c) => c.id));
+  if (failed.has("lot-area") || failed.has("lot-area-per-unit")) items.push("lot-size relief (variance or § 921.04 exception)");
+  if (failed.has("lot-width")) items.push("lot-width relief (variance or § 921.04 exception)");
+  if (failed.has("far")) items.push("FAR relief (smaller building or variance)");
+  if (state("lotSize") === "unknown") items.push("survey lot area");
+  if (state("width") === "unknown") items.push("survey width");
   const sliver = lot.lotAreaSqFt !== null && lot.lotAreaSqFt < MIN_PRACTICAL_LOT_SQFT;
-  if (f.verdict === "variance") return sliver ? "Consolidate with adjacent City lot" : "Staff determine relief path (§ 921.04 vs variance)";
-  if (state("width") === "fail" || state("width") === "unknown" || state("lotSize") === "unknown") return "Survey width";
-  if (sliver) return "Consolidate with adjacent City lot";
-  if (f.verdict === "review") return "Staff determine relief path (§ 921.04 vs variance)";
-  if (state("finance") === "unknown") return "Enter a comp";
-  if (!isAvailable(lot)) return `Confirm status (${lot.status || "not recorded"}) before offering`;
-  return `Offer through ${channelOf(lot)}`;
+  if (sliver) items.push(`below the ${fmtNum(MIN_PRACTICAL_LOT_SQFT)} sf screening floor (consolidation not assessed)`);
+  const flags = [lot.hazards.steepSlope && "slope", lot.hazards.undermined && "undermining", lot.hazards.floodZone && "flood"].filter(Boolean);
+  if (flags.length) items.push(`site review (${flags.join(", ")} flag)`);
+  else if (state("site") === "unknown") items.push("flood screening missing");
+  if (state("finance") === "fail" && pf) items.push(`financing review (modeled shortfall ${fmtUsd(pf.gap)})`);
+  else if (state("finance") === "unknown") items.push("finance not screened");
+  if (state("fit") === "notChecked") items.push("fit not checked");
+  for (const u of ev.unresolved ?? []) items.push(`${u.label.toLowerCase()} not verified`);
+  return items;
 }
+
+/** "Staff review: <first open item>; channel <recorded channel>". Never an instruction to offer the lot. */
+function nextAction(lot: Lot, f: Finding, ev: Evidence, pf: Proforma | null, triage: TriageResult | null): string {
+  if (f.verdict === "unknown" || f.verdict === "prohibited" || triage?.triage === "red") return "";
+  const first = reviewItems(lot, f, ev, pf)[0];
+  return `Staff review${first ? `: ${first}` : ""}; channel ${channelOf(lot)}`;
+}
+
+/** Every requirement this row leaves open: unknown and not-checked checks, unverified requirements, site limits. */
+function unresolvedNotes(ev: Evidence): string {
+  const notes = ev.checks.filter((x) => x.state === "unknown" || x.state === "notChecked").map((x) => `${x.label}: ${x.detail}`);
+  for (const u of ev.unresolved ?? []) notes.push(`${u.label}: ${u.detail}`);
+  const site = ev.checks.find((x) => x.id === "site");
+  if (site && site.state !== "unknown") notes.push(`Site: ${SITE_NOT_CHECKED}`);
+  return notes.join(" | ");
+}
+
+const SITE_NOT_CHECKED = "Access, water/sewer, soils not checked; hazards tested at the inventory point only";
+
+const citeText = (c: Pick<Citation, "section" | "title" | "url">) => `${c.section} <${c.url}>`;
+
+/** The rule text every standard applied to this proposal comes from, plus the relief routes it points to. */
+function ruleCitations(lot: Lot, f: Finding, rs: RuleSet): string {
+  const d = lookupDistrict(rs, lot.zone);
+  if (!d || f.verdict === "unknown") return "";
+  const row = TYPOLOGY_USE_ROW[f.typology];
+  const cites: Pick<Citation, "section" | "title" | "url">[] = [
+    d.uses[row].citation,
+    d.minLotAreaSqFt.citation,
+    d.minLotWidthFt.citation,
+    d.minLotAreaPerUnitSqFt.citation,
+    ...(d.maxFar.value !== null ? [d.maxFar.citation] : []),
+    d.parkingPerUnit[row].citation,
+    ...(f.typology === "single_adu" ? [d.adu.citation] : []),
+  ];
+  if (f.checks.some((c) => c.passed === false && LOT_SIZE_IDS.has(c.id))) cites.push({ section: "§ 921.04", title: "Nonconforming Lots", url: "https://ecode360.com/45478977" });
+  if (f.reviewKind === "administrator") cites.push({ section: "§ 922.08", title: "Administrator Exceptions", url: "https://ecode360.com/45479314" });
+  if (f.reviewKind === "special") cites.push({ section: "§ 922.07", title: "Special Exceptions", url: "https://ecode360.com/45479287" });
+  const seen = new Set<string>();
+  return cites
+    .map(citeText)
+    .filter((t) => (seen.has(t) ? false : (seen.add(t), true)))
+    .join(" | ");
+}
+
+/** Every number behind the row's cost and value. Sources and method: COST_BASIS_NOTE (in the brief). */
+function costBasis(pf: Proforma | null): string {
+  return pf ? pf.inputsUsed.map((i) => `${i.label} ${i.display}`).join("; ") : "";
+}
+
+/** Where the cost_basis numbers come from; printed once in the brief rather than on every CSV row. */
+export const COST_BASIS_NOTE = `Cost and value basis: hard cost, soft cost, fee, target return, cap rate and expenses are editable assumptions (method: docs/comps-and-proforma.md); land is the County assessed land value unless overridden (land_source); values are Zillow ZHVI/ZORI aggregate indices (${ZILLOW_DATA_URL}), not parcel appraisals.`;
 
 function reliefSections(f: Finding): string {
   const s = new Set<string>();
@@ -219,6 +346,7 @@ export function buildPlan(
   const byChannel: Record<Channel, number> = { "Public Sale": 0, "URA Transfer": 0, "PLB Transfer": 0, Other: 0 };
   const byType: Partial<Record<Typology, number>> = {};
   let needsRelief = 0;
+  let needsReliefWithApproval = 0;
   let hillsideReview = 0;
   let aduOptions = 0;
   const readyByRuleSet: Record<RuleSet, number> = { current: 0, "bill-2025-1545": 0 };
@@ -231,7 +359,7 @@ export function buildPlan(
     const fs = findings[i];
     const tr = triages[i] ?? null;
     const ev = evidence[i];
-    const stage = readyStage(lot, fs, typology);
+    const stage = candidateStage(lot, fs, typology);
     const ready = stage === 5;
 
     funnel.records++;
@@ -244,26 +372,35 @@ export function buildPlan(
     }
     readyByRuleSet[ruleSet] += ready ? 1 : 0;
     const otherFs = evals[other]?.findings[i];
-    if (otherFs && readyStage(lot, otherFs, typology) === 5) readyByRuleSet[other]++;
-    if (ready) {
+    const otherReady = otherFs ? candidateStage(lot, otherFs, typology) === 5 : false;
+    if (otherReady) readyByRuleSet[other]++;
+    // ADU options are counted on candidates under the bill, whichever rule set is active.
+    const billReady = ruleSet === "current" ? otherReady : ready;
+    if (billReady) {
       const cur = ruleSet === "current" ? fs : otherFs;
       const bill = ruleSet === "current" ? otherFs : fs;
       const adu = (x: Finding[] | undefined) => x?.find((f) => f.typology === "single_adu")?.verdict === "by-right";
       if (adu(bill) && !adu(cur)) aduOptions++;
     }
-    if (stage >= 2 && lotSizeReliefOnly(fs, typology)) needsRelief++;
+    if (stage >= 2 && lotSizeReliefOnly(fs, typology)) {
+      needsRelief++;
+      if (lotSizeReliefKeepsApproval(fs, typology)) needsReliefWithApproval++;
+    }
     if (stage >= 2 && hillsideException(lot, fs, ruleSet, typology)) hillsideReview++;
 
     const f = pickFinding(fs, tr, typology);
     if (ready) {
       byChannel[channelOf(lot)]++;
       byType[f.typology] = (byType[f.typology] ?? 0) + 1;
-      for (const c of ev.checks) {
-        if (c.state !== "unknown" && c.state !== "notChecked") continue;
+      const items = [
+        ...ev.checks.filter((c) => c.state === "unknown" || c.state === "notChecked").map((c) => ({ label: c.label, state: c.state, detail: c.detail })),
+        ...(ev.unresolved ?? []).map((u) => ({ label: u.label, state: "unknown" as EvidenceState, detail: u.detail })),
+      ];
+      for (const c of items) {
         const key = `${c.label}|${c.detail}`;
         const o = open.get(key);
         if (o) o.count++;
-        else open.set(key, { label: c.label, state: c.state, detail: c.detail, count: 1 });
+        else open.set(key, { ...c, count: 1 });
       }
     }
 
@@ -275,10 +412,15 @@ export function buildPlan(
     const pf215 = pf ? proformaFor(lot, f.typology, comps[i], { ...a, hardCostPerSf: 215 }) : null;
     const c = comps[i];
     const sale = pf?.mode === "sale";
+    const dwellings = pf?.units ?? UNIT_PLAN[f.typology].units;
 
     const row = {
       lotIndex: i,
+      candidate: ready,
       ready,
+      finance: pf
+        ? { gap: pf.gap, gap150: pf150?.gap ?? null, gap215: pf215?.gap ?? null, targetValue: pf.breakEvenValue, mode: pf.mode, dwellings }
+        : null,
       parcel_id: lot.id,
       address: lot.address,
       neighborhood: lot.neighborhood,
@@ -297,11 +439,8 @@ export function buildPlan(
       by_right_types: TYPOLOGY_ORDER.filter((t) => fs.find((x) => x.typology === t)?.verdict === "by-right").join("; "),
       relief_sections: reliefSections(f),
       review_kind: f.reviewKind ?? "",
-      checks_passed_of_6: ev.passed,
-      unresolved_notes: ev.checks
-        .filter((x) => x.state === "unknown" || x.state === "notChecked")
-        .map((x) => `${x.label}: ${x.detail}`)
-        .join(" | "),
+      checks_passed_of_6: ev.counts.pass,
+      unresolved_notes: unresolvedNotes(ev),
       flag_slope_25: String(lot.hazards.steepSlope),
       flag_undermined: String(lot.hazards.undermined),
       flag_flood: lot.hazards.floodZone === null ? "unknown" : String(lot.hazards.floodZone),
@@ -316,56 +455,82 @@ export function buildPlan(
       shortfall_at_215psf: round(pf215?.gap),
       adjacent_city_lots_150ft: "",
       triage: tr?.triage ?? "",
-      next_action: nextAction(lot, f, ev, ruleSet, tr),
+      next_action: nextAction(lot, f, ev, pf, tr),
       rule_set: ruleSet,
       hard_cost_psf: assumptions.hardCostPerSf,
       soft_pct: assumptions.softCostPct,
       fee_pct: assumptions.devFeePct,
       target_margin_pct: assumptions.targetMarginPct,
       generated_at: generatedAt,
+      staff_review_candidate: String(ready),
+      checks_unknown: ev.counts.unknown,
+      checks_not_checked: ev.counts.notChecked,
+      units: priced ? dwellings : "",
+      revenue_mode: pf?.mode ?? "",
+      effective_land_cost: round(pf?.land),
+      land_source: pf?.landSource ?? "",
+      typical_home_sf: assumptions.typicalHomeSf,
+      cap_rate_pct: assumptions.capRate,
+      opex_pct: assumptions.opexPct,
+      default_land_cost: assumptions.defaultLand,
+      rule_citations: ruleCitations(lot, f, ruleSet),
+      cost_basis: costBasis(pf),
     } as PlanRow;
     for (const x of ev.checks) row[EVIDENCE_COL[x.id]] = STATE_CSV[x.state];
     rows.push(row);
   }
 
-  // Ready lots first, lowest shortfall first (unassessed last), then larger lots.
-  const gapOf = (r: PlanRow) => (r.shortfall_to_target === "" ? Infinity : Number(r.shortfall_to_target));
+  // Candidates first, lowest shortfall first (unassessed last), more literal passes, then larger lots.
+  const gapOf = (r: PlanRow) => r.finance?.gap ?? Infinity;
   rows.sort(
     (a, b) =>
-      Number(b.ready) - Number(a.ready) ||
+      Number(b.candidate) - Number(a.candidate) ||
       gapOf(a) - gapOf(b) ||
       (Number(b.checks_passed_of_6) - Number(a.checks_passed_of_6)) ||
       Number(b.lot_area_sf || 0) - Number(a.lot_area_sf || 0),
   );
   const n = Math.max(1, Math.floor(homesToPlan));
-  const shortlist = rows.filter((r) => r.ready).slice(0, n);
-  const priced = shortlist.filter((r) => r.shortfall_to_target !== "");
+  const shortlist = rows.filter((r) => r.candidate).slice(0, n);
+  const priced = shortlist.filter((r): r is PlanRow & { finance: RowFinance } => r.finance !== null);
 
   let gap: Gap | null = null;
   if (priced.length) {
-    const sum = (k: CsvColumn) => priced.reduce((s, r) => s + Number(r[k] || 0), 0);
-    const scen = (k: CsvColumn): GapScenario => ({ total: sum(k), perHome: sum(k) / priced.length });
-    const zhvi = new Map<string, { neighborhood: string; value: number; date: string | null }>();
+    const dwellings = priced.reduce((s, r) => s + r.finance.dwellings, 0);
+    const scen = (pick: (f: RowFinance) => number | null): GapScenario => {
+      const total = priced.reduce((s, r) => s + (pick(r.finance) ?? 0), 0);
+      return { total, perProject: total / priced.length, perDwelling: total / dwellings };
+    };
+    const modes = new Set(priced.map((r) => r.finance.mode));
+    const basis = new Map<string, Gap["valueBasis"][number]>();
     for (const r of priced) {
       const c = comps[r.lotIndex];
-      if (c?.zhvi != null && !zhvi.has(c.neighborhood)) zhvi.set(c.neighborhood, { neighborhood: c.neighborhood, value: c.zhvi, date: c.zhviDate });
+      if (!c) continue;
+      if (r.finance.mode === "sale" && c.zhvi != null) {
+        const label = `${c.neighborhood} ZHVI`;
+        if (!basis.has(label)) basis.set(label, { label, value: c.zhvi, date: c.zhviDate, mode: "sale" });
+      } else if (r.finance.mode === "rent" && c.zori != null) {
+        const label = `ZIP ${c.zip} ZORI`;
+        if (!basis.has(label)) basis.set(label, { label, value: c.zori, date: c.zoriDate, mode: "rent" });
+      }
     }
     gap = {
       n,
-      lots: priced.length,
+      projects: priced.length,
+      dwellings,
       hardCostPerSf: assumptions.hardCostPerSf,
-      ...scen("shortfall_to_target"),
-      at150: scen("shortfall_at_150psf"),
-      at215: scen("shortfall_at_215psf"),
-      breakEvenAvg: sum("break_even_value") / priced.length,
-      zhvi: [...zhvi.values()],
+      ...scen((f) => f.gap),
+      at150: scen((f) => f.gap150),
+      at215: scen((f) => f.gap215),
+      targetValueAvg: priced.reduce((s, r) => s + r.finance.targetValue, 0) / priced.length,
+      valueMode: modes.size === 1 ? [...modes][0] : "mixed",
+      valueBasis: [...basis.values()],
     };
   }
 
   const cur = readyByRuleSet.current;
   const bill = readyByRuleSet["bill-2025-1545"];
-  const readyChange = cur === bill ? "no change to the ready count" : `ready count ${fmtNum(cur)} → ${fmtNum(bill)}`;
-  const billLine = `If Bill 2025-1545 passes: +${fmtNum(aduOptions)} ADU options on ready lots; ${readyChange}.`;
+  const change = cur === bill ? "no change to the candidate count" : `candidate count ${fmtNum(cur)} → ${fmtNum(bill)}`;
+  const billLine = `If Bill 2025-1545 passes: +${fmtNum(aduOptions)} ADU options on candidates; ${change}.`;
 
   return {
     scopeLabel: scopeLabel(scope),
@@ -373,9 +538,10 @@ export function buildPlan(
     generatedAt,
     assumptions,
     funnel,
-    ready: { total: funnel.atLeast1000, byChannel, byType },
+    candidates: { total: funnel.atLeast1000, byChannel, byType },
     gap,
     needsRelief,
+    needsReliefWithApproval,
     hillsideReview,
     notEvaluated: funnel.records - funnel.encoded,
     billLine,
@@ -398,15 +564,35 @@ export function toCsv(rows: PlanRow[]): string {
 }
 
 export function funnelLine(f: Funnel): string {
-  return `${fmtNum(f.records)} lots → ${fmtNum(f.encoded)} in encoded districts → ${fmtNum(f.byRight)} by right → ${fmtNum(f.availableNoFlag)} no hazard flag and available → ${fmtNum(f.atLeast1000)} ≥ 1,000 sf → ${fmtNum(f.pencil)} pencil at market`;
+  return `${fmtNum(f.records)} lots → ${fmtNum(f.encoded)} in encoded districts → ${fmtNum(f.byRight)} by right → ${fmtNum(f.availableNoFlag)} no hazard flag and available → ${fmtNum(f.atLeast1000)} ≥ 1,000 sf (candidates for staff review) → ${fmtNum(f.pencil)} clear the cost-and-return screen`;
 }
+
+const VALUE_WORD: Record<Gap["valueMode"], string> = { sale: "sale value", rent: "capitalized value", mixed: "value (sale or capitalized)" };
+
+function basisText(b: Gap["valueBasis"][number]): string {
+  return b.mode === "sale" ? `${b.label} ${fmtUsdShort(b.value)}` : `${b.label} ${fmtUsd(b.value)}/mo`;
+}
+
+const plural = (n: number, one: string, many: string) => `${fmtNum(n)} ${n === 1 ? one : many}`;
 
 export function gapSentence(plan: Plan): string {
   const g = plan.gap;
-  if (!g) return "No ready lot in scope has comps, so the gap was not modeled.";
-  const lots = g.lots === 1 ? "ready lot needs" : `${fmtNum(g.lots)} lowest-shortfall ready lots need`;
-  const zhvi = g.zhvi.map((z) => `${z.neighborhood} ZHVI ${fmtUsdShort(z.value)}`).join(", ");
-  return `The ${lots} about ${fmtUsdShort(g.total)} in gap funding at $${g.hardCostPerSf}/sf (${fmtUsdShort(g.perHome)} per home). Break-even sale value ${fmtUsdShort(g.breakEvenAvg)}${zhvi ? `; ${zhvi}` : ""}.`;
+  if (!g) return "No candidate in scope has comps, so the shortfall was not modeled.";
+  const who =
+    g.projects === 1
+      ? `The lowest-shortfall candidate is ${plural(g.projects, "project", "projects")} (${plural(g.dwellings, "dwelling", "dwellings")})`
+      : `The ${fmtNum(g.projects)} lowest-shortfall candidates are ${plural(g.projects, "project", "projects")} (${plural(g.dwellings, "dwelling", "dwellings")})`;
+  const per = g.projects === g.dwellings ? `${fmtUsdShort(g.perProject)} per project` : `${fmtUsdShort(g.perProject)} per project, ${fmtUsdShort(g.perDwelling)} per dwelling`;
+  const basis = g.valueBasis.map(basisText).join(", ");
+  return `${who}. Modeled shortfall about ${fmtUsdShort(g.total)} at $${g.hardCostPerSf}/sf (${per}). Target ${VALUE_WORD[g.valueMode]} ${fmtUsdShort(g.targetValueAvg)} per project, cost plus the ${plan.assumptions.targetMarginPct}% target return${basis ? `; ${basis}` : ""}.`;
+}
+
+/** "4 pass · 1 fail · 1 not checked" from a row's count columns. */
+export function rowChecks(r: PlanRow): string {
+  const pass = Number(r.checks_passed_of_6);
+  const unknown = Number(r.checks_unknown);
+  const notChecked = Number(r.checks_not_checked);
+  return summary({ counts: { pass, fail: 6 - pass - unknown - notChecked, unknown, notChecked } });
 }
 
 export function toBrief(plan: Plan): string {
@@ -414,31 +600,34 @@ export function toBrief(plan: Plan): string {
   const f = plan.funnel;
   const date = plan.generatedAt.slice(0, 10);
   const a = plan.assumptions;
-  L.push(`# Disposition plan: ${plan.scopeLabel}`, "");
-  L.push(`_${date} · ${RULESET_LABEL[plan.ruleSet]} · ByRight PGH screening at $${a.hardCostPerSf}/sf hard cost, ${a.softCostPct}% soft, ${a.devFeePct}% fee, ${a.targetMarginPct}% target return._`, "");
+  L.push(`# Disposition review: ${plan.scopeLabel}`, "");
+  L.push(`_${date} · ${RULESET_LABEL[plan.ruleSet]} · ByRight PGH screening at $${a.hardCostPerSf}/sf hard cost, ${a.softCostPct}% soft, ${a.devFeePct}% fee, ${a.targetMarginPct}% target return, ${a.mode === "sale" ? "sale" : `rent (${a.capRate}% cap rate, ${a.opexPct}% expenses)`} mode._`, "");
 
   L.push("## Funnel", "", funnelLine(f), "");
   L.push(`${fmtNum(plan.needsRelief)} need relief (lot size) · ${fmtNum(plan.hillsideReview)} Hillside exception · ${fmtNum(plan.notEvaluated)} not evaluated`, "");
 
-  L.push("## Ready now", "");
-  L.push(`${fmtNum(plan.ready.total)} lots can be offered for a small home without a hearing, under the checks we ran.`, "");
-  L.push(`- By channel: ${CHANNELS.map((c) => `${c} ${fmtNum(plan.ready.byChannel[c])}`).join(" · ")}`);
-  const types = TYPOLOGY_ORDER.filter((t) => plan.ready.byType[t]);
-  L.push(`- By best type: ${types.length ? types.map((t) => `${TYPE_NAME[t]} ${fmtNum(plan.ready.byType[t]!)}`).join(" · ") : "none"}`, "");
+  L.push("## Candidates for staff review", "");
+  L.push(
+    `${fmtNum(plan.candidates.total)} lots are candidates for staff review: a small home type is allowed by right under the checks we ran, the lot is recorded Available for Sale, no hazard flag at the inventory point, and at least 1,000 sf. This is a review queue, not a release list; each row's next action names its first open item.`,
+    "",
+  );
+  L.push(`- By recorded channel: ${CHANNELS.map((c) => `${c} ${fmtNum(plan.candidates.byChannel[c])}`).join(" · ")}`);
+  const types = TYPOLOGY_ORDER.filter((t) => plan.candidates.byType[t]);
+  L.push(`- By screened type: ${types.length ? types.map((t) => `${TYPE_NAME[t]} ${fmtNum(plan.candidates.byType[t]!)}`).join(" · ") : "none"}`, "");
 
-  L.push(`## Gap to make ${plan.gap?.n ?? 0} homes`, "", gapSentence(plan), "");
+  L.push(`## Modeled shortfall for ${plan.gap?.n ?? 0} projects`, "", gapSentence(plan), "");
   if (plan.gap) {
     const g = plan.gap;
-    L.push("| Hard cost | Total shortfall | Per home |", "|---|---:|---:|");
-    L.push(`| $${g.hardCostPerSf}/sf (displayed) | ${fmtUsd(g.total)} | ${fmtUsd(g.perHome)} |`);
-    L.push(`| $150/sf | ${fmtUsd(g.at150.total)} | ${fmtUsd(g.at150.perHome)} |`);
-    L.push(`| $215/sf | ${fmtUsd(g.at215.total)} | ${fmtUsd(g.at215.perHome)} |`, "");
-    L.push("Modeled shortfall to the target return; not a subsidy award or eligibility finding.", "");
+    L.push("| Hard cost | Total shortfall | Per project | Per dwelling |", "|---|---:|---:|---:|");
+    L.push(`| $${g.hardCostPerSf}/sf (displayed) | ${fmtUsd(g.total)} | ${fmtUsd(g.perProject)} | ${fmtUsd(g.perDwelling)} |`);
+    L.push(`| $150/sf | ${fmtUsd(g.at150.total)} | ${fmtUsd(g.at150.perProject)} | ${fmtUsd(g.at150.perDwelling)} |`);
+    L.push(`| $215/sf | ${fmtUsd(g.at215.total)} | ${fmtUsd(g.at215.perProject)} | ${fmtUsd(g.at215.perDwelling)} |`, "");
+    L.push("Shortfall to the target return against an aggregate reference value; not a subsidy award, eligibility finding, or parcel appraisal.", "");
   }
 
   L.push("## Needs relief", "");
   L.push(
-    `${fmtNum(plan.needsRelief)} lots fail only lot size. If the City consolidated pairs or granted § 921.04 exceptions, more become ready; how many (City lots within 150 ft) is not computed yet.`,
+    `${fmtNum(plan.needsRelief)} lots fail only lot size; ${fmtNum(plan.needsReliefWithApproval)} of them also need a use approval (Hillside) that relief does not remove. Consolidation or a § 921.04 exception would address the size standard only; status, site and finance would still need review. Adjacent City lots are not computed.`,
     "",
   );
 
@@ -446,26 +635,25 @@ export function toBrief(plan: Plan): string {
 
   if (plan.shortlist.length) {
     L.push(`## Shortlist (top ${plan.shortlist.length})`, "");
-    L.push("| Address | Parcel | Channel | Type | Checks | Shortfall | Next action |", "|---|---|---|---|---:|---:|---|");
+    L.push("| Address | Parcel | Channel | Type | Checks | Shortfall | Next action |", "|---|---|---|---|---|---:|---|");
     for (const r of plan.shortlist) {
       const sf = r.shortfall_to_target === "" ? "n/a" : fmtUsd(Number(r.shortfall_to_target));
       const type = r.best_type ? TYPE_NAME[r.best_type as Typology] : "";
-      L.push(`| ${r.address || "(no address)"} | ${r.parcel_id} | ${r.channel} | ${type} | ${r.checks_passed_of_6}/6 | ${sf} | ${r.next_action} |`);
+      L.push(`| ${r.address || "(no address)"} | ${r.parcel_id} | ${r.channel} | ${type} | ${rowChecks(r)} | ${sf} | ${r.next_action} |`);
     }
     L.push("");
   }
 
   if (plan.openItems.length) {
-    L.push("## Unresolved and not checked (ready lots)", "");
-    for (const o of plan.openItems) L.push(`- **${o.label}, ${o.state === "notChecked" ? "not checked" : "unknown"}** (${fmtNum(o.count)}): ${o.detail}`);
+    L.push("## Open items on candidates", "");
+    for (const o of plan.openItems) L.push(`- **${o.label}, ${o.state === "notChecked" ? "not checked" : "not verified"}** (${fmtNum(o.count)}): ${o.detail}`);
     L.push("");
   }
 
-  if (plan.sources.length) {
-    L.push("## Sources", "");
-    for (const s of plan.sources) L.push(`- ${s.name}. ${s.vintage}. ${s.url}`);
-    L.push("");
-  }
+  L.push("## Sources", "");
+  for (const s of plan.sources) L.push(`- ${s.name}. ${s.vintage}. ${s.url}`);
+  L.push("- Rule citations for every lot (code section and ecode360 link): CSV column rule_citations.");
+  L.push(`- ${COST_BASIS_NOTE} Per-lot inputs: CSV column cost_basis.`, "");
 
   L.push("---", "", `_${DISCLAIMER}_`, "");
   return L.join("\n");

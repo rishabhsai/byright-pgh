@@ -2,7 +2,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { Comps, CompsFile, Finding, Lot, LotsFile, Typology, Verdict } from "./types";
 import { evaluateLot } from "./rules";
-import { triageCounts, triageLot } from "./triage";
+import { GREEN_POLICY, meetsGreenPolicy, triageCounts, triageLot } from "./triage";
+import { compsFor, DEFAULT_FINANCE } from "./finance";
+import { evidenceForLot } from "./evidence";
 
 function lot(overrides: Partial<Lot> = {}): Lot {
   return {
@@ -163,6 +165,27 @@ describe("triageLot", () => {
   });
 });
 
+describe("GREEN_POLICY", () => {
+  it("states the policy in plain English, including that fit is not checked and parking is listed", () => {
+    expect(GREEN_POLICY).toMatch(/allowed by right/);
+    expect(GREEN_POLICY).toMatch(/Use, Lot size, Width and Site checks all pass/);
+    expect(GREEN_POLICY).toMatch(/Fit is not failing/);
+    expect(GREEN_POLICY).toMatch(/Finance passes/);
+    expect(GREEN_POLICY).toMatch(/parking/i);
+  });
+
+  it("a Fit failure keeps a lot out of Green even when everything else passes", () => {
+    const l = lot();
+    const f = evaluateLot(l, "current").find((x) => x.typology === "single")!;
+    type Ev = Parameters<typeof meetsGreenPolicy>[1];
+    const row = (id: string, state: string) => ({ id, state, label: id, detail: "" });
+    const ev = { checks: [...["use", "lotSize", "width", "site", "finance"].map((id) => row(id, "pass")), row("fit", "fail")] } as unknown as Ev;
+    expect(meetsGreenPolicy(f, ev)).toBe(false);
+    ev.checks.find((c) => c.id === "fit")!.state = "notChecked";
+    expect(meetsGreenPolicy(f, ev)).toBe(true);
+  });
+});
+
 describe("triageCounts", () => {
   it("counts every lot once", () => {
     const lots = [lot(), lot({ zone: "GI" }), lot({ hazards: { steepSlope: true, undermined: false, floodZone: true } })];
@@ -172,6 +195,25 @@ describe("triageCounts", () => {
 
   const LOTS = "public/data/lots.json";
   const COMPS = "public/data/comps.json";
+  it.runIf(existsSync(LOTS) && existsSync(COMPS))("every Green lot's evidence row shows Use, Lot size, Width, Site and Finance passing and Fit not failing", () => {
+    const lots = (JSON.parse(readFileSync(LOTS, "utf8")) as LotsFile).lots;
+    const file = JSON.parse(readFileSync(COMPS, "utf8")) as CompsFile;
+    let green = 0;
+    for (const l of lots) {
+      const f = evaluateLot(l, "current");
+      const c = compsFor(l, file);
+      const t = triageLot(l, f, c, DEFAULT_FINANCE);
+      if (t.triage !== "green") continue;
+      green++;
+      const ev = evidenceForLot(l, f, t, c, DEFAULT_FINANCE, null);
+      const state = (id: string) => ev.checks.find((x) => x.id === id)!.state;
+      for (const id of ["use", "lotSize", "width", "site", "finance"]) expect(state(id), `${l.id} ${id}`).toBe("pass");
+      expect(state("fit")).not.toBe("fail");
+      expect(f.find((x) => x.typology === t.bestTypology)!.verdict).toBe("by-right");
+    }
+    expect(green).toBeGreaterThan(0);
+  }, 60_000);
+
   it.runIf(existsSync(LOTS) && existsSync(COMPS) && process.env.TRIAGE_REPORT)("prints inventory counts", () => {
     const lots = (JSON.parse(readFileSync(LOTS, "utf8")) as LotsFile).lots;
     const file = JSON.parse(readFileSync(COMPS, "utf8")) as CompsFile;

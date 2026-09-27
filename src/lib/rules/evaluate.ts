@@ -262,9 +262,9 @@ function summarize(d: DistrictStandards, typology: Typology, verdict: Verdict, l
         .join("; ")}. ${relief}${surveyNote}`;
     }
     case "review":
-      return `${name} in ${zone} is allowed only through ${USE_LETTER_LABEL[letter]}; the lot standards encoded here are met.${use?.note ? ` ${use.note}` : ""}${surveyNote}`;
+      return `${name} in ${zone} is allowed only through ${USE_LETTER_LABEL[letter]}; no encoded lot standard fails.${use?.note ? ` ${use.note}` : ""}${surveyNote}`;
     case "by-right":
-      return `${name} is permitted by right in ${zone} and meets the encoded lot standards; building fit (setbacks, height, coverage) is not established.${surveyNote}`;
+      return `${name} is permitted by right in ${zone} and no encoded lot standard fails; building fit (setbacks, height, coverage) and parking on the site plan are not established.${surveyNote}`;
     default:
       return `${name}: not evaluated.`;
   }

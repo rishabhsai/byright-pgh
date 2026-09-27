@@ -3,7 +3,8 @@ import { memo, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, 
 import type { Comps, Lot, RuleSet, Triage, Typology } from "@/lib/types";
 import { TYPOLOGY_LABEL } from "@/lib/types";
 import { scoreLot, compareTriageRanked, isAvailable, STATUS_GROUPS, type StatusGroup, type TriageRanked } from "@/lib/ranking";
-import { EVIDENCE_STATE_LABEL, yellowReason, type Evidence } from "@/lib/evidence";
+import { yellowReason, type Evidence } from "@/lib/evidence";
+import { EvidenceGlyphs } from "./ui/EvidenceRow";
 import { isReadyLot } from "@/lib/plan";
 import type { FinanceAssumptions } from "@/lib/finance";
 import type { Evaluations, Triages } from "./ByRightApp";
@@ -71,26 +72,6 @@ function Switch({ checked, onChange, children }: { checked: boolean; onChange: (
       />
       {children}
     </label>
-  );
-}
-
-/** "5/6" evidence pill for list rows; the title spells out each check. */
-function EvidencePill({ evidence, reason }: { evidence: Evidence; reason: string | null }) {
-  const full = evidence.passed === evidence.total;
-  const title = [
-    `${evidence.passed} of ${evidence.total} checks pass or are out of scope`,
-    ...evidence.checks.map((c) => `${c.label}: ${EVIDENCE_STATE_LABEL[c.state]}`),
-    ...(reason ? [`Yellow: ${reason}`] : []),
-  ].join("\n");
-  return (
-    <span
-      title={title}
-      className={`rounded px-1 py-px text-[10px] leading-[14px] font-medium tabular-nums ${
-        full ? "bg-[#dcfce7] text-[#15803d]" : "bg-surface text-muted"
-      }`}
-    >
-      {evidence.passed}/{evidence.total}
-    </span>
   );
 }
 
@@ -219,6 +200,8 @@ function LeftRail({
     return Array.from(m.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [lots, triages, ruleSet]);
 
+  const searchTriage = useMemo(() => triages?.[ruleSet].results.map((t) => t.triage), [triages, ruleSet]);
+
   const matchCount = useMemo(() => matches.reduce((n, m) => (m ? n + 1 : n), 0), [matches]);
 
   const typIdx = filters.typology ? TYPOLOGIES.indexOf(filters.typology) : -1;
@@ -306,7 +289,7 @@ function LeftRail({
   return (
     <aside className="flex w-[344px] shrink-0 flex-col border-r border-hairline bg-panel">
       <div className="space-y-2 px-4 pt-3 pb-2">
-        <SearchBox lots={lots} onPick={onSelect} />
+        <SearchBox lots={lots} onPick={onSelect} triage={searchTriage} matches={matches} />
         <Segmented<Tab>
           kind="tabs"
           label="Rail view"
@@ -601,7 +584,7 @@ function LeftRail({
                         >
                           {statusChip(lot.status)}
                         </span>
-                        {ev && <EvidencePill evidence={ev} reason={reason} />}
+                        {ev && <EvidenceGlyphs evidence={ev} extra={reason ? [`Yellow: ${reason}`] : undefined} />}
                         <span className="truncate" title={reason ? `${lot.neighborhood}: ${reason}` : lot.neighborhood}>
                           {lot.neighborhood}
                           {reason && <span className="text-faint">, {reason}</span>}

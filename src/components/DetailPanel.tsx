@@ -1,8 +1,9 @@
 "use client";
-import { useMemo, useRef, useState } from "react";
-import type { Check, Comps, Finding, Lot, RuleSet, TriageResult, Typology, Verdict } from "@/lib/types";
-import { TYPOLOGY_LABEL, VERDICT_LABEL } from "@/lib/types";
-import { proformaWithFallback, type FinanceAssumptions } from "@/lib/finance";
+import { useRef, useState } from "react";
+import type { Check, Finding, Lot, RuleSet, Typology, Verdict } from "@/lib/types";
+import { TYPOLOGY_LABEL, VERDICT_LABEL, verdictLabel } from "@/lib/types";
+import type { FinanceAssumptions } from "@/lib/finance";
+import type { SelectedCase } from "@/lib/selectedCase";
 import { TIP, VERDICT_COLOR, VERDICT_TIP, VerdictChip, ZoneChip } from "./verdict";
 import { districtName } from "./district";
 import { buildMemo, buildSummary } from "./memo";
@@ -12,7 +13,6 @@ import Tooltip from "./ui/Tooltip";
 import Section from "./ui/Section";
 import AnswerCard from "./ui/AnswerCard";
 import { evidenceSummary } from "./ui/EvidenceRow";
-import { evidenceForLot } from "@/lib/evidence";
 import { answerHeadline, cityStatus, financeLine, typologyPhrase, whatWouldChange } from "./ui/answer";
 import { FunnelBars, FunnelSentence, type FunnelStats } from "./ui/Funnel";
 
@@ -20,20 +20,16 @@ import { FunnelBars, FunnelSentence, type FunnelStats } from "./ui/Funnel";
 export const DEMO_LOT_ID = "0056N00203000000";
 
 interface Props {
-  lot: Lot | null;
+  /** The selected lot as one case; null shows the empty state. */
+  selected: SelectedCase | null;
+  /** Rule set for the empty state's funnel. */
   ruleSet: RuleSet;
-  findings: Finding[] | null;
-  findingsCurrent: Finding[] | null;
-  findingsBill: Finding[] | null;
+  /** "Showing: Duplex (selected). Best type here: House." when the panel and the map differ. */
+  bestNote: string | null;
   onClose: () => void;
-  triage: TriageResult | null;
-  /** The one proposal for this lot, shared by zoning, finance and the application worksheet. */
-  typology: Typology;
   onTypology: (t: Typology) => void;
-  /** Acquisition cost the user entered for this lot only; null uses the assessed value. */
-  landOverride: number | null;
   onLandOverride: (v: number | null) => void;
-  comps: Comps | null;
+  /** Shared finance assumptions (without the per-lot land figure) for the Pays inputs. */
   assumptions: FinanceAssumptions;
   onAssumptions: (a: FinanceAssumptions) => void;
   /** True while the city-wide triage is catching up with the latest assumptions. */
@@ -45,18 +41,16 @@ interface Props {
   stats?: FunnelStats | null;
   /** Select a lot by parcel ID (the empty state's demo link). No-op when absent. */
   onSelectId?: (id: string) => void;
-  /** Unused since the Memo section became the Export menu; kept so callers still type-check. */
-  onGenerateMemo?: (lot: Lot, findings: Finding[], ruleSet: RuleSet) => Promise<string | null>;
 }
 
 export default function DetailPanel(props: Props) {
-  const { lot, findings, onExpanded } = props;
-  const expanded = props.expanded && !!lot && !!findings;
+  const { selected, onExpanded } = props;
+  const expanded = props.expanded && !!selected;
   // The aside keeps its width in both modes so the map never resizes; expanded mode lifts the
   // same LotDetail (same tree position, so no state is lost) into an overlay over the map area.
   return (
     <aside className="flex w-[360px] shrink-0 flex-col border-l border-hairline bg-panel min-[1440px]:w-[412px]">
-      {lot && findings ? (
+      {selected ? (
         <div className={expanded ? "absolute inset-0 z-30 flex justify-center" : "contents"}>
           <div
             aria-hidden
@@ -72,7 +66,7 @@ export default function DetailPanel(props: Props) {
                 : "flex min-h-0 flex-1 flex-col"
             }
           >
-            <LotDetail {...props} lot={lot} findings={findings} expanded={expanded} />
+            <LotDetail {...props} c={selected} expanded={expanded} />
           </div>
         </div>
       ) : (
@@ -142,24 +136,17 @@ const NAV = [
 ] as const;
 
 function LotDetail({
-  lot,
-  ruleSet,
-  findings,
-  findingsCurrent,
-  findingsBill,
+  c,
+  bestNote,
   onClose,
-  triage,
-  typology,
   onTypology,
-  landOverride,
   onLandOverride,
-  comps,
   assumptions,
   onAssumptions,
   recomputing,
   expanded,
   onExpanded,
-}: Props & { lot: Lot; findings: Finding[] }) {
+}: Props & { c: SelectedCase }) {
   const [open, setOpen] = useState<string | null>(null);
   const [pfPending, setPfPending] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
@@ -168,32 +155,27 @@ function LotDetail({
   const [exportOpen, setExportOpen] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const header = useRef<HTMLDivElement>(null);
+  const { lot, ruleSet, typology } = c;
+  const findings = c.findings[ruleSet];
   const dName = districtName(lot.zone);
 
   const otherRs: RuleSet = ruleSet === "current" ? "bill-2025-1545" : "current";
-  const otherFindings = ruleSet === "current" ? findingsBill : findingsCurrent;
+  const otherFindings = c.findings[otherRs];
 
   const flash = (msg: string) => {
     setCopied(msg);
     window.setTimeout(() => setCopied(null), 1600);
   };
 
-  // --- The answer: same numbers as the Pays section (current assumptions plus this lot's land figure).
-  const withLand = useMemo(() => ({ ...assumptions, landOverride }), [assumptions, landOverride]);
-  const chosen = findings.find((f) => f.typology === typology) ?? null;
-  const pf = useMemo(() => proformaWithFallback(lot, typology, comps, withLand), [lot, typology, comps, withLand]);
-  const bestT = triage?.bestTypology ?? null;
-  const best = bestT ? (findings.find((f) => f.typology === bestT) ?? null) : null;
-  const pfBest = useMemo(
-    () => (bestT ? (bestT === typology ? pf : proformaWithFallback(lot, bestT, comps, withLand)) : null),
-    [bestT, typology, pf, lot, comps, withLand],
-  );
-  const head = answerHeadline(triage, best, pfBest);
-  const fin = financeLine(pf);
+  // --- The answer: the selected proposal's triage, finance and evidence, all from the case.
+  const chosen = c.finding;
+  const pf = c.proforma;
+  const head = answerHeadline(c.triage, chosen, pf);
+  // No money line for a proposal zoning rules out or did not evaluate; the evidence says finance was not screened.
+  const fin = chosen && (chosen.verdict === "prohibited" || chosen.verdict === "unknown") ? null : financeLine(pf);
   const status = cityStatus(lot);
-  // Same function the list's N/6 pill uses, for the same proposal and assumptions.
-  const evidence = useMemo(() => evidenceForLot(lot, findings, triage, comps, withLand, typology), [lot, findings, triage, comps, withLand, typology]);
-  const changes = whatWouldChange(lot, findings, chosen, pf);
+  const evidence = c.evidence;
+  const changes = whatWouldChange(lot, findings, chosen, fin ? pf : null);
   const typeLine = typologyPhrase(typology, chosen);
 
   // --- Scroll: compact header and scroll-spy for the section nav.
@@ -224,8 +206,7 @@ function LotDetail({
     el.scrollTo({ top: offset, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   };
 
-  const memo = () =>
-    buildMemo(lot, ruleSet, findings, otherFindings ? { ruleSet: otherRs, findings: otherFindings } : null, dName);
+  const memo = () => buildMemo(c, { headline: head.text, districtName: dName, changes });
   const downloadBrief = () => {
     const blob = new Blob([memo()], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
@@ -336,10 +317,11 @@ function LotDetail({
           typeLine={
             <>
               <span className="font-medium">{TYPOLOGY_LABEL[typology]}</span>
-              {chosen && <span className="text-muted">, {lowerFirst(VERDICT_LABEL[chosen.verdict])}</span>}
+              {chosen && <span className="text-muted">, {lowerFirst(verdictLabel(chosen))}</span>}
             </>
           }
           financeLine={fin}
+          basisNote={bestNote}
           status={status}
           evidence={chosen && chosen.verdict !== "unknown" ? evidence : null}
           changes={changes}
@@ -404,11 +386,11 @@ function LotDetail({
         >
           <ProForma
             lot={lot}
-            comps={comps}
+            comps={c.comps}
             findings={findings}
             typology={typology}
             onTypology={onTypology}
-            landOverride={landOverride}
+            landOverride={c.landOverride}
             onLandOverride={onLandOverride}
             assumptions={assumptions}
             onAssumptions={onAssumptions}
@@ -418,13 +400,9 @@ function LotDetail({
 
         <Section id="file" title="File">
           <ApplicationPlanner
-            key={ruleSet}
-            lot={lot}
-            findings={findings}
-            ruleSet={ruleSet}
-            triage={triage}
-            comps={comps}
-            assumptions={assumptions}
+            key={`${ruleSet}|${typology}`}
+            selected={c}
+            onChangeType={() => goTo("pays")}
             onFlash={flash}
             wide={expanded}
           />
@@ -522,8 +500,8 @@ function fitChecks(lot: Lot, f: Finding): FitItem[] {
     out.push({
       key: "parking",
       label: "Parking",
-      value: parking.passed === true ? "None required" : "Must fit on the lot",
-      required: parking.required,
+      value: parking.passed === true ? "None required" : parking.passed === null ? "Unresolved: confirm on the site plan" : "Does not fit",
+      required: parking.passed === null ? `${parking.required}; the spaces must fit on the lot` : parking.required,
       state: st(parking),
       citation: parking.citation,
     });

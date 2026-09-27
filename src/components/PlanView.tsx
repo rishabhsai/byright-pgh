@@ -6,7 +6,7 @@ import type { Evidence } from "@/lib/evidence";
 import { fmtUsdShort } from "@/lib/evidence";
 import { fmtNum, fmtUsd } from "@/lib/proforma";
 import { RULESET_LABEL, TYPOLOGY_ORDER } from "@/lib/rules";
-import { buildPlan, CHANNELS, gapSentence, toBrief, toCsv, TYPE_NAME, type Plan } from "@/lib/plan";
+import { buildPlan, CHANNELS, gapSentence, rowChecks, toBrief, toCsv, TYPE_NAME, type Plan } from "@/lib/plan";
 import type { Evaluations } from "./ByRightApp";
 
 interface Props {
@@ -51,10 +51,10 @@ function FunnelRow({ plan }: { plan: Plan }) {
   const steps = [
     { n: f.records, label: ["lots"], title: "Vacant-land records in the City inventory" },
     { n: f.encoded, label: ["encoded"], title: "In zoning districts the rules engine encodes" },
-    { n: f.byRight, label: ["by right"], title: "At least one small home type allowed without a hearing" },
-    { n: f.availableNoFlag, label: ["for sale,", "no flag"], title: "Available for Sale, and no slope, mine or flood flag at the inventory point" },
-    { n: f.atLeast1000, label: ["1,000+", "sf"], title: "At least 1,000 sf: ready now" },
-    { n: f.pencil, label: ["pencil"], title: "Pencils at market under the displayed assumptions" },
+    { n: f.byRight, label: ["by right"], title: "At least one small home type allowed by right under the checks we ran" },
+    { n: f.availableNoFlag, label: ["for sale,", "no flag"], title: "Recorded Available for Sale, and no slope, mine or flood flag at the inventory point" },
+    { n: f.atLeast1000, label: ["1,000+", "sf"], title: "At least 1,000 sf: candidates for staff review" },
+    { n: f.pencil, label: ["clear", "screen"], title: "Clear the cost-and-return screen under the displayed assumptions" },
   ];
   return (
     <ol aria-label="Disposition funnel" className="flex items-start">
@@ -129,7 +129,7 @@ export default function PlanView({
   };
 
   const g = plan.gap;
-  const types = TYPOLOGY_ORDER.filter((t) => plan.ready.byType[t]);
+  const types = TYPOLOGY_ORDER.filter((t) => plan.candidates.byType[t]);
 
   return (
     <div className="space-y-3 px-4 pt-3 pb-4">
@@ -150,39 +150,39 @@ export default function PlanView({
         </div>
       </section>
 
-      <section aria-label="Ready now" className={card}>
-        <h4 className={kicker}>Ready now</h4>
+      <section aria-label="Candidates for staff review" className={card}>
+        <h4 className={kicker}>Candidates for staff review</h4>
         <p className="mt-1 text-[13px] leading-5">
-          <span className="font-medium tabular-nums">{fmtNum(plan.ready.total)}</span> lots can be offered for a small home without a
-          hearing, under the checks we ran.
+          <span className="font-medium tabular-nums">{fmtNum(plan.candidates.total)}</span> lots are by right under the checks we ran,
+          recorded for sale, unflagged and 1,000+ sf. A review queue, not a release list: each has open items.
         </p>
         <div className="mt-2 grid grid-cols-2 gap-x-3">
           <div>
-            <span className="text-[10.5px] text-faint">By channel</span>
+            <span className="text-[10.5px] text-faint">By recorded channel</span>
             <ul className="mt-0.5 space-y-0.5">
               {CHANNELS.map((c) => (
-                <SplitRow key={c} label={c} n={plan.ready.byChannel[c]} total={plan.ready.total} />
+                <SplitRow key={c} label={c} n={plan.candidates.byChannel[c]} total={plan.candidates.total} />
               ))}
             </ul>
           </div>
           <div>
-            <span className="text-[10.5px] text-faint">By best type</span>
+            <span className="text-[10.5px] text-faint">By screened type</span>
             <ul className="mt-0.5 space-y-0.5">
               {types.length === 0 && <li className="px-1.5 text-[12px] text-muted">None</li>}
               {types.map((t) => (
-                <SplitRow key={t} label={TYPE_NAME[t]} n={plan.ready.byType[t]!} total={plan.ready.total} />
+                <SplitRow key={t} label={TYPE_NAME[t]} n={plan.candidates.byType[t]!} total={plan.candidates.total} />
               ))}
             </ul>
           </div>
         </div>
       </section>
 
-      <section aria-label="Gap to make N homes" className={card}>
+      <section aria-label="Modeled shortfall for N projects" className={card}>
         <div className="flex items-center justify-between gap-2">
-          <h4 className={kicker}>Gap to make</h4>
+          <h4 className={kicker}>Modeled shortfall for</h4>
           <label className="flex items-center gap-1.5 text-[12px] text-muted">
             <input
-              aria-label="Homes to plan for"
+              aria-label="Projects to plan for"
               inputMode="numeric"
               value={homesText}
               onChange={(e) => onHomes(e.target.value)}
@@ -190,7 +190,7 @@ export default function PlanView({
               className="w-12 rounded border border-hairline bg-white px-1.5 py-0.5 text-right text-[12px] text-ink tabular-nums focus:border-accent/60 focus:ring-2 focus:ring-accent/15"
               style={{ outline: "none" }}
             />
-            homes
+            projects
           </label>
         </div>
         <p className="mt-1.5 text-[13px] leading-5">{gapSentence(plan)}</p>
@@ -200,7 +200,8 @@ export default function PlanView({
               <tr className="text-[10.5px] text-faint">
                 <th className="text-left font-normal">Hard cost</th>
                 <th className="text-right font-normal">Total</th>
-                <th className="text-right font-normal">Per home</th>
+                <th className="text-right font-normal">Per project</th>
+                <th className="text-right font-normal">Per dwelling</th>
               </tr>
             </thead>
             <tbody>
@@ -212,19 +213,23 @@ export default function PlanView({
                 <tr key={r.label} className={r.strong ? "font-medium text-ink" : "text-muted"}>
                   <td className="py-0.5">{r.label}</td>
                   <td className="py-0.5 text-right">{fmtUsd(r.s.total)}</td>
-                  <td className="py-0.5 text-right">{fmtUsd(r.s.perHome)}</td>
+                  <td className="py-0.5 text-right">{fmtUsd(r.s.perProject)}</td>
+                  <td className="py-0.5 text-right">{fmtUsd(r.s.perDwelling)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
-        <p className="mt-1.5 text-[11px] leading-4 text-faint">Modeled shortfall to the target return; a screen, not a subsidy award.</p>
+        <p className="mt-1.5 text-[11px] leading-4 text-faint">
+          Shortfall to the target return against an aggregate reference value; a screen, not a subsidy award or appraisal.
+        </p>
       </section>
 
       <section aria-label="Needs relief and Hillside" className={`${card} space-y-1.5 text-[12.5px] leading-5`}>
         <p>
-          <span className="font-medium tabular-nums">{fmtNum(plan.needsRelief)}</span> lots fail only lot size. Consolidating pairs or
-          § 921.04 exceptions could make more ready; City lots within 150 ft not computed yet.
+          <span className="font-medium tabular-nums">{fmtNum(plan.needsRelief)}</span> lots fail only lot size;{" "}
+          <span className="font-medium tabular-nums">{fmtNum(plan.needsReliefWithApproval)}</span> of them also keep a Hillside use
+          approval. Relief addresses the size standard only; adjacent City lots are not computed.
         </p>
         <p>
           <span className="font-medium tabular-nums">{fmtNum(plan.hillsideReview)}</span> Hillside lots need an Administrator or
@@ -238,18 +243,18 @@ export default function PlanView({
 
       <section aria-label="Shortlist">
         <div className="flex items-baseline justify-between">
-          <h4 className={kicker}>Top {plan.shortlist.length} ready lots</h4>
+          <h4 className={kicker}>Top {plan.shortlist.length} candidates</h4>
           <span className="text-[10.5px] text-faint">lowest shortfall first</span>
         </div>
         {plan.shortlist.length === 0 ? (
-          <p className="mt-1.5 text-[12px] text-muted">No ready lots in this scope.</p>
+          <p className="mt-1.5 text-[12px] text-muted">No candidates in this scope.</p>
         ) : (
           <table className="mt-1.5 w-full table-fixed text-[12px]">
             <thead>
               <tr className="border-b border-hairline text-[10.5px] text-faint">
-                <th className="w-[42%] pb-1 text-left font-normal">Address</th>
+                <th className="w-[36%] pb-1 text-left font-normal">Address</th>
                 <th className="pb-1 text-left font-normal">Channel · type</th>
-                <th className="w-9 pb-1 text-right font-normal">Checks</th>
+                <th className="w-[64px] pb-1 text-right font-normal">Checks</th>
                 <th className="w-[58px] pb-1 text-right font-normal">Shortfall</th>
               </tr>
             </thead>
@@ -258,17 +263,35 @@ export default function PlanView({
                 <tr
                   key={r.parcel_id}
                   onClick={() => onSelect(r.lotIndex)}
+                  title={String(r.next_action)}
                   className="cursor-pointer border-b border-hairline/60 align-top hover:bg-surface"
                 >
                   <td className="py-1.5 pr-1">
-                    <span className="block truncate font-medium text-ink">{r.address || r.parcel_id}</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelect(r.lotIndex);
+                      }}
+                      className="block w-full truncate text-left font-medium text-ink hover:underline focus-visible:underline"
+                    >
+                      {r.address || r.parcel_id}
+                    </button>
                     <span className="block truncate text-[10.5px] text-muted">{r.neighborhood}</span>
                   </td>
                   <td className="py-1.5 pr-1">
                     <span className="block truncate">{r.channel}</span>
                     <span className="block truncate text-[10.5px] text-muted">{r.best_type ? TYPE_NAME[r.best_type as Typology] : ""}</span>
                   </td>
-                  <td className="py-1.5 text-right tabular-nums">{r.checks_passed_of_6}/6</td>
+                  <td className="py-1.5 text-right text-[10.5px] leading-[13px] tabular-nums" title={rowChecks(r)}>
+                    {rowChecks(r)
+                      .split(" · ")
+                      .map((p) => (
+                        <span key={p} className="block whitespace-nowrap">
+                          {p}
+                        </span>
+                      ))}
+                  </td>
                   <td className="py-1.5 text-right tabular-nums">
                     {r.shortfall_to_target === "" ? "n/a" : fmtUsdShort(Number(r.shortfall_to_target))}
                   </td>
@@ -294,7 +317,7 @@ export default function PlanView({
           className="rounded-md border border-hairline bg-white px-3 py-2 text-[12.5px] font-medium text-ink hover:border-[#bfc4bd]"
         >
           Download brief
-          <span className="block text-[10.5px] font-normal text-muted">One page, Markdown</span>
+          <span className="block text-[10.5px] font-normal text-muted">Markdown summary</span>
         </button>
       </div>
     </div>
