@@ -6,7 +6,7 @@ A first screen of which small home types Pittsburgh's vacant public lots allow, 
 
 Built during the AI for Housing Hackathon (AI Horizons 2026, Pittsburgh), Sept 26–27, 2026. Track 1: Development Feasibility & Pro Forma Navigator.
 
-Live demo: https://byright-pgh.vercel.app · Demo video: https://byright-pgh.vercel.app/demo.mp4 · Script: [`docs/demo-script.md`](docs/demo-script.md)
+Live demo: https://byright-pgh.vercel.app · Demo video: https://youtu.be/zLbUwQh71CI (mirror: https://byright-pgh.vercel.app/demo.mp4) · Script: [`docs/demo-script.md`](docs/demo-script.md)
 
 ## The problem
 
