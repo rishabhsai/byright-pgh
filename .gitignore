@@ -45,3 +45,4 @@ pipeline/.venv
 pipeline/raw/
 .env*
 !.env.example
+public/demo.mp4
