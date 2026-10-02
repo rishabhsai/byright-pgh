@@ -4,7 +4,7 @@
 
 A first screen of which small home types Pittsburgh's vacant public lots allow, under today's zoning code and under Bill 2025-1545, and which lots deserve the next staff review.
 
-Built during the AI for Housing Hackathon (AI Horizons 2026, Pittsburgh), Sept 26–27, 2026. Track 1: Development Feasibility & Pro Forma Navigator.
+**2nd place, AI for Housing Hackathon (AI Horizons 2026, Pittsburgh).** Built solo in the 39-hour window, Sept 26–27, 2026. Track 1: Development Feasibility & Pro Forma Navigator. Winners were announced Oct 2, 2026.
 
 Live demo: https://byright-pgh.vercel.app · Demo video: https://youtu.be/zLbUwQh71CI (mirror: https://byright-pgh.vercel.app/demo.mp4) · Script: [`docs/demo-script.md`](docs/demo-script.md)
 
@@ -130,7 +130,9 @@ Next.js 16.3.6, TypeScript, Tailwind v4, MapLibre GL, Vitest. Python 3 with Shap
 
 ## Team
 
-_(filled at submission)_
+**Rishabh Sai**, AI engineering student, Penn State. Solo entry. [rishabhsai.com](https://rishabhsai.com) · [GitHub](https://github.com/rishabhsai) · rishabhsaiv@gmail.com
+
+Cost guidance came from the hackathon's housing mentors, Dennis Steigerwalt (Housing Innovation Alliance) and Tom Hardy; the Green/Yellow/Red definition from organizer Jack Billings. Their input is cited where it is used. Built with Claude Code and Cursor; every zoning rule was checked by hand against the Code sections cited in the app.
 
 ## Pilot
 
