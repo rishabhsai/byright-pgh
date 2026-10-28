@@ -4,7 +4,7 @@
 
 A first screen of which small home types Pittsburgh's vacant public lots allow, under today's zoning code and under Bill 2025-1545, and which lots deserve the next staff review.
 
-Built during the AI for Housing Hackathon (AI Horizons 2026, Pittsburgh), Sept 26–27, 2026. Track 1: Development Feasibility & Pro Forma Navigator.
+Built during the AI for Housing Hackathon (AI Horizons 2026, Pittsburgh), Sept 26–27, 2026. Track 1: Development Feasibility & Pro Forma Navigator. **Won 2nd place and a $10,000 cash prize** out of 100+ competitors; see Technical.ly's coverage, ["Local landlord wins $15k at Allegheny County's inaugural AI for housing hackathon"](https://technical.ly/entrepreneurship/easescore-ai-wins-allegheny-county-housing-hackathon-pittsburgh-money-moves/) (Oct 8, 2026).
 
 Live demo: https://byright-pgh.vercel.app · Demo video: https://youtu.be/zLbUwQh71CI (mirror: https://byright-pgh.vercel.app/demo.mp4) · Script: [`docs/demo-script.md`](docs/demo-script.md)
 
